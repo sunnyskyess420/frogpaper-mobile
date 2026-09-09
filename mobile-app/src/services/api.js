@@ -2,17 +2,43 @@
 //
 // Backend URL resolution is automatic per platform:
 //   - web            -> http://localhost:5000
-//   - Android device -> tries emulator alias 10.0.2.2, then LAN IP, then localhost
-//   - iOS device     -> tries LAN IP, then localhost
+//   - Android device -> tries the Expo Go dev-host LAN IP (auto-detected),
+//                       then emulator alias 10.0.2.2, then LAN_IP, then localhost
+//   - iOS device     -> tries the Expo Go dev-host LAN IP (auto-detected),
+//                       then LAN_IP, then localhost
 //
-// If your PC's LAN IP changes, update LAN_IP below (run `ipconfig` on Windows
-// and look for the IPv4 Address of your Wi-Fi adapter).
+// The auto-detected IP comes from Expo Go itself: when the phone loads the app
+// from the dev server it already knows the PC's LAN address (expoConfig.hostUri,
+// e.g. "192.168.1.20:8081"). The backend lives on the same PC, just on port 5000.
+//
+// LAN_IP is only a manual fallback: if auto-detection fails (e.g. production
+// build), set it to your PC's LAN IP (run `ipconfig` on Windows and look for
+// the IPv4 Address of your Wi-Fi adapter).
 
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-export const LAN_IP = '10.2.0.2'; // your Windows PC running the backend
+export const LAN_IP = '10.2.0.2'; // manual fallback - your Windows PC running the backend
 export const EMULATOR_ALIAS = '10.0.2.2'; // Android emulator alias for the host machine
 const PORT = 5000;
+
+// Derives http://<PC-LAN-IP>:5000 from the Expo Go dev server host, or null
+// when not running inside Expo Go (web, production build).
+function devHostLanUrl() {
+  try {
+    const hostUri = Constants.expoConfig && Constants.expoConfig.hostUri;
+    if (typeof hostUri === 'string' && hostUri.includes(':')) {
+      const host = hostUri.split(':')[0];
+      // only trust dotted LAN hosts (e.g. "192.168.1.20"), never localhost
+      if (host && host.includes('.') && host !== '127.0.0.1' && !host.endsWith('.exp.direct')) {
+        return `http://${host}:${PORT}`;
+      }
+    }
+  } catch (error) {
+    // Constants unavailable - fall through to static candidates
+  }
+  return null;
+}
 
 function candidateBaseUrls() {
   if (Platform.OS === 'web') {
@@ -20,13 +46,16 @@ function candidateBaseUrls() {
   }
   if (Platform.OS === 'android') {
     return [
+      devHostLanUrl(),
       `http://${EMULATOR_ALIAS}:${PORT}`,
       `http://${LAN_IP}:${PORT}`,
       `http://localhost:${PORT}`,
-    ];
+    ].filter(Boolean);
   }
   // iOS
-  return [`http://${LAN_IP}:${PORT}`, `http://localhost:${PORT}`];
+  return [devHostLanUrl(), `http://${LAN_IP}:${PORT}`, `http://localhost:${PORT}`].filter(
+    Boolean,
+  );
 }
 
 let baseUrl = null;
