@@ -172,6 +172,28 @@ export default function DetailScreen() {
                 {(detail.created_at || '').replace('T', ' ').slice(0, 16)} UTC
               </Text>
             </View>
+            {detail.seed !== undefined && detail.seed !== null && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoKey}>Seed</Text>
+                <Text style={styles.infoValue}>{detail.seed}</Text>
+              </View>
+            )}
+            {detail.prompt ? (
+              <View style={styles.promptBlock}>
+                <Text style={styles.infoKey}>Prompt</Text>
+                <Text style={styles.promptText} selectable>
+                  {detail.prompt}
+                </Text>
+              </View>
+            ) : null}
+            {detail.negative_prompt ? (
+              <View style={styles.promptBlock}>
+                <Text style={styles.infoKey}>Avoided</Text>
+                <Text style={[styles.promptText, styles.promptTextMuted]} selectable>
+                  {detail.negative_prompt}
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           {notice !== null && (
@@ -290,6 +312,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     maxWidth: '65%',
+  },
+  promptBlock: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+  },
+  promptText: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: spacing.xs,
+  },
+  promptTextMuted: {
+    color: colors.muted,
   },
   noticeCard: {
     backgroundColor: '#12291B',

@@ -9,6 +9,10 @@ GET  /api/health          -> service + gallery health summary
 GET  /api/providers       -> image generation providers
 POST /api/generate        -> generate an image (Pollinations.ai)
 GET  /api/gallery         -> list generated images (newest first)
+GET  /api/gallery/<name>  -> single image metadata (incl. prompt/seed)
+DELETE /api/gallery/<name> -> delete an image
+POST /api/gallery/upload  -> add your own image
+GET  /api/prompts/recent  -> distinct recently-used prompts
 GET  /api/images/<name>   -> serve one image file
 
 Run (Windows)
@@ -28,11 +32,14 @@ from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 
 from services.image_generation import (
+    MAX_NEGATIVE_PROMPT_LENGTH,
     PROVIDERS,
     GenerationError,
+    delete_sidecar,
     find_gallery_image,
     generate_image,
     list_gallery_images,
+    recent_prompts,
     save_uploaded_image,
 )
 
@@ -41,7 +48,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.7.0"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 26 * 1024 * 1024  # 26 MB request cap (uploads)
@@ -115,6 +122,12 @@ def generate():
     if len(prompt) > 600:
         return _error_response("Prompt must be 600 characters or fewer.", 400)
 
+    negative_prompt = str(data.get("negative_prompt") or "").strip()
+    if len(negative_prompt) > MAX_NEGATIVE_PROMPT_LENGTH:
+        return _error_response(
+            "Negative prompt must be 300 characters or fewer.", 400
+        )
+
     width = _parse_int(data.get("width"), 1080, 256, 2048)
     height = _parse_int(data.get("height"), 1920, 256, 2048)
     seed = data.get("seed")
@@ -143,6 +156,7 @@ def generate():
             seed=seed,
             model=provider.get("model", "flux"),
             images_dir=IMAGES_DIR,
+            negative_prompt=negative_prompt or None,
         )
     except GenerationError as exc:
         log.error("Generation failed: %s", exc)
@@ -194,6 +208,7 @@ def gallery_delete(filename):
         return _error_response(f"Image '{safe_name}' not found.", 404)
     try:
         target.unlink()
+        delete_sidecar(IMAGES_DIR, safe_name)
     except OSError as exc:
         log.error("Delete failed for %s: %s", safe_name, exc)
         return _error_response("Could not delete the image file.", 500)
@@ -222,6 +237,14 @@ def gallery_upload():
         return _error_response(str(exc), 400)
     log.info("Uploaded %s", image["filename"])
     return jsonify({"success": True, "image": image}), 201
+
+
+@app.get("/api/prompts/recent")
+def prompts_recent():
+    """Distinct recently-used prompts, newest first (for quick-reuse chips)."""
+    limit = _parse_int(request.args.get("limit"), 12, 1, 50)
+    prompts = recent_prompts(IMAGES_DIR, limit=limit)
+    return jsonify({"success": True, "count": len(prompts), "prompts": prompts})
 
 
 @app.get("/api/images/<path:filename>")

@@ -100,16 +100,19 @@ export const api = {
     return request('/api/health');
   },
   providers: () => request('/api/providers'),
-  generate: ({ prompt, width = 1080, height = 1920, seed }) =>
+  generate: ({ prompt, negativePrompt, width = 1080, height = 1920, seed }) =>
     request('/api/generate', {
       method: 'POST',
       body: JSON.stringify({
         prompt,
+        ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
         width,
         height,
         ...(seed !== undefined && seed !== null ? { seed } : {}),
       }),
     }),
+  recentPrompts: (limit = 8) =>
+    request(`/api/prompts/recent?limit=${limit}`),
   gallery: (limit = 200) => request(`/api/gallery?limit=${limit}`),
   imageDetail: (filename) =>
     request(`/api/gallery/${encodeURIComponent(filename)}`),

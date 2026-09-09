@@ -6,6 +6,7 @@ GenerationError on failure and returns plain dicts, so app.py stays thin.
 """
 
 import io
+import json
 import logging
 import random
 import time
@@ -42,7 +43,8 @@ REQUEST_TIMEOUT = (10, 120)
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2.0
 VALID_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
-USER_AGENT = "FrogPaper/1.5 (mobile app backend)"
+USER_AGENT = "FrogPaper/1.7 (mobile app backend)"
+MAX_NEGATIVE_PROMPT_LENGTH = 300
 
 
 class GenerationError(Exception):
@@ -56,6 +58,44 @@ def _extension_for(content_type: str) -> str:
     if content_type == "image/webp":
         return ".webp"
     return ".jpg"  # pollinations usually returns jpeg
+
+
+def _sidecar_path(image_path: Path) -> Path:
+    """Sidecar metadata file for an image (same name, .json extension)."""
+    return image_path.with_suffix(".json")
+
+
+def _write_sidecar(image_path: Path, extra: dict):
+    """Persist generation metadata next to the image (best-effort)."""
+    try:
+        _sidecar_path(image_path).write_text(
+            json.dumps(extra, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError as exc:  # noqa: BLE001 - metadata must never break saving
+        log.warning("Could not write sidecar for %s: %s", image_path.name, exc)
+
+
+def _read_sidecar(image_path: Path) -> dict:
+    """Load sidecar metadata for an image, or {} when absent/corrupt."""
+    sidecar = _sidecar_path(image_path)
+    if not sidecar.is_file():
+        return {}
+    try:
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError) as exc:  # noqa: BLE001
+        log.warning("Could not read sidecar for %s: %s", image_path.name, exc)
+        return {}
+
+
+def delete_sidecar(images_dir, filename):
+    """Remove the sidecar file for an image, if any (best-effort)."""
+    sidecar = _sidecar_path(Path(images_dir) / Path(filename).name)
+    try:
+        if sidecar.is_file():
+            sidecar.unlink()
+    except OSError as exc:  # noqa: BLE001
+        log.warning("Could not delete sidecar for %s: %s", sidecar.name, exc)
 
 
 def _save_image(data: bytes, images_dir: Path, extension: str) -> str:
@@ -104,6 +144,7 @@ def generate_image(
     model=DEFAULT_MODEL,
     images_dir=None,
     retries=MAX_RETRIES,
+    negative_prompt=None,
 ):
     """Call Pollinations.ai and persist the result. Returns image metadata dict."""
     if images_dir is None:
@@ -111,8 +152,14 @@ def generate_image(
     images_dir = Path(images_dir)
     images_dir.mkdir(parents=True, exist_ok=True)
 
+    # Flux has no true negative-prompt parameter; we append it as soft
+    # guidance text and document that limitation in the API docs.
+    effective_prompt = prompt
+    if negative_prompt:
+        effective_prompt = f"{prompt}. Avoid: {negative_prompt}."
+
     seed = seed or random.randint(1, 999_999_999)
-    url = POLLINATIONS_ENDPOINT.format(prompt=quote(prompt, safe=""))
+    url = POLLINATIONS_ENDPOINT.format(prompt=quote(effective_prompt, safe=""))
     params = {
         "width": width,
         "height": height,
@@ -147,7 +194,20 @@ def generate_image(
                 extension = _extension_for(content_type)
                 filename = _save_image(data, images_dir, extension)
                 dimensions = _read_dimensions(data) or {}
-                stat = (images_dir / filename).stat()
+                saved_path = images_dir / filename
+                stat = saved_path.stat()
+                _write_sidecar(
+                    saved_path,
+                    {
+                        "provider": "pollinations",
+                        "model": model,
+                        "prompt": prompt,
+                        "negative_prompt": negative_prompt or None,
+                        "seed": seed,
+                        "requested_width": width,
+                        "requested_height": height,
+                    },
+                )
                 return {
                     "filename": filename,
                     "url": f"/api/images/{filename}",
@@ -155,6 +215,7 @@ def generate_image(
                     "model": model,
                     "source": "generated",
                     "prompt": prompt,
+                    "negative_prompt": negative_prompt or None,
                     "seed": seed,
                     "width": dimensions.get("width", width),
                     "height": dimensions.get("height", height),
@@ -190,13 +251,10 @@ def _entry_for(path: Path):
     if dimensions is None:
         dimensions = _dimensions_from_path(path)
         _dimension_cache[cache_key] = dimensions
-    if path.name.startswith("pollinations_"):
-        source = "generated"
-    elif path.name.startswith("uploaded_"):
-        source = "uploaded"
-    else:
-        source = "imported"
-    return {
+    source = "generated" if path.name.startswith("pollinations_") else (
+        "uploaded" if path.name.startswith("uploaded_") else "imported"
+    )
+    entry = {
         "filename": path.name,
         "url": f"/api/images/{path.name}",
         "source": source,
@@ -205,6 +263,9 @@ def _entry_for(path: Path):
         "size_bytes": stat.st_size,
         "created_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
     }
+    # Merge persisted sidecar metadata (prompt, seed, ...) when present.
+    entry.update({k: v for k, v in _read_sidecar(path).items() if v is not None})
+    return entry
 
 
 def find_gallery_image(images_dir, filename):
@@ -230,6 +291,27 @@ def list_gallery_images(images_dir):
 
     entries.sort(key=lambda item: item["created_at"], reverse=True)
     return entries
+
+
+def recent_prompts(images_dir, limit=12):
+    """Distinct recently-used prompts, newest first (from sidecar files)."""
+    seen = set()
+    prompts = []
+    for entry in list_gallery_images(images_dir):
+        text = (entry.get("prompt") or "").strip()
+        if len(text) < 3 or text in seen:
+            continue
+        seen.add(text)
+        prompts.append(
+            {
+                "prompt": text,
+                "negative_prompt": entry.get("negative_prompt"),
+                "used_at": entry.get("created_at"),
+            }
+        )
+        if len(prompts) >= limit:
+            break
+    return prompts
 
 
 def save_uploaded_image(data, original_filename, images_dir):
@@ -271,6 +353,11 @@ def save_uploaded_image(data, original_filename, images_dir):
         counter += 1
     (images_dir / candidate).write_bytes(data)
     stat = (images_dir / candidate).stat()
+    saved_path = images_dir / candidate
+    _write_sidecar(
+        saved_path,
+        {"original_name": clean_name},
+    )
 
     return {
         "filename": candidate,
