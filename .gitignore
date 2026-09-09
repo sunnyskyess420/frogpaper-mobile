@@ -1,0 +1,13 @@
+# Runtime / build artifacts - never commit
+backend/venv/
+mobile-app/node_modules/
+mobile-app/.expo/
+mobile-app/dist/
+mobile-app/web-build/
+__pycache__/
+*.pyc
+
+# Local junk
+*.log
+.DS_Store
+Thumbs.db
