@@ -1,5 +1,5 @@
 // Generate - create a wallpaper from a text prompt.
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -24,6 +24,17 @@ const SIZE_PRESETS = [
   { id: 'landscape', label: 'Landscape', width: 1920, height: 1080 },
 ];
 
+// Style presets append proven descriptor phrases to the prompt.
+const STYLE_PRESETS = [
+  { id: 'photo', label: 'Photorealistic', suffix: 'photorealistic, 50mm photo, natural lighting, sharp focus' },
+  { id: 'cyberpunk', label: 'Cyberpunk', suffix: 'cyberpunk style, neon lights, rain, moody atmosphere, high detail' },
+  { id: 'pastel', label: 'Pastel', suffix: 'pastel colors, soft light, dreamy, gentle atmosphere' },
+  { id: 'fantasy', label: 'Fantasy', suffix: 'epic fantasy art, magical atmosphere, rich colors' },
+  { id: 'minimal', label: 'Minimalist', suffix: 'minimalist, clean composition, lots of negative space' },
+  { id: 'painting', label: 'Oil painting', suffix: 'oil painting, textured brush strokes, classic art style' },
+  { id: 'anime', label: 'Anime', suffix: 'anime style illustration, vibrant colors, clean line art' },
+];
+
 const IDEAS = [
   'Neon frog on a lily pad in a cyberpunk city, rain, wallpaper',
   'Pastel sunset over misty mountains, minimalist, vertical',
@@ -34,7 +45,10 @@ export default function GenerateScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [prompt, setPrompt] = useState('');
+  const [negative, setNegative] = useState('');
   const [presetId, setPresetId] = useState('phone');
+  const [styleId, setStyleId] = useState(null);
+  const [recent, setRecent] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
@@ -42,6 +56,25 @@ export default function GenerateScreen() {
   const [saveNotice, setSaveNotice] = useState(null);
 
   const preset = SIZE_PRESETS.find((item) => item.id === presetId);
+  const style = STYLE_PRESETS.find((item) => item.id === styleId) || null;
+
+  const loadRecent = useCallback(async () => {
+    try {
+      const response = await api.recentPrompts(5);
+      setRecent(response.prompts || []);
+    } catch (err) {
+      setRecent([]); // history is optional - never block generation on it
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRecent();
+  }, [loadRecent]);
+
+  const reusePrompt = (item) => {
+    setPrompt(item.prompt || '');
+    setNegative(item.negative_prompt || '');
+  };
 
   const generate = async () => {
     const trimmed = prompt.trim();
@@ -52,13 +85,16 @@ export default function GenerateScreen() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setSaveNotice(null);
     try {
       const response = await api.generate({
-        prompt: trimmed,
+        prompt: style ? `${trimmed}, ${style.suffix}` : trimmed,
+        negativePrompt: negative.trim() || null,
         width: preset.width,
         height: preset.height,
       });
       setResult(response.image);
+      loadRecent(); // the new prompt should appear in history right away
     } catch (err) {
       setError(err.message || 'Generation failed. Is the backend running?');
     } finally {
@@ -103,6 +139,36 @@ export default function GenerateScreen() {
         />
         <Text style={styles.charCount}>{prompt.length}/600</Text>
 
+        <Text style={styles.sectionLabel}>Style (optional)</Text>
+        <View style={styles.presets}>
+          {STYLE_PRESETS.map((item) => (
+            <Pressable
+              key={item.id}
+              onPress={() => setStyleId(styleId === item.id ? null : item.id)}
+              style={[styles.presetChip, styleId === item.id && styles.presetChipActive]}
+            >
+              <Text
+                style={[styles.presetText, styleId === item.id && styles.presetTextActive]}
+              >
+                {item.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Text style={styles.sectionLabel}>Avoid (optional)</Text>
+        <TextInput
+          style={styles.negativeInput}
+          maxLength={300}
+          value={negative}
+          onChangeText={setNegative}
+          placeholder="Things to avoid, e.g. text, watermark, people"
+          placeholderTextColor={colors.muted}
+        />
+        <Text style={styles.negativeHint}>
+          Soft guidance only - the AI model does not support strict negative prompts.
+        </Text>
+
         <Text style={styles.sectionLabel}>Size</Text>
         <View style={styles.presets}>
           {SIZE_PRESETS.map((item) => (
@@ -120,15 +186,32 @@ export default function GenerateScreen() {
           ))}
         </View>
 
-        {prompt.trim().length === 0 && (
+        {recent.length > 0 ? (
           <View style={styles.ideasBlock}>
-            <Text style={styles.sectionLabel}>Need inspiration?</Text>
-            {IDEAS.map((idea) => (
-              <Pressable key={idea} onPress={() => setPrompt(idea)} style={styles.ideaChip}>
-                <Text style={styles.ideaText}>{idea}</Text>
+            <Text style={styles.sectionLabel}>Recent prompts</Text>
+            {recent.map((item) => (
+              <Pressable
+                key={`${item.used_at}-${item.prompt.slice(0, 12)}`}
+                onPress={() => reusePrompt(item)}
+                style={styles.ideaChip}
+              >
+                <Text style={styles.ideaText} numberOfLines={1}>
+                  {item.prompt}
+                </Text>
               </Pressable>
             ))}
           </View>
+        ) : (
+          prompt.trim().length === 0 && (
+            <View style={styles.ideasBlock}>
+              <Text style={styles.sectionLabel}>Need inspiration?</Text>
+              {IDEAS.map((idea) => (
+                <Pressable key={idea} onPress={() => setPrompt(idea)} style={styles.ideaChip}>
+                  <Text style={styles.ideaText}>{idea}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )
         )}
 
         <Pressable
@@ -236,6 +319,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'right',
     marginTop: spacing.xs,
+  },
+  negativeInput: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    color: colors.text,
+    fontSize: 15,
+    padding: spacing.md,
+  },
+  negativeHint: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: spacing.xs,
+    marginBottom: spacing.lg,
   },
   presets: {
     flexDirection: 'row',

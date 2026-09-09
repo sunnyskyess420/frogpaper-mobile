@@ -24,7 +24,7 @@ Health check. The mobile app uses this to auto-detect the backend.
   "success": true,
   "status": "ok",
   "app": "FrogPaper Mobile",
-  "version": "1.5.0",
+  "version": "1.7.0",
   "server_time": "2026-09-09T20:55:48.791823+00:00",
   "images_count": 1,
   "providers_active": ["pollinations"]
@@ -62,10 +62,16 @@ Request body (JSON):
 | Field  | Type   | Required | Constraints                     | Default |
 |--------|--------|----------|---------------------------------|---------|
 | prompt | string | yes      | 3-600 characters                | -       |
+| negative_prompt | string | no | 0-300 characters               | -       |
 | width  | int    | no       | 256-2048 (clamped)              | 1080    |
 | height | int    | no       | 256-2048 (clamped)              | 1920    |
 | seed   | int    | no       | 1-999999999                     | random  |
 | provider | string | no     | must be `pollinations`          | `pollinations` |
+
+**Negative prompt caveat:** the Flux model has no true negative-prompt
+parameter. The backend appends it to the generation prompt as soft
+guidance (`"<prompt>. Avoid: <negative_prompt>."`) - it helps steer style
+but is not a strict exclusion list.
 
 Example:
 
@@ -86,6 +92,7 @@ Success (HTTP 201):
     "provider": "pollinations",
     "model": "flux",
     "prompt": "A serene frog pond at dusk, pastel colors, phone wallpaper",
+    "negative_prompt": null,
     "seed": 221082962,
     "width": 576,
     "height": 1024,
@@ -128,6 +135,13 @@ Lists images in `static/images/`, newest first. `limit` is clamped to 1-500.
 Recognized extensions: `.png`, `.jpg`, `.jpeg`, `.webp`. There is no
 database - dropping files into `static/images/` is enough for them to show
 up (pull-to-refresh in the app).
+
+**Sidecar metadata:** generated and uploaded images get a `.json` file
+next to them (`pollinations_<stamp>.json`) holding `prompt`,
+`negative_prompt`, `seed`, `model` and (for uploads) `original_name`.
+Gallery and detail responses merge those fields in when the sidecar
+exists; images without one (e.g. your own copied files) just omit them.
+Deleting an image removes its sidecar automatically.
 
 ### `GET /api/gallery/<filename>`
 
@@ -175,6 +189,28 @@ curl -X POST http://127.0.0.1:5000/api/gallery/upload -F "file=@wallpaper.jpg"
 
 Success (HTTP 201) returns the same `image` metadata shape as generate,
 plus `original_name`. Errors: `400` with a user-friendly message.
+
+### `GET /api/prompts/recent?limit=12`
+
+Distinct recently-used prompts, newest first - powers the "Recent prompts"
+chips on the Generate screen. Sources the sidecar files, so images
+generated before v1.7 (or files without sidecars) are not included.
+
+```json
+{
+  "success": true,
+  "count": 1,
+  "prompts": [
+    {
+      "prompt": "Bioluminescent forest at night, magical atmosphere",
+      "negative_prompt": "text, watermark",
+      "used_at": "2026-09-09T21:58:56.120142+00:00"
+    }
+  ]
+}
+```
+
+`limit` is clamped to 1-50.
 
 ### `GET /api/images/<filename>`
 

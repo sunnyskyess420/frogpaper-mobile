@@ -8,13 +8,13 @@ the sandbox rebuild and live verification session.
 | Phase | Scope | Status | Progress |
 |-------|-------|--------|----------|
 | 1 | Architecture & planning | Done (adapted) | 90% |
-| 2 | Backend API | Core + gallery mgmt live | 45% |
-| 3 | Mobile app | Foundation + detail/upload/delete/save live | 35% |
+| 2 | Backend API | Core + gallery mgmt + prompt history live | 50% |
+| 3 | Mobile app | Foundation + mgmt/save + prompt builder live | 45% |
 | 4 | Mobile-specific features | Save-to-device live, wallpaper on Android | 40% |
 | 5 | Cloud integration | Not started | 0% |
 | 6 | Testing & QA | Manual slice done | 10% |
 | 7 | Deployment | Repo only | 5% |
-| **All** | | **Working MVP verified end-to-end** | **~25%** |
+| **All** | | **Working MVP verified end-to-end** | **~30%** |
 
 The MVP is deliberately a vertical slice: it proves the riskiest
 assumptions (app-to-PC-backend connectivity, real generation, gallery
@@ -45,14 +45,14 @@ Live and tested on 2026-09-10:
 From the plan, still missing:
 - POST /api/providers/config (credentials) - low priority: Pollinations
   needs no key
-- POST /api/gallery/upload, DELETE /api/gallery/:id, GET /api/gallery/:id
 - Style transfer, text overlay, download-with-processing endpoints
 - Slideshow endpoints (config/next)
 - Tags endpoints
 - Rate limiting + API keys if ever exposed beyond home LAN
-- SQLite migration (currently filesystem-based by design)
+- SQLite migration (currently filesystem-based by design; sidecar JSON
+  covers prompt/seed history)
 
-### Phase 3 - Mobile App: 30%
+### Phase 3 - Mobile App: 45%
 Built and browser-verified:
 - Home, Generate, Gallery, Detail, Settings screens (5 of the plan's 6)
 - Prompt input + inspiration chips + size presets (subset of 3.2)
@@ -64,9 +64,13 @@ Built and browser-verified:
 - Save-to-device on Detail + Generate screens: web downloads via object-URL
   anchor (verified with real files landing on disk), native uses
   expo-media-library after download-to-cache (verified in browser 2026-09-10)
+- Prompt builder: 7 style presets, negative-prompt field (soft guidance),
+  recent-prompts chips with one-tap reuse; Detail shows prompt/seed/
+  avoided text; backend persists prompt+seed in sidecar JSON files and
+  exposes GET /api/prompts/recent (verified API + UI 2026-09-10)
 
 Missing: Slideshow screen, pinch-zoom/swipe/long-press interactions,
-generation cancellation, background jobs, history, batch, style transfer
+generation cancellation, background jobs, batch, style transfer
 UI, text overlay UI.
 
 ### Phase 4 - Mobile-specific: 40%
@@ -105,7 +109,17 @@ automated test suite, device matrix, beta track, store builds
    (upload / detail / delete, verified API + UI).
 2. ~~Save-to-device + set wallpaper (Android)~~ **DONE 2026-09-10** (web
    verified end-to-end; Android wallpaper needs a real-device dev build).
-3. **Prompt builder upgrade** (Phase 3.2): structured presets, negative
-   prompt field, generation history - cheap to add, big daily-use win.
+3. ~~Prompt builder upgrade~~ **DONE 2026-09-10** (style presets, negative
+   field, recent-prompts reuse, prompt/seed on detail; verified API + UI).
 
-Slideshow, style transfer and cloud sync stay parked until 3 ships.
+Next candidates, in rough value order:
+
+- **Run it on a real Android phone**: Expo Go for the save flow, then a
+  `expo prebuild` development build to activate direct wallpaper setting
+  (see docs/DEV_BUILD.md). This is the biggest untested surface.
+- **Generation UX hardening**: cancel button, seed lock/reuse control,
+  progress feedback while Flux is painting.
+- **Fullscreen viewer interactions**: pinch-zoom, swipe between gallery
+  images, long-press for quick actions (Phase 3.3 leftovers).
+
+Slideshow, style transfer, tags and cloud sync stay parked.
