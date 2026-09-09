@@ -129,6 +129,53 @@ Recognized extensions: `.png`, `.jpg`, `.jpeg`, `.webp`. There is no
 database - dropping files into `static/images/` is enough for them to show
 up (pull-to-refresh in the app).
 
+### `GET /api/gallery/<filename>`
+
+Metadata for a single image.
+
+```json
+{
+  "success": true,
+  "image": {
+    "filename": "pollinations_20260909-205551.jpg",
+    "url": "/api/images/pollinations_20260909-205551.jpg",
+    "source": "generated",
+    "width": 576,
+    "height": 1024,
+    "size_bytes": 40384,
+    "created_at": "2026-09-09T20:55:51.685112+00:00"
+  }
+}
+```
+
+`source` is `generated` (AI), `uploaded` (user upload), or `imported`
+(files dropped into the folder manually). Missing files return the JSON
+404 envelope.
+
+### `DELETE /api/gallery/<filename>`
+
+Deletes the image file from disk. Returns:
+
+```json
+{ "success": true, "deleted": "uploaded_20260909-212340.png", "images_count": 2 }
+```
+
+`404` if the file does not exist (deleting twice is safe).
+
+### `POST /api/gallery/upload`
+
+Uploads a custom image. `Content-Type: multipart/form-data` with field
+`file`. Rules: extension must be png/jpg/jpeg/webp, max 20 MB, and the
+bytes must decode as a real image (PIL verify - renamed text files are
+rejected). Files are stored as `uploaded_YYYYMMDD-HHMMSS.ext`.
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/gallery/upload -F "file=@wallpaper.jpg"
+```
+
+Success (HTTP 201) returns the same `image` metadata shape as generate,
+plus `original_name`. Errors: `400` with a user-friendly message.
+
 ### `GET /api/images/<filename>`
 
 Serves one image file with 1-day browser caching. Path traversal is
