@@ -27,8 +27,9 @@ FrogPaperMobile/
 |   |-- App.js                Entry: theme + navigation container
 |   `-- src/
 |       |-- navigation/AppNavigator.js   Stack: Home / Generate / Gallery / Settings
-|       |-- screens/          HomeScreen, GenerateScreen, GalleryScreen, SettingsScreen
+|       |-- screens/          Home, Generate, Gallery, Detail, Settings screens
 |       |-- services/api.js   API layer with automatic backend URL resolution
+|       |-- services/deviceMedia.*.js  Save-to-device + wallpaper (per-platform)
 |       `-- theme.js          Dark theme tokens (frog-green accent)
 `-- docs/                     API reference, handover notes, screenshots
 ```

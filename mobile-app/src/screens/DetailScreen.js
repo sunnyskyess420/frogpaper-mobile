@@ -12,6 +12,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import api from '../services/api';
+import {
+  capabilities,
+  saveToDevice,
+  setAsWallpaper,
+} from '../services/deviceMedia';
 import { colors, radii, spacing } from '../theme';
 
 function formatBytes(bytes) {
@@ -44,6 +49,9 @@ export default function DetailScreen() {
   const [error, setError] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [wallpaperBusy, setWallpaperBusy] = useState(false);
+  const [notice, setNotice] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +69,36 @@ export default function DetailScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const doSave = async () => {
+    setSaving(true);
+    setNotice(null);
+    try {
+      await saveToDevice(api.imageUrl(filename));
+      setNotice({ kind: 'ok', text: 'Saved to your device gallery.' });
+    } catch (err) {
+      setNotice({ kind: 'error', text: err.message || 'Could not save the image.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const doWallpaper = async () => {
+    setWallpaperBusy(true);
+    setNotice(null);
+    try {
+      const result = await setAsWallpaper(api.imageUrl(filename));
+      setNotice(
+        result.ok
+          ? { kind: 'ok', text: 'Wallpaper updated.' }
+          : { kind: 'error', text: result.message || 'Could not set the wallpaper.' }
+      );
+    } catch (err) {
+      setNotice({ kind: 'error', text: err.message || 'Could not set the wallpaper.' });
+    } finally {
+      setWallpaperBusy(false);
+    }
+  };
 
   const doDelete = async () => {
     setDeleting(true);
@@ -135,6 +173,44 @@ export default function DetailScreen() {
               </Text>
             </View>
           </View>
+
+          {notice !== null && (
+            <View
+              style={[styles.noticeCard, notice.kind === 'error' && styles.noticeCardError]}
+            >
+              <Text
+                style={[styles.noticeText, notice.kind === 'error' && styles.noticeTextError]}
+              >
+                {notice.text}
+              </Text>
+            </View>
+          )}
+
+          <Pressable
+            style={[styles.primaryButton, (saving || wallpaperBusy) && styles.buttonBusy]}
+            onPress={doSave}
+            disabled={saving || wallpaperBusy}
+          >
+            {saving ? (
+              <ActivityIndicator color={colors.bg} />
+            ) : (
+              <Text style={styles.primaryButtonText}>Save to device</Text>
+            )}
+          </Pressable>
+
+          {capabilities.canSetWallpaper && (
+            <Pressable
+              style={[styles.wallpaperButton, (saving || wallpaperBusy) && styles.buttonBusy]}
+              onPress={doWallpaper}
+              disabled={saving || wallpaperBusy}
+            >
+              {wallpaperBusy ? (
+                <ActivityIndicator color={colors.accent} />
+              ) : (
+                <Text style={styles.wallpaperButtonText}>Set as wallpaper</Text>
+              )}
+            </Pressable>
+          )}
 
           {confirming ? (
             <View style={styles.confirmCard}>
@@ -214,6 +290,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     maxWidth: '65%',
+  },
+  noticeCard: {
+    backgroundColor: '#12291B',
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginTop: spacing.lg,
+  },
+  noticeCardError: {
+    backgroundColor: '#2A1520',
+    borderColor: colors.danger,
+  },
+  noticeText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  noticeTextError: {
+    color: colors.danger,
+    fontWeight: '500',
+  },
+  primaryButton: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: spacing.lg,
+  },
+  primaryButtonText: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  buttonBusy: {
+    opacity: 0.7,
+  },
+  wallpaperButton: {
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  wallpaperButtonText: {
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: '700',
   },
   deleteButton: {
     backgroundColor: '#7F1D1D',
