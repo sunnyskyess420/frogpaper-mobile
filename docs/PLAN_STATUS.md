@@ -9,12 +9,12 @@ the sandbox rebuild and live verification session.
 |-------|-------|--------|----------|
 | 1 | Architecture & planning | Done (adapted) | 90% |
 | 2 | Backend API | Core + gallery mgmt live | 45% |
-| 3 | Mobile app | Foundation + detail/upload/delete live | 30% |
-| 4 | Mobile-specific features | Not started | 5% |
+| 3 | Mobile app | Foundation + detail/upload/delete/save live | 35% |
+| 4 | Mobile-specific features | Save-to-device live, wallpaper on Android | 40% |
 | 5 | Cloud integration | Not started | 0% |
 | 6 | Testing & QA | Manual slice done | 10% |
 | 7 | Deployment | Repo only | 5% |
-| **All** | | **Working MVP verified end-to-end** | **~20%** |
+| **All** | | **Working MVP verified end-to-end** | **~25%** |
 
 The MVP is deliberately a vertical slice: it proves the riskiest
 assumptions (app-to-PC-backend connectivity, real generation, gallery
@@ -61,15 +61,30 @@ Built and browser-verified:
 - Gallery management in-app: upload from device (expo-image-picker),
   detail screen with metadata, delete with in-app confirmation and
   automatic list refresh on return (verified in browser 2026-09-10)
+- Save-to-device on Detail + Generate screens: web downloads via object-URL
+  anchor (verified with real files landing on disk), native uses
+  expo-media-library after download-to-cache (verified in browser 2026-09-10)
 
 Missing: Slideshow screen, pinch-zoom/swipe/long-press interactions,
 generation cancellation, background jobs, history, batch, style transfer
 UI, text overlay UI.
 
-### Phase 4 - Mobile-specific: 5%
-Nothing built yet. Recommended first move per the plan's own risk note
-("focus Android first"): save-to-device-gallery via expo-media-library,
-then Android set-as-wallpaper.
+### Phase 4 - Mobile-specific: 40%
+Live and verified on web 2026-09-10:
+- Save-to-device from Detail screen and from the generation result card
+  (platform-split service: browser anchor download / expo-media-library
+  on native, with download-to-cache via the new expo-file-system API)
+- Android "Set as wallpaper" entry: wired through react-native-wallpaper-
+  manager behind a platform-split module with graceful degradation -
+  inside Expo Go it explains that a development build is needed (see
+  docs/DEV_BUILD.md); after `npx expo prebuild` the direct path activates.
+  NOT yet verified on a real Android device.
+
+Remaining: verify wallpaper on a real device dev build, lock-screen vs
+home-screen choice, share sheet, widgets, notifications.
+
+Note: iOS cannot set wallpapers from apps by design - the UI only offers
+save + manual instructions there.
 
 ### Phase 5 - Cloud: 0%
 Deliberately deferred until local experience is complete.
@@ -86,11 +101,11 @@ automated test suite, device matrix, beta track, store builds
 
 ## Suggested next three moves (highest value first)
 
-1. **Gallery management endpoints + UI actions** (Phase 2/3): delete,
-   upload, detail - makes the gallery a real manager instead of a viewer.
-2. **Save-to-device + set wallpaper (Android)** (Phase 4.1): the single
-   most "why am I doing this" feature for a wallpaper app.
+1. ~~Gallery management endpoints + UI actions~~ **DONE 2026-09-10**
+   (upload / detail / delete, verified API + UI).
+2. ~~Save-to-device + set wallpaper (Android)~~ **DONE 2026-09-10** (web
+   verified end-to-end; Android wallpaper needs a real-device dev build).
 3. **Prompt builder upgrade** (Phase 3.2): structured presets, negative
    prompt field, generation history - cheap to add, big daily-use win.
 
-Slideshow, style transfer and cloud sync stay parked until 1-3 ship.
+Slideshow, style transfer and cloud sync stay parked until 3 ships.

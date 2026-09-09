@@ -8,13 +8,16 @@
     "@react-navigation/native-stack": "^7.18.10",
     "axios": "^1.20.0",
     "expo": "~57.0.21",
+    "expo-file-system": "~57.0.6",
     "expo-image-picker": "~57.0.16",
+    "expo-media-library": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
+    "react-native-wallpaper-manager": "^0.3.16",
     "react-native-web": "^0.21.2"
   },
   "scripts": {

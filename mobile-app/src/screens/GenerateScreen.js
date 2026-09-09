@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import api from '../services/api';
+import { capabilities, saveToDevice } from '../services/deviceMedia';
 import { colors, radii, spacing } from '../theme';
 
 const SIZE_PRESETS = [
@@ -37,6 +38,8 @@ export default function GenerateScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveNotice, setSaveNotice] = useState(null);
 
   const preset = SIZE_PRESETS.find((item) => item.id === presetId);
 
@@ -60,6 +63,22 @@ export default function GenerateScreen() {
       setError(err.message || 'Generation failed. Is the backend running?');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveResult = async () => {
+    if (!result) {
+      return;
+    }
+    setSaving(true);
+    setSaveNotice(null);
+    try {
+      await saveToDevice(api.imageUrl(result.filename));
+      setSaveNotice({ kind: 'ok', text: 'Saved to your device gallery.' });
+    } catch (err) {
+      setSaveNotice({ kind: 'error', text: err.message || 'Could not save the image.' });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -146,6 +165,27 @@ export default function GenerateScreen() {
             <Text style={styles.resultMeta}>
               {result.filename}  |  {result.width}x{result.height}
             </Text>
+            {saveNotice !== null && (
+              <Text
+                style={[
+                  styles.saveNotice,
+                  saveNotice.kind === 'error' && styles.saveNoticeError,
+                ]}
+              >
+                {saveNotice.text}
+              </Text>
+            )}
+            <Pressable
+              style={[styles.saveButton, saving && styles.saveButtonBusy]}
+              onPress={saveResult}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator color={colors.bg} />
+              ) : (
+                <Text style={styles.saveButtonText}>Save to device</Text>
+              )}
+            </Pressable>
             <View style={styles.resultActions}>
               <Pressable
                 style={styles.secondaryButton}
@@ -290,6 +330,31 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     marginTop: spacing.sm,
+  },
+  saveNotice: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: spacing.sm,
+  },
+  saveNoticeError: {
+    color: colors.danger,
+    fontWeight: '500',
+  },
+  saveButton: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.md,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+  saveButtonBusy: {
+    opacity: 0.7,
+  },
+  saveButtonText: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '800',
   },
   resultActions: {
     flexDirection: 'row',
