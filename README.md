@@ -76,7 +76,7 @@ database, no migration.
 | What | Where | Default |
 |------|-------|---------|
 | Backend port | `PORT` env var in `backend/app.py` | `5000` |
-| LAN IP of your PC | `LAN_IP` in `mobile-app/src/services/api.js` | `10.2.0.2` |
+| LAN IP of your PC | auto-detected from Expo Go (`expoConfig.hostUri`); manual fallback `LAN_IP` in `mobile-app/src/services/api.js` | automatic / `10.2.0.2` |
 | Emulator alias | `EMULATOR_ALIAS` in the same file | `10.0.2.2` |
 | Image size presets | `SIZE_PRESETS` in `GenerateScreen.js` | 1080x1920 etc. |
 
@@ -105,9 +105,10 @@ Proof screenshots: `docs/screenshots/`.
 - Is the backend terminal still running `python app.py`?
 - Web client needs the backend on `http://localhost:5000` - check
   `http://127.0.0.1:5000/api/health` in your browser first.
-- Phone on Wi-Fi: make sure `LAN_IP` in `mobile-app/src/services/api.js`
-  matches your PC's current IPv4 (`ipconfig`), and Windows Firewall allows
-  Python on private networks (first run asks).
+- Phone on Wi-Fi: the app auto-detects your PC's IP from the Expo Go dev
+  server (same Wi-Fi required). If it still shows offline, set `LAN_IP` in
+  `mobile-app/src/services/api.js` to your PC's IPv4 (`ipconfig`), and make
+  sure Windows Firewall allows Python on private networks (first run asks).
 
 **Expo dev server starts but the page never loads**
 - Stop it (`Ctrl+C`) and restart with a clean cache: `npx expo start --clear`

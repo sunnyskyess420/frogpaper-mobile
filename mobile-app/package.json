@@ -8,6 +8,7 @@
     "@react-navigation/native-stack": "^7.18.10",
     "axios": "^1.20.0",
     "expo": "~57.0.21",
+    "expo-constants": "~57.0.17",
     "expo-file-system": "~57.0.6",
     "expo-image-picker": "~57.0.16",
     "expo-media-library": "~57.0.4",
