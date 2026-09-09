@@ -30,8 +30,10 @@ from werkzeug.exceptions import HTTPException
 from services.image_generation import (
     PROVIDERS,
     GenerationError,
+    find_gallery_image,
     generate_image,
     list_gallery_images,
+    save_uploaded_image,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -42,7 +44,7 @@ APP_NAME = "FrogPaper Mobile"
 APP_VERSION = "1.5.0"
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # reject oversized request bodies
+app.config["MAX_CONTENT_LENGTH"] = 26 * 1024 * 1024  # 26 MB request cap (uploads)
 
 # The Expo web client (localhost:8081) talks to this API cross-origin,
 # so permissive CORS is required on /api/*.
@@ -172,6 +174,54 @@ def gallery():
             "images": page,
         }
     )
+
+
+@app.get("/api/gallery/<path:filename>")
+def gallery_detail(filename):
+    """Metadata for a single gallery image."""
+    entry = find_gallery_image(IMAGES_DIR, filename)
+    if entry is None:
+        return _error_response(f"Image '{Path(filename).name}' not found.", 404)
+    return jsonify({"success": True, "image": entry})
+
+
+@app.delete("/api/gallery/<path:filename>")
+def gallery_delete(filename):
+    """Delete an image from the gallery directory."""
+    safe_name = Path(filename).name
+    target = IMAGES_DIR / safe_name
+    if not target.is_file():
+        return _error_response(f"Image '{safe_name}' not found.", 404)
+    try:
+        target.unlink()
+    except OSError as exc:
+        log.error("Delete failed for %s: %s", safe_name, exc)
+        return _error_response("Could not delete the image file.", 500)
+    log.info("Deleted %s", safe_name)
+    return jsonify(
+        {
+            "success": True,
+            "deleted": safe_name,
+            "images_count": len(list_gallery_images(IMAGES_DIR)),
+        }
+    )
+
+
+@app.post("/api/gallery/upload")
+def gallery_upload():
+    """Upload a custom image (multipart/form-data, field name: 'file')."""
+    file = request.files.get("file")
+    if file is None or not file.filename:
+        return _error_response(
+            "Send multipart/form-data with an image in the 'file' field.", 400
+        )
+    data = file.read()
+    try:
+        image = save_uploaded_image(data, file.filename, IMAGES_DIR)
+    except ValueError as exc:
+        return _error_response(str(exc), 400)
+    log.info("Uploaded %s", image["filename"])
+    return jsonify({"success": True, "image": image}), 201
 
 
 @app.get("/api/images/<path:filename>")

@@ -153,6 +153,7 @@ def generate_image(
                     "url": f"/api/images/{filename}",
                     "provider": "pollinations",
                     "model": model,
+                    "source": "generated",
                     "prompt": prompt,
                     "seed": seed,
                     "width": dimensions.get("width", width),
@@ -178,6 +179,43 @@ def generate_image(
     raise last_error
 
 
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
+
+
+def _entry_for(path: Path):
+    """Build gallery metadata for one file (dimension result is cached)."""
+    stat = path.stat()
+    cache_key = (path.name, stat.st_mtime_ns, stat.st_size)
+    dimensions = _dimension_cache.get(cache_key)
+    if dimensions is None:
+        dimensions = _dimensions_from_path(path)
+        _dimension_cache[cache_key] = dimensions
+    if path.name.startswith("pollinations_"):
+        source = "generated"
+    elif path.name.startswith("uploaded_"):
+        source = "uploaded"
+    else:
+        source = "imported"
+    return {
+        "filename": path.name,
+        "url": f"/api/images/{path.name}",
+        "source": source,
+        "width": dimensions.get("width"),
+        "height": dimensions.get("height"),
+        "size_bytes": stat.st_size,
+        "created_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+    }
+
+
+def find_gallery_image(images_dir, filename):
+    """Metadata for one gallery image, or None if it does not exist."""
+    safe_name = Path(filename).name
+    target = Path(images_dir) / safe_name
+    if not target.is_file() or target.suffix.lower() not in VALID_EXTENSIONS:
+        return None
+    return _entry_for(target)
+
+
 def list_gallery_images(images_dir):
     """List images in the gallery dir, newest first, with metadata."""
     images_dir = Path(images_dir)
@@ -188,24 +226,59 @@ def list_gallery_images(images_dir):
     for path in images_dir.iterdir():
         if not path.is_file() or path.suffix.lower() not in VALID_EXTENSIONS:
             continue
-        stat = path.stat()
-        cache_key = (path.name, stat.st_mtime_ns, stat.st_size)
-        dimensions = _dimension_cache.get(cache_key)
-        if dimensions is None:
-            dimensions = _dimensions_from_path(path)
-            _dimension_cache[cache_key] = dimensions
-        entries.append(
-            {
-                "filename": path.name,
-                "url": f"/api/images/{path.name}",
-                "width": dimensions.get("width"),
-                "height": dimensions.get("height"),
-                "size_bytes": stat.st_size,
-                "created_at": datetime.fromtimestamp(
-                    stat.st_mtime, timezone.utc
-                ).isoformat(),
-            }
-        )
+        entries.append(_entry_for(path))
 
     entries.sort(key=lambda item: item["created_at"], reverse=True)
     return entries
+
+
+def save_uploaded_image(data, original_filename, images_dir):
+    """Validate and persist a user-uploaded image. Returns metadata dict.
+
+    Raises ValueError with a user-friendly message on bad input.
+    """
+    images_dir = Path(images_dir)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    clean_name = Path(str(original_filename or "")).name
+    extension = Path(clean_name).suffix.lower()
+    if extension not in VALID_EXTENSIONS:
+        allowed = ", ".join(sorted(VALID_EXTENSIONS))
+        raise ValueError(
+            f"Unsupported file type '{extension or '(none)'}'. Allowed: {allowed}."
+        )
+    if len(data) == 0:
+        raise ValueError("The uploaded file is empty.")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError("The uploaded file is larger than 20 MB.")
+
+    dimensions = {}
+    if Image is not None:
+        try:
+            with Image.open(io.BytesIO(data)) as img:
+                img.verify()  # rejects corrupted files / renamed non-images
+            with Image.open(io.BytesIO(data)) as img:
+                dimensions = {"width": img.width, "height": img.height}
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError("The file does not contain a valid image.") from exc
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    base = f"uploaded_{stamp}"
+    candidate = f"{base}{extension}"
+    counter = 1
+    while (images_dir / candidate).exists():
+        candidate = f"{base}-{counter}{extension}"
+        counter += 1
+    (images_dir / candidate).write_bytes(data)
+    stat = (images_dir / candidate).stat()
+
+    return {
+        "filename": candidate,
+        "url": f"/api/images/{candidate}",
+        "source": "uploaded",
+        "original_name": clean_name,
+        "width": dimensions.get("width"),
+        "height": dimensions.get("height"),
+        "size_bytes": stat.st_size,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }

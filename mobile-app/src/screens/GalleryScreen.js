@@ -1,10 +1,9 @@
-// Gallery - grid of generated wallpapers with a fullscreen viewer.
-import React, { useCallback, useEffect, useState } from 'react';
+// Gallery - grid of generated wallpapers with upload, detail and delete.
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Image,
-  Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -12,17 +11,21 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import api from '../services/api';
 import { colors, radii, spacing } from '../theme';
 
 export default function GalleryScreen() {
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [images, setImages] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
-  const [selected, setSelected] = useState(null);
+  const hasLoadedRef = useRef(false);
 
   const load = useCallback(async (showSpinner = true) => {
     if (showSpinner) {
@@ -41,17 +44,56 @@ export default function GalleryScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Reload every time the screen gains focus (first focus shows a spinner,
+  // later ones - e.g. returning from Detail after a delete - refresh silently).
+  useFocusEffect(
+    useCallback(() => {
+      load(!hasLoadedRef.current);
+      hasLoadedRef.current = true;
+    }, [load])
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     load(false);
   }, [load]);
 
+  const pickAndUpload = async () => {
+    // Permission is required on native; on web it resolves immediately.
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permission && permission.granted === false) {
+      setError('Photo library permission is required to upload.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 1,
+    });
+    if (result.canceled || !result.assets || result.assets.length === 0) {
+      return;
+    }
+    const asset = result.assets[0];
+    setUploading(true);
+    setError(null);
+    try {
+      await api.uploadImage({
+        uri: asset.uri,
+        fileName: asset.fileName || 'upload.jpg',
+        mimeType: asset.mimeType,
+      });
+      await load(false);
+    } catch (err) {
+      setError(err.message || 'Upload failed.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const renderItem = ({ item }) => (
-    <Pressable style={styles.cell} onPress={() => setSelected(item)}>
+    <Pressable
+      style={styles.cell}
+      onPress={() => navigation.navigate('Detail', { filename: item.filename })}
+    >
       <Image
         source={{ uri: api.imageUrl(item.filename) }}
         style={styles.thumb}
@@ -88,47 +130,39 @@ export default function GalleryScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
         ListHeaderComponent={
-          <Text style={styles.header}>
-            {total} wallpaper{total === 1 ? '' : 's'} on the server
-          </Text>
+          <View style={styles.headerBlock}>
+            <Text style={styles.header}>
+              {total} wallpaper{total === 1 ? '' : 's'} on the server
+            </Text>
+            <Pressable
+              style={[styles.uploadButton, uploading && styles.uploadButtonBusy]}
+              onPress={pickAndUpload}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <ActivityIndicator color={colors.bg} />
+              ) : (
+                <Text style={styles.uploadButtonText}>Upload image</Text>
+              )}
+            </Pressable>
+          </View>
         }
         ListEmptyComponent={
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No wallpapers yet</Text>
             <Text style={styles.emptyText}>
-              Head to the Generate tab and create your first one. The gallery refreshes
- automatically.
+              Generate your first one in the Generate tab, or upload an image from this
+              device.
             </Text>
           </View>
         }
       />
 
-      {error !== null && images.length === 0 && (
+      {error !== null && (
         <View style={[styles.errorCard, { marginBottom: insets.bottom + spacing.md }]}>
           <Text style={styles.errorText}>{error}</Text>
         </View>
       )}
-
-      <Modal visible={selected !== null} transparent animationType="fade">
-        <Pressable style={styles.modalBackdrop} onPress={() => setSelected(null)}>
-          <View style={[styles.modalCard, { marginBottom: insets.bottom + spacing.xl }]}>
-            {selected && (
-              <Image
-                source={{ uri: api.imageUrl(selected.filename) }}
-                style={styles.modalImage}
-                resizeMode="contain"
-              />
-            )}
-            {selected && (
-              <Text style={styles.modalMeta}>
-                {selected.filename}
-                {selected.width ? `  |  ${selected.width}x${selected.height}` : ''}
-              </Text>
-            )}
-            <Text style={styles.modalHint}>Tap anywhere to close</Text>
-          </View>
-        </Pressable>
-      </Modal>
     </View>
   );
 }
@@ -152,14 +186,32 @@ const styles = StyleSheet.create({
   listContent: {
     padding: spacing.md,
   },
+  headerBlock: {
+    marginBottom: spacing.md,
+  },
   header: {
     color: colors.muted,
     fontSize: 13,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
     marginLeft: spacing.xs,
+  },
+  uploadButton: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.sm,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  uploadButtonBusy: {
+    opacity: 0.7,
+  },
+  uploadButtonText: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '800',
   },
   row: {
     gap: spacing.md,
@@ -217,30 +269,5 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.danger,
     fontSize: 14,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(4, 8, 16, 0.92)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.lg,
-  },
-  modalCard: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  modalImage: {
-    width: '100%',
-    height: '80%',
-  },
-  modalMeta: {
-    color: colors.text,
-    fontSize: 13,
-    marginTop: spacing.md,
-  },
-  modalHint: {
-    color: colors.muted,
-    fontSize: 12,
-    marginTop: spacing.sm,
   },
 });

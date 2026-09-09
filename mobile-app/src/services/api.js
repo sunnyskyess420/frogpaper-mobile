@@ -65,12 +65,7 @@ export function getBaseUrl() {
   return baseUrl;
 }
 
-async function request(path, options = {}) {
-  const base = getBaseUrl();
-  const response = await fetch(`${base}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+async function parseResponse(response) {
   let payload = {};
   try {
     payload = await response.json();
@@ -86,6 +81,15 @@ async function request(path, options = {}) {
     throw error;
   }
   return payload;
+}
+
+async function request(path, options = {}) {
+  const base = getBaseUrl();
+  const response = await fetch(`${base}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  return parseResponse(response);
 }
 
 export const api = {
@@ -107,6 +111,34 @@ export const api = {
       }),
     }),
   gallery: (limit = 200) => request(`/api/gallery?limit=${limit}`),
+  imageDetail: (filename) =>
+    request(`/api/gallery/${encodeURIComponent(filename)}`),
+  deleteImage: (filename) =>
+    request(`/api/gallery/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+    }),
+  uploadImage: async (asset) => {
+    const base = getBaseUrl();
+    const form = new FormData();
+    if (Platform.OS === 'web') {
+      // web: turn the local blob/data URI into a real Blob part
+      const blob = await (await fetch(asset.uri)).blob();
+      form.append('file', blob, asset.fileName || 'upload.jpg');
+    } else {
+      // native: React Native FormData accepts a uri descriptor
+      form.append('file', {
+        uri: asset.uri,
+        name: asset.fileName || 'upload.jpg',
+        type: asset.mimeType || 'image/jpeg',
+      });
+    }
+    // NOTE: no Content-Type header - fetch sets the multipart boundary
+    const response = await fetch(`${base}/api/gallery/upload`, {
+      method: 'POST',
+      body: form,
+    });
+    return parseResponse(response);
+  },
   imageUrl: (filename) => `${getBaseUrl()}/api/images/${encodeURIComponent(filename)}`,
 };
 
