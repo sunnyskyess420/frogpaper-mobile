@@ -43,6 +43,7 @@ from services.image_generation import (
     generate_image_huggingface,
     list_gallery_images,
     recent_prompts,
+    refresh_provider_statuses,
     save_uploaded_image,
 )
 
@@ -51,7 +52,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.9.5"
+APP_VERSION = "1.9.6"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 26 * 1024 * 1024  # 26 MB request cap (uploads)
@@ -94,6 +95,7 @@ def _error_response(message, status, details=None):
 @app.get("/api/health")
 def health():
     """Health check used by the mobile app to detect the backend."""
+    refresh_provider_statuses()
     images = list_gallery_images(IMAGES_DIR)
     return jsonify(
         {
@@ -111,6 +113,7 @@ def health():
 @app.get("/api/providers")
 def providers():
     """List available image generation providers."""
+    refresh_provider_statuses()
     return jsonify({"success": True, "active": default_provider_id(), "providers": PROVIDERS})
 
 
@@ -137,6 +140,7 @@ def generate():
     if seed is not None:
         seed = _parse_int(seed, 1, 1, 999999999)
 
+    refresh_provider_statuses()
     provider_id = str(data.get("provider") or default_provider_id()).strip().lower()
     provider = next((p for p in PROVIDERS if p["id"] == provider_id), None)
     if provider is None:

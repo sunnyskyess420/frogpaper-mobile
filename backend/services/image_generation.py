@@ -78,6 +78,10 @@ def _subject_enhancer(prompt: str) -> str:
 # --- Google Gemini ("nano banana" image model) -----------------------------
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
+# The 2.5 "nano banana" model can have a small or zero free-tier quota on
+# some fresh keys; the older 2.0 preview image model usually keeps a free
+# quota bucket of its own. Tried automatically when 2.5 is exhausted.
+GEMINI_IMAGE_MODEL_FALLBACKS = ["gemini-2.0-flash-preview-image-generation"]
 GEMINI_KEY_FILE = Path(__file__).resolve().parent.parent / "gemini_api_key.txt"
 GEMINI_REQUEST_TIMEOUT = (10, 180)
 
@@ -157,6 +161,23 @@ def default_provider_id():
     if gemini_configured():
         return "gemini"
     return "pollinations"
+
+
+def refresh_provider_statuses():
+    """Re-evaluate key-file-dependent provider statuses (in place).
+
+    PROVIDERS is built once at import time; if the user adds or removes a
+    key file while the backend is running, the status flags would go stale
+    and /api/generate would reject a now-configured provider. Called before
+    every provider-listing / generation request.
+    """
+    for provider in PROVIDERS:
+        if provider["id"] == "gemini":
+            provider["status"] = "active" if gemini_configured() else "inactive"
+        elif provider["id"] == "huggingface":
+            provider["status"] = (
+                "active" if huggingface_configured() else "inactive"
+            )
 
 
 def _aspect_ratio_for(width, height):
@@ -569,10 +590,38 @@ def _gemini_error_for(response):
             "older ones with 'AIza')."
         )
     if status == 429 or "resource_exhausted" in text or "quota" in text:
-        return GenerationError(
-            "Gemini's free daily limit is used up. It resets tomorrow - "
-            "or enable billing on your Google project for more."
-        )
+        quota_id, retry_delay = "", ""
+        try:
+            details = response.json().get("error", {}).get("details") or []
+        except ValueError:
+            details = []
+        for item in details:
+            for violation in item.get("violations") or []:
+                quota_id = quota_id or str(violation.get("quotaId") or "")
+            retry_delay = retry_delay or str(item.get("retryDelay") or "")
+        if quota_id:
+            log.warning(
+                "Gemini quota detail: %s (retry after %s)",
+                quota_id, retry_delay or "?",
+            )
+        if "PerMinute" in quota_id:
+            base = (
+                "Google's per-minute limit for the image model was hit - "
+                "wait one minute, then try again."
+            )
+        elif "PerDay" in quota_id:
+            base = (
+                "Google's free daily limit for this image model is used "
+                "up - it resets after midnight Pacific time."
+            )
+        else:
+            base = (
+                "Google's free limit for this image model is used up for "
+                "now - wait a bit and try again."
+            )
+        if retry_delay:
+            base += f" Google says retry in ~{retry_delay}."
+        return GenerationError(base)
     if status == 403:
         return GenerationError(
             "Google denied access (403). The key may need billing enabled, "
@@ -586,15 +635,18 @@ def generate_image_gemini(
     width=1080,
     height=1920,
     seed=None,
-    model=GEMINI_IMAGE_MODEL,
+    model=None,
     images_dir=None,
     retries=2,
     negative_prompt=None,
 ):
     """Call Google's Gemini image model and persist the result.
 
-    Returns the same metadata dict shape as generate_image(). Raises
-    GenerationError with a user-friendly message on any failure.
+    Tries the flagship 2.5 "nano banana" model first and automatically
+    falls back to the 2.0 preview image model when 2.5 is quota-blocked
+    (each model has its own free-tier bucket). Returns the same metadata
+    dict shape as generate_image(). Raises GenerationError with a
+    user-friendly message on any failure.
     """
     api_key = read_gemini_api_key()
     if not api_key:
@@ -610,58 +662,80 @@ def generate_image_gemini(
     if negative_prompt:
         effective_prompt = f"{prompt}. Avoid: {negative_prompt}."
     aspect_ratio = _aspect_ratio_for(width, height)
-    url = f"{GEMINI_API_BASE}/{model}:generateContent"
+    primary = model or GEMINI_IMAGE_MODEL
+    models_to_try = [primary] + [
+        m for m in GEMINI_IMAGE_MODEL_FALLBACKS if m != primary
+    ]
     base_body = {"contents": [{"parts": [{"text": effective_prompt}]}]}
 
     last_error = None
-    for attempt in range(1, retries + 1):
-        for config in _gemini_image_configs(aspect_ratio):
-            body = dict(base_body)
-            if config:
-                body["generationConfig"] = config
-            try:
-                log.info(
-                    "Gemini attempt %d/%d (%dx%d -> %s, config=%s)",
-                    attempt, retries, width, height, aspect_ratio,
-                    sorted(config.get("imageConfig", {}).keys()) or "plain",
-                )
-                response = requests.post(
-                    url,
-                    json=body,
-                    timeout=GEMINI_REQUEST_TIMEOUT,
-                    headers={"x-goog-api-key": api_key, "User-Agent": USER_AGENT},
-                )
-            except requests.RequestException as exc:
-                last_error = GenerationError(f"Network error talking to Google: {exc}")
-                continue
-
-            if response.status_code == 200:
+    for current_model in models_to_try:
+        url = f"{GEMINI_API_BASE}/{current_model}:generateContent"
+        for attempt in range(1, retries + 1):
+            move_to_next_model = False
+            for config in _gemini_image_configs(aspect_ratio):
+                body = dict(base_body)
+                if config:
+                    body["generationConfig"] = config
                 try:
-                    return _finish_gemini_image(
-                        response, prompt, negative_prompt, seed, model,
-                        width, height, images_dir,
+                    log.info(
+                        "Gemini attempt %d/%d (%s, %dx%d -> %s, config=%s)",
+                        attempt, retries, current_model, width, height,
+                        aspect_ratio,
+                        sorted(config.get("imageConfig", {}).keys()) or "plain",
                     )
-                except GenerationError as exc:
-                    # A 200 without an image (safety block) won't improve
-                    # with a different imageConfig - stop immediately.
-                    raise exc
+                    response = requests.post(
+                        url,
+                        json=body,
+                        timeout=GEMINI_REQUEST_TIMEOUT,
+                        headers={
+                            "x-goog-api-key": api_key,
+                            "User-Agent": USER_AGENT,
+                        },
+                    )
+                except requests.RequestException as exc:
+                    last_error = GenerationError(
+                        f"Network error talking to Google: {exc}"
+                    )
+                    continue
 
-            # Bad imageConfig -> try the next (simpler) config
-            text = response.text.lower()
-            if response.status_code == 400 and (
-                "imageconfig" in text or "image_config" in text
-                or "imagesize" in text or "image_size" in text
-            ):
+                if response.status_code == 200:
+                    try:
+                        return _finish_gemini_image(
+                            response, prompt, negative_prompt, seed,
+                            current_model, width, height, images_dir,
+                        )
+                    except GenerationError as exc:
+                        # A 200 without an image (safety block) won't improve
+                        # with a different imageConfig - stop immediately.
+                        raise exc
+
+                # Bad imageConfig -> try the next (simpler) config
+                text = response.text.lower()
+                if response.status_code == 400 and (
+                    "imageconfig" in text or "image_config" in text
+                    or "imagesize" in text or "image_size" in text
+                ):
+                    last_error = _gemini_error_for(response)
+                    continue
+
                 last_error = _gemini_error_for(response)
-                continue
+                # Quota / key / missing-model errors cannot be fixed by
+                # retrying the same model - but the next model may have its
+                # own free quota bucket. Move on.
+                if response.status_code in (400, 401, 403, 404, 429):
+                    move_to_next_model = True
+                    break
 
-            last_error = _gemini_error_for(response)
-            break  # real error (key/quota/network-shape) - no config will fix it
-
-        if attempt < retries:
-            pause = RETRY_BACKOFF_SECONDS * attempt
-            log.warning("Gemini attempt %d failed (%s); retrying", attempt, last_error)
-            time.sleep(pause)
+            if move_to_next_model:
+                break
+            if attempt < retries:
+                pause = RETRY_BACKOFF_SECONDS * attempt
+                log.warning(
+                    "Gemini attempt %d failed (%s); retrying",
+                    attempt, last_error,
+                )
+                time.sleep(pause)
 
     raise last_error
 
