@@ -29,6 +29,16 @@ log = logging.getLogger("frogpaper.generation")
 POLLINATIONS_ENDPOINT = "https://image.pollinations.ai/prompt/{prompt}"
 DEFAULT_MODEL = "flux"
 
+# Quality boosters appended to every Pollinations prompt. The model reacts
+# strongly to style guidance, and wallpapers specifically need vertical
+# composition + detail cues to look good on a phone screen.
+POLLINATIONS_QUALITY_SUFFIX = (
+    ". Vertical phone wallpaper composition, subject centered and fully "
+    "in frame, ultra-detailed, sharp focus, rich vibrant colors, dramatic "
+    "cinematic lighting, high dynamic range, 8k quality, clean edges "
+    "suitable for a phone home screen"
+)
+
 # --- Google Gemini ("nano banana" image model) -----------------------------
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
@@ -219,9 +229,10 @@ def generate_image(
 
     # Flux has no true negative-prompt parameter; we append it as soft
     # guidance text and document that limitation in the API docs.
-    effective_prompt = prompt
+    # Quality suffix tunes every request toward wallpaper-grade output.
+    effective_prompt = f"{prompt}{POLLINATIONS_QUALITY_SUFFIX}"
     if negative_prompt:
-        effective_prompt = f"{prompt}. Avoid: {negative_prompt}."
+        effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
 
     seed = seed or random.randint(1, 999_999_999)
     url = POLLINATIONS_ENDPOINT.format(prompt=quote(effective_prompt, safe=""))

@@ -152,15 +152,38 @@ def generate():
     )
     try:
         if provider_id == "gemini":
-            image = generate_image_gemini(
-                prompt=prompt,
-                width=width,
-                height=height,
-                seed=seed,
-                model=provider.get("model", "gemini-2.5-flash-image"),
-                images_dir=IMAGES_DIR,
-                negative_prompt=negative_prompt or None,
-            )
+            try:
+                image = generate_image_gemini(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    seed=seed,
+                    model=provider.get("model", "gemini-2.5-flash-image"),
+                    images_dir=IMAGES_DIR,
+                    negative_prompt=negative_prompt or None,
+                )
+            except GenerationError as gem_exc:
+                # Safety net: a broken/expired/rejected Gemini key must never
+                # block the user - fall back to the free provider instead.
+                fallback = next(
+                    (p for p in PROVIDERS if p["id"] == "pollinations"), None
+                )
+                if fallback is None or fallback["status"] != "active":
+                    raise
+                log.warning(
+                    "Gemini failed (%s); falling back to Pollinations", gem_exc
+                )
+                image = generate_image(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    seed=seed,
+                    model=fallback.get("model", "flux"),
+                    images_dir=IMAGES_DIR,
+                    negative_prompt=negative_prompt or None,
+                )
+                image["provider_fallback_from"] = "gemini"
+                image["fallback_reason"] = str(gem_exc)
         else:
             image = generate_image(
                 prompt=prompt,
