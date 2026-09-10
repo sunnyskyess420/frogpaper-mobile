@@ -1,21 +1,23 @@
 # Plan Status - against the original 7-phase plan
 
 Tracked against `docs/ORIGINAL_PROJECT_PLAN.md`. Updated 2026-09-10 after
-the sandbox rebuild and live verification session, then again after the
-standalone APK build sessions (commits 7545e15 -> 44edaed -> 1ecfc78).
+the sandbox rebuild and live verification session, again after the
+standalone APK build sessions (commits 7545e15 -> 44edaed -> 1ecfc78),
+after the cloud-independence + generation-UX tasks (Devin), and after the
+viewer gestures + slideshow tasks (2026-09-11, v1.9.11).
 
 ## Snapshot
 
 | Phase | Scope | Status | Progress |
 |-------|-------|--------|----------|
 | 1 | Architecture & planning | Done (adapted) | 90% |
-| 2 | Backend API | Core + gallery mgmt + prompt history live | 50% |
-| 3 | Mobile app | Foundation + mgmt/save + prompt builder live | 45% |
-| 4 | Mobile-specific features | Save-to-device live, wallpaper on Android | 40% |
-| 5 | Cloud integration | Not started (parked by choice) | 0% |
-| 6 | Testing & QA | Manual slice done + 2 real EAS builds analyzed | 15% |
-| 7 | Deployment | GitHub public + EAS linked, APK build in progress | 25% |
-| **All** | | **Working MVP verified end-to-end** | **~35%** |
+| 2 | Backend API | Core + gallery mgmt + prompt history + provider chain, cloud-ready | 65% |
+| 3 | Mobile app | Foundation + mgmt/save + prompt builder + cloud config + viewer gestures | 70% |
+| 4 | Mobile-specific features | Save-to-device live, wallpaper VERIFIED on device, generation UX, slideshow | 70% |
+| 5 | Cloud integration | Cloud deploy kit done (Dockerfile + render.yaml + guides) | 40% |
+| 6 | Testing & QA | Backend test suite in repo + 2 real EAS builds analyzed | 25% |
+| 7 | Deployment | GitHub public + EAS linked + cloud deployment guide | 35% |
+| **All** | | **Working MVP verified end-to-end, cloud-ready, gesture-complete** | **~65%** |
 
 The MVP is deliberately a vertical slice: it proves the riskiest
 assumptions (app-to-PC-backend connectivity, real generation, gallery
@@ -169,12 +171,14 @@ Remaining for this workstream:
 
 Next candidates, in rough value order:
 
-- **Run it on a real Android phone**: Expo Go for the save flow, then a
-  `expo prebuild` development build to activate direct wallpaper setting
-  (see docs/DEV_BUILD.md). This is the biggest untested surface.
-- **Generation UX hardening**: cancel button, seed lock/reuse control,
-  progress feedback while Flux is painting.
-- **Fullscreen viewer interactions**: pinch-zoom, swipe between gallery
-  images, long-press for quick actions (Phase 3.3 leftovers).
+- **Build a new APK** so the phone gets the new features: custom server
+  address (Settings), cancel button, seed input/reuse, viewer gestures
+  (pinch-zoom, swipe, hold-to-save) and the gallery slideshow. The backend
+  updates alone already work with the installed APK - only the new app
+  features need a rebuild.
+- **Cloud deployment**: follow docs/CLOUD_DEPLOY.md to put the backend on
+  Render.com, then paste the https URL into Settings -> Custom server
+  address. From then on the app works from anywhere, PC off.
+- **Verify the slideshow and gestures on the phone** after the next build.
 
-Slideshow, style transfer, tags and cloud sync stay parked.
+Style transfer, tags and cloud gallery sync stay parked.
