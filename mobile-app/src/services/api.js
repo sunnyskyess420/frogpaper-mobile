@@ -18,7 +18,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
-export const LAN_IP = '10.2.0.2'; // manual fallback - your Windows PC running the backend
+export const LAN_IP = '192.168.1.168'; // manual fallback - your Windows PC running the backend (check with `ipconfig` if your router reassigns IPs)
 export const EMULATOR_ALIAS = '10.0.2.2'; // Android emulator alias for the host machine
 const PORT = 5000;
 
@@ -47,8 +47,8 @@ function candidateBaseUrls() {
   if (Platform.OS === 'android') {
     return [
       devHostLanUrl(),
-      `http://${EMULATOR_ALIAS}:${PORT}`,
       `http://${LAN_IP}:${PORT}`,
+      `http://${EMULATOR_ALIAS}:${PORT}`,
       `http://localhost:${PORT}`,
     ].filter(Boolean);
   }
