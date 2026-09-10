@@ -38,6 +38,7 @@ from services.image_generation import (
     default_provider_id,
     delete_sidecar,
     find_gallery_image,
+    fit_device_wallpaper,
     generate_image,
     generate_image_gemini,
     generate_image_huggingface,
@@ -53,7 +54,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.9.8"
+APP_VERSION = "1.9.9"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 26 * 1024 * 1024  # 26 MB request cap (uploads)
@@ -136,7 +137,10 @@ def generate():
         )
 
     width = _parse_int(data.get("width"), 1080, 256, 2048)
-    height = _parse_int(data.get("height"), 1920, 256, 2048)
+    height = _parse_int(data.get("height"), 1920, 256, 2560)
+    # Legacy 16:9 portrait requests are rendered in the phone's real tall
+    # shape so wallpapers fill the screen with no zoom or side cropping.
+    width, height = fit_device_wallpaper(width, height)
     seed = data.get("seed")
     if seed is not None:
         seed = _parse_int(seed, 1, 1, 999999999)
