@@ -78,12 +78,23 @@ def _subject_enhancer(prompt: str) -> str:
 # --- Google Gemini ("nano banana" image model) -----------------------------
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
-# The 2.5 "nano banana" model can have a small or zero free-tier quota on
-# some fresh keys; the older 2.0 preview image model usually keeps a free
-# quota bucket of its own. Tried automatically when 2.5 is exhausted.
-GEMINI_IMAGE_MODEL_FALLBACKS = ["gemini-2.0-flash-preview-image-generation"]
+# Google retires image model names now and then (the 2.0 preview image
+# model and even gemini-2.5-flash-image-preview were gone by Sept 2026),
+# so instead of guessing names the backend ASKS Google which image
+# models this key can actually see (ListModels) and works through that
+# list. This static chain is only the fallback used when the model
+# listing cannot be fetched - it holds the names verified live on
+# 2026-09-10 (each answered 429 quota, i.e. they exist, unlike the
+# retired names that answer 404).
+GEMINI_IMAGE_MODEL_FALLBACKS = ["gemini-3-pro-image", "gemini-3-pro-image-preview"]
 GEMINI_KEY_FILE = Path(__file__).resolve().parent.parent / "gemini_api_key.txt"
 GEMINI_REQUEST_TIMEOUT = (10, 180)
+GEMINI_LIST_TIMEOUT = (10, 30)
+GEMINI_MODEL_CACHE_TTL = 600
+
+# Discovered image-model names, cached for GEMINI_MODEL_CACHE_TTL seconds
+# so each wallpaper generation does not re-list every time.
+_GEMINI_MODEL_CACHE = {"at": 0.0, "models": None}
 
 # Aspect ratios Gemini 2.5 Flash Image supports (name, width/height value).
 _ASPECT_RATIOS = [
@@ -501,6 +512,106 @@ def _gemini_image_configs(aspect_ratio):
     ]
 
 
+def _image_models_from_page(payload):
+    """Image-capable model names from one ListModels page.
+
+    A model counts when it supports generateContent (the call we make) and
+    its name says "image". Embedding/TTS/live models never qualify even
+    when their names mention other media types.
+    """
+    names = []
+    for item in payload.get("models") or []:
+        name = (item.get("name") or "").rsplit("/", 1)[-1]
+        methods = item.get("supportedGenerationMethods") or []
+        lowered = name.lower()
+        if "generateContent" not in methods:
+            continue
+        if "image" not in lowered:
+            continue
+        if any(bad in lowered for bad in ("embedding", "tts", "audio")):
+            continue
+        names.append(name)
+    return names
+
+
+def _order_image_models(models):
+    """Known-good names first, then the rest newest-looking first."""
+    priority = ["gemini-3-pro-image", "gemini-2.5-flash-image"]
+    ordered = [m for m in priority if m in models]
+    ordered += sorted((m for m in models if m not in priority), reverse=True)
+    if ordered:
+        log.info(
+            "Gemini image models this key can use: %s", ", ".join(ordered)
+        )
+    else:
+        log.warning(
+            "Gemini listed zero image models for this key - Google may not "
+            "have granted image generation to this account yet."
+        )
+    return ordered
+
+
+def _fetch_gemini_image_models(api_key):
+    """Ask Google which image models this key can use (ListModels).
+
+    Returns a list of model names, or None when the listing itself could
+    not be fetched (network trouble or a rejected request) - callers then
+    fall back to the built-in static chain.
+    """
+    names = []
+    page_token = None
+    for _page in range(4):
+        params = {"pageSize": 1000}
+        if page_token:
+            params["pageToken"] = page_token
+        try:
+            response = requests.get(
+                GEMINI_API_BASE,
+                params=params,
+                timeout=GEMINI_LIST_TIMEOUT,
+                headers={"x-goog-api-key": api_key, "User-Agent": USER_AGENT},
+            )
+        except requests.RequestException as exc:
+            log.warning(
+                "Gemini model listing unreachable (%s) - using built-in "
+                "model list", exc,
+            )
+            return None
+        if response.status_code != 200:
+            log.warning(
+                "Gemini model listing failed (HTTP %s) - using built-in "
+                "model list", response.status_code,
+            )
+            return None
+        payload = response.json()
+        names.extend(_image_models_from_page(payload))
+        page_token = payload.get("nextPageToken")
+        if not page_token:
+            break
+    return names
+
+
+def _gemini_model_candidates(api_key, primary):
+    """Ordered model chain: primary, then everything this key can see."""
+    now = time.time()
+    cached = _GEMINI_MODEL_CACHE["models"]
+    if cached is not None and now - _GEMINI_MODEL_CACHE["at"] < GEMINI_MODEL_CACHE_TTL:
+        available = cached
+    else:
+        available = _fetch_gemini_image_models(api_key)
+        if available is not None:
+            available = _order_image_models(available)
+            _GEMINI_MODEL_CACHE["at"] = now
+            _GEMINI_MODEL_CACHE["models"] = available
+    if not available:
+        available = []
+    chain = [primary]
+    for name in GEMINI_IMAGE_MODEL_FALLBACKS + available:
+        if name not in chain:
+            chain.append(name)
+    return chain
+
+
 def _finish_gemini_image(response, prompt, negative_prompt, seed, model, width, height, images_dir):
     """Parse a successful Gemini response, save the image, return metadata."""
     payload = response.json()
@@ -642,11 +753,11 @@ def generate_image_gemini(
 ):
     """Call Google's Gemini image model and persist the result.
 
-    Tries the flagship 2.5 "nano banana" model first and automatically
-    falls back to the 2.0 preview image model when 2.5 is quota-blocked
-    (each model has its own free-tier bucket). Returns the same metadata
-    dict shape as generate_image(). Raises GenerationError with a
-    user-friendly message on any failure.
+    Asks Google which image models this key can actually see and works
+    through them (each model has its own free-tier bucket), falling back
+    to a built-in chain when the listing is unavailable. Returns the same
+    metadata dict shape as generate_image(). Raises GenerationError with
+    a user-friendly message on any failure.
     """
     api_key = read_gemini_api_key()
     if not api_key:
@@ -663,9 +774,7 @@ def generate_image_gemini(
         effective_prompt = f"{prompt}. Avoid: {negative_prompt}."
     aspect_ratio = _aspect_ratio_for(width, height)
     primary = model or GEMINI_IMAGE_MODEL
-    models_to_try = [primary] + [
-        m for m in GEMINI_IMAGE_MODEL_FALLBACKS if m != primary
-    ]
+    models_to_try = _gemini_model_candidates(api_key, primary)
     base_body = {"contents": [{"parts": [{"text": effective_prompt}]}]}
 
     last_error = None
@@ -715,6 +824,7 @@ def generate_image_gemini(
                 if response.status_code == 400 and (
                     "imageconfig" in text or "image_config" in text
                     or "imagesize" in text or "image_size" in text
+                    or "aspect" in text
                 ):
                     last_error = _gemini_error_for(response)
                     continue
