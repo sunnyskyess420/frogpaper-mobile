@@ -1,7 +1,8 @@
 # Plan Status - against the original 7-phase plan
 
 Tracked against `docs/ORIGINAL_PROJECT_PLAN.md`. Updated 2026-09-10 after
-the sandbox rebuild and live verification session.
+the sandbox rebuild and live verification session, then again after the
+standalone APK build sessions (commits 7545e15 -> 44edaed -> 1ecfc78).
 
 ## Snapshot
 
@@ -11,10 +12,10 @@ the sandbox rebuild and live verification session.
 | 2 | Backend API | Core + gallery mgmt + prompt history live | 50% |
 | 3 | Mobile app | Foundation + mgmt/save + prompt builder live | 45% |
 | 4 | Mobile-specific features | Save-to-device live, wallpaper on Android | 40% |
-| 5 | Cloud integration | Not started | 0% |
-| 6 | Testing & QA | Manual slice done | 10% |
-| 7 | Deployment | Repo only | 5% |
-| **All** | | **Working MVP verified end-to-end** | **~30%** |
+| 5 | Cloud integration | Not started (parked by choice) | 0% |
+| 6 | Testing & QA | Manual slice done + 2 real EAS builds analyzed | 15% |
+| 7 | Deployment | GitHub public + EAS linked, APK build in progress | 25% |
+| **All** | | **Working MVP verified end-to-end** | **~35%** |
 
 The MVP is deliberately a vertical slice: it proves the riskiest
 assumptions (app-to-PC-backend connectivity, real generation, gallery
@@ -102,6 +103,38 @@ bundle compile. Missing: automated test suite, device matrix, beta track.
 Done: source control (GitHub), reproducible setup docs. Missing:
 automated test suite, device matrix, beta track, store builds
 (EAS), cloud hosting.
+
+## Standalone APK build - current workstream (2026-09-10 evening)
+
+Goal: an installable APK that does NOT need Expo Go, unlocks
+save-to-device + set-as-wallpaper for real (Phase 4.1 on a device).
+
+Progress so far:
+- v1.8.0 build prep (7545e15): eas.json (preview=apk, production=bundle),
+  android package id, cli.appVersionSource=remote, LAN IP auto-detect.
+- EAS cloud build #1 failed: react-native-wallpaper-manager is a legacy
+  library (jcenter refs, no AGP 8 namespace, createJSModules removed in
+  RN 0.86). Bytecode analysis of the .aar confirmed the old Java
+  overrides are otherwise still source-compatible.
+- Fix 1 (44edaed): config plugin `src/plugins/WallpaperManagerFix.js`
+  patches the library during cloud prebuild (gradle namespace +
+  implementation deps, manifest without package attr, modernized
+  WallPaperPackage.java). Verified: plugin ran in cloud, all 3 original
+  errors gone.
+- EAS cloud build #2 (536b3ab6) failed on a NEW error: Glide 3.7.0
+  overloads reference android.support.v4.app.Fragment/FragmentActivity;
+  class missing in the androidx world -> javac error at
+  WallPaperManager.java:105/:162.
+- Fix 2 (1ecfc78): plugin's gradle patch now also adds
+  `com.android.support:support-v4:28.0.0` (downloadability verified,
+  runtime only uses the Context overload). Pushed; raw file serves 200.
+
+Remaining for this workstream:
+1. User pulls the fixed plugin onto the PC (one curl command) and runs
+   EAS build #3 -> expect success (risk assessed low).
+2. Download APK -> install on phone -> test save + set-as-wallpaper.
+3. Revoke the EAS access token used for CLI auth.
+4. Refresh the downloadable project zip backup.
 
 ## Suggested next three moves (highest value first)
 
