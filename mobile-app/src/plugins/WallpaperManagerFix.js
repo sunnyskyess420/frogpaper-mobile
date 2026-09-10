@@ -115,16 +115,18 @@ public class WallPaperPackage implements ReactPackage {
 // receives {status: "success"|"error", msg, url}. Handles the exact source
 // types the original supported: base64 data URIs, bundled drawable names,
 // file:// and content:// URIs, plain paths, and http(s) URLs with optional
-// headers. Decoding runs on a background thread; center-crops and scales the
-// bitmap to the system's desired wallpaper dimensions (the same job Glide's
-// 1080x1920 centerCrop target used to do).
+// headers. Decoding runs on a background thread; the decoded bitmap is then
+// handed to WallpaperManager.setBitmap AS-IS - Android scales it to the real
+// wallpaper surface itself. (Earlier versions center-cropped to the system's
+// "desired minimum" size first, which re-zoomed every wallpaper: that call
+// returns 0 on many devices so a hardcoded 1080x1920 fallback re-cropped our
+// tall 1080x2220 renders back to the old 16:9 shape, and on launchers that
+// report a 2x parallax width it zoomed even further.)
 const NEW_MANAGER_JAVA = `package com.cunyutech.hollyliu.reactnative.wallpaper;
 
 import android.app.WallpaperManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
-import android.graphics.Matrix;
 import android.net.Uri;
 import android.util.Base64;
 import android.util.Log;
@@ -200,8 +202,10 @@ public class WallPaperManager extends ReactContextBaseJavaModule {
             public void run() {
                 try {
                     Bitmap decoded = decodeSource(source, headers);
-                    Bitmap cropped = centerCropToWallpaperSize(decoded);
-                    wallpaperManager.setBitmap(cropped);
+                    // No pre-crop here: Android scales the bitmap to the
+                    // real wallpaper surface itself. The old center-crop
+                    // re-zoomed tall wallpapers back to 16:9.
+                    wallpaperManager.setBitmap(decoded);
                     sendMessage("success", "Set Wallpaper Success", source);
                 } catch (Throwable t) {
                     Log.w(TAG, "setWallpaper failed", t);
@@ -312,47 +316,6 @@ public class WallPaperManager extends ReactContextBaseJavaModule {
             sample *= 2;
         }
         return sample;
-    }
-
-    // Center-crop + scale to the system's desired wallpaper size (the same
-    // job Glide's 1080x1920 centerCrop target used to do).
-    private Bitmap centerCropToWallpaperSize(Bitmap src) {
-        if (src == null) {
-            throw new IllegalArgumentException("source bitmap is null");
-        }
-        int targetW = wallpaperManager.getDesiredMinimumWidth();
-        int targetH = wallpaperManager.getDesiredMinimumHeight();
-        if (targetW <= 0 || targetH <= 0) {
-            targetW = 1080;
-            targetH = 1920;
-        }
-
-        float scale = Math.max(
-            targetW / (float) src.getWidth(),
-            targetH / (float) src.getHeight()
-        );
-        int scaledW = Math.round(src.getWidth() * scale);
-        int scaledH = Math.round(src.getHeight() * scale);
-
-        Bitmap scaled = Bitmap.createBitmap(scaledW, scaledH, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(scaled);
-        Matrix matrix = new Matrix();
-        matrix.postScale(scale, scale);
-        canvas.drawBitmap(src, matrix, null);
-
-        int x = Math.max(0, (scaledW - targetW) / 2);
-        int y = Math.max(0, (scaledH - targetH) / 2);
-        int cropW = Math.min(targetW, scaledW);
-        int cropH = Math.min(targetH, scaledH);
-        Bitmap cropped = Bitmap.createBitmap(scaled, x, y, cropW, cropH);
-
-        if (cropped != scaled) {
-            scaled.recycle();
-        }
-        if (cropped != src && src != scaled) {
-            src.recycle();
-        }
-        return cropped;
     }
 }
 `;
