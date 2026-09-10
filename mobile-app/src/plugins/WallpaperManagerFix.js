@@ -38,6 +38,11 @@ android {
 dependencies {
     implementation "com.facebook.react:react-native:+"
     implementation "com.github.bumptech.glide:glide:3.7.0"
+    // Glide 3's Glide.with() overload set references android.support.v4
+    // classes (Fragment / FragmentActivity). Those class files must be on
+    // the compile classpath or javac fails with "cannot access Fragment".
+    // Only the Context overload is actually used at runtime.
+    implementation "com.android.support:support-v4:28.0.0"
 }
 `;
 
