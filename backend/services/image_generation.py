@@ -20,9 +20,10 @@ from urllib.parse import quote
 import requests
 
 try:
-    from PIL import Image  # optional: only used for richer metadata
+    from PIL import Image, ImageFilter  # optional: metadata + enhancement
 except ImportError:  # pragma: no cover
     Image = None
+    ImageFilter = None
 
 log = logging.getLogger("frogpaper.generation")
 
@@ -208,6 +209,51 @@ def _dimensions_from_path(path: Path):
         return {}
 
 
+def _enhance_resolution(data: bytes, width: int, height: int):
+    """Upscale + sharpen when the provider returns less than requested.
+
+    The free Pollinations tier caps every image at 576x1024 no matter what
+    size is requested (verified 2026-09: flux and turbo both capped), so a
+    phone stretches that tiny image across a 1080p+ screen and everything
+    looks blurry. A Lanczos upscale with a mild unsharp mask brings it to
+    full wallpaper size with far better perceived detail.
+
+    Returns {"data", "extension", "upscaled_from"} or None when no
+    enhancement is needed (provider honored the size, or PIL is missing).
+    Enhancement must never break saving, so any failure returns None.
+    """
+    if Image is None or ImageFilter is None:
+        return None
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            ret_w, ret_h = img.size
+            if ret_w >= width and ret_h >= height:
+                return None  # provider delivered full size - leave untouched
+            # Cover-scale so both dimensions reach the request, then
+            # center-crop to exactly width x height (no distortion, no
+            # letterboxing - matches how Android fits wallpapers).
+            factor = max(width / ret_w, height / ret_h)
+            new_w = max(width, round(ret_w * factor))
+            new_h = max(height, round(ret_h * factor))
+            upscaled = img.convert("RGB").resize((new_w, new_h), Image.LANCZOS)
+            left = (new_w - width) // 2
+            top = (new_h - height) // 2
+            enhanced = upscaled.crop((left, top, left + width, top + height))
+            enhanced = enhanced.filter(
+                ImageFilter.UnsharpMask(radius=1.6, percent=120, threshold=2)
+            )
+            buf = io.BytesIO()
+            enhanced.save(buf, format="JPEG", quality=92, optimize=True)
+            return {
+                "data": buf.getvalue(),
+                "extension": ".jpg",
+                "upscaled_from": f"{ret_w}x{ret_h}",
+            }
+    except Exception as exc:  # noqa: BLE001 - metadata-grade best effort
+        log.warning("Resolution enhancement skipped: %s", exc)
+        return None
+
+
 _dimension_cache = {}
 
 
@@ -268,6 +314,16 @@ def generate_image(
                 if len(data) < 1024:
                     raise GenerationError("Provider returned a suspiciously small payload.")
                 extension = _extension_for(content_type)
+                enhancement = _enhance_resolution(data, width, height)
+                upscale_note = None
+                if enhancement is not None:
+                    data = enhancement["data"]
+                    extension = enhancement["extension"]
+                    upscale_note = enhancement["upscaled_from"]
+                    log.info(
+                        "Provider returned %s - enhanced to %dx%d",
+                        upscale_note, width, height,
+                    )
                 filename = _save_image(data, images_dir, extension)
                 dimensions = _read_dimensions(data) or {}
                 saved_path = images_dir / filename
@@ -282,6 +338,7 @@ def generate_image(
                         "seed": seed,
                         "requested_width": width,
                         "requested_height": height,
+                        "upscaled_from": upscale_note,
                     },
                 )
                 return {
