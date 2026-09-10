@@ -130,12 +130,19 @@ def gemini_configured():
 
 
 # --- Hugging Face Inference (full-quality FLUX.1 models) -------------------
-HF_ROUTER_URL = "https://router.huggingface.co/hf-inference/models/{model}"
+# HF retired its in-house FLUX hosting: hf-inference answers HTTP 410
+# "deprecated". FLUX now runs through partner providers on the HF router;
+# fal-ai serves both models and was verified 2026-09 with real renders made
+# by a fine-grained hf_ token. The router URL is the provider prefix plus
+# fal's own model path, width/height travel inside image_size, and the reply
+# is JSON with images[0].url (bytes hosted on fal.media) we download after.
+HF_FAL_URL = "https://router.huggingface.co/fal-ai/{model_path}"
 # Best model first; schnell is the automatic fallback when dev is gated or
 # unavailable. (num_inference_steps differs per model.)
 HF_IMAGE_MODELS = [
-    ("black-forest-labs/FLUX.1-dev", 28),
-    ("black-forest-labs/FLUX.1-schnell", 4),
+    # (hf model id for logs/errors, fal-ai path on the router, steps)
+    ("black-forest-labs/FLUX.1-dev", "fal-ai/flux/dev", 28),
+    ("black-forest-labs/FLUX.1-schnell", "fal-ai/flux/schnell", 4),
 ]
 HF_TOKEN_FILE = Path(__file__).resolve().parent.parent / "huggingface_token.txt"
 HF_REQUEST_TIMEOUT = (10, 180)
@@ -978,11 +985,16 @@ def _hf_error_for(response, model):
             f"Model {model} needs one-time permission: open its page on "
             "huggingface.co while signed in and click 'Agree' to unlock it."
         )
+    if status == 410 or "deprecated" in text:
+        return GenerationError(
+            f"Model {model} route was retired by Hugging Face - update the "
+            "FrogPaper backend to get the current route."
+        )
     if status == 404 or "no inference provider" in text or "not deployed" in text:
         return GenerationError(
             f"Model {model} is not available on Hugging Face right now."
         )
-    if status in (429, 503) or "quota" in text or "credit" in text:
+    if status in (402, 429, 503) or "quota" in text or "credit" in text:
         return GenerationError(
             "Hugging Face free credits are used up or the model is busy - "
             "credits reset monthly. Try again soon."
@@ -1061,7 +1073,7 @@ def generate_image_huggingface(
     retries=2,
     negative_prompt=None,
 ):
-    """Call Hugging Face Inference (FLUX.1) and persist the result.
+    """Call Hugging Face Inference (FLUX.1 via fal-ai) and persist the result.
 
     Tries the best model first (FLUX.1-dev) and automatically falls back to
     the open-license FLUX.1-schnell when dev is gated or unavailable. Raises
@@ -1087,18 +1099,20 @@ def generate_image_huggingface(
     seed = seed or random.randint(1, 999_999_999)
     render_w, render_h = _hf_dimensions_for(width, height)
 
-    model_list = [(model, 28)] if model else list(HF_IMAGE_MODELS)
+    model_list = list(HF_IMAGE_MODELS)
+    if model:
+        known = next(
+            (entry for entry in HF_IMAGE_MODELS if entry[0] == model), None
+        )
+        model_list = [known] if known else model_list
     last_error = None
-    for hf_model, steps in model_list:
-        url = HF_ROUTER_URL.format(model=hf_model)
+    for hf_model, fal_path, steps in model_list:
+        url = HF_FAL_URL.format(model_path=fal_path)
         body = {
-            "inputs": effective_prompt,
-            "parameters": {
-                "width": render_w,
-                "height": render_h,
-                "num_inference_steps": steps,
-                "seed": seed,
-            },
+            "prompt": effective_prompt,
+            "image_size": {"width": render_w, "height": render_h},
+            "num_inference_steps": steps,
+            "seed": seed,
         }
         for attempt in range(1, retries + 1):
             try:
@@ -1123,16 +1137,53 @@ def generate_image_huggingface(
 
             content_type = response.headers.get("Content-Type", "")
             if response.status_code == 200 and content_type.startswith("image/"):
+                # Direct-bytes reply (kept for provider compatibility).
                 return _finish_huggingface_image(
                     response.content, content_type, hf_model, prompt,
                     negative_prompt, seed, width, height,
                     render_w, render_h, images_dir,
                 )
 
+            if response.status_code == 200:
+                # fal-ai reply: JSON with images[0].url hosted on fal.media -
+                # download the finished picture ourselves.
+                try:
+                    img_url = response.json()["images"][0]["url"]
+                except (ValueError, KeyError, IndexError, TypeError):
+                    last_error = GenerationError(
+                        "Hugging Face (fal-ai) answered 200 but without an "
+                        "image URL - unexpected reply shape."
+                    )
+                    continue
+                try:
+                    img_reply = requests.get(
+                        img_url,
+                        timeout=HF_REQUEST_TIMEOUT,
+                        headers={"User-Agent": USER_AGENT},
+                    )
+                except requests.RequestException as exc:
+                    last_error = GenerationError(
+                        f"Could not download the finished image: {exc}"
+                    )
+                    continue
+                dl_type = img_reply.headers.get("Content-Type", "")
+                if img_reply.status_code == 200 and dl_type.startswith("image/"):
+                    return _finish_huggingface_image(
+                        img_reply.content, dl_type, hf_model, prompt,
+                        negative_prompt, seed, width, height,
+                        render_w, render_h, images_dir,
+                    )
+                last_error = GenerationError(
+                    "Image download after the render failed with HTTP "
+                    f"{img_reply.status_code}."
+                )
+                continue
+
             last_error = _hf_error_for(response, hf_model)
-            # A rejected token, gated model or missing model will not improve
-            # by retrying this model - move on to the next one (if any).
-            if response.status_code in (400, 401, 403, 404):
+            # A rejected token, out-of-credit account, gated model, retired
+            # route or missing model will not improve by retrying this model
+            # - move on to the next one (if any).
+            if response.status_code in (400, 401, 402, 403, 404, 410):
                 break
             if attempt < retries:
                 pause = RETRY_BACKOFF_SECONDS * attempt
