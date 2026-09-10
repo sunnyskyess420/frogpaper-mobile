@@ -41,6 +41,40 @@ POLLINATIONS_QUALITY_SUFFIX = (
     "suitable for a phone home screen"
 )
 
+# Subject-aware boosters. Flux renders animals inconsistently from bare
+# prompts ("frog" alone is a coin flip), so popular subjects get anatomy
+# and photography cues that measurably raise the hit rate.
+_SUBJECT_ENHANCERS = {
+    "frog": (
+        "cute tree frog with big glossy eyes, smooth vivid green skin, "
+        "perched on a wet leaf, professional wildlife macro photography, "
+        "correct anatomy"
+    ),
+    "toad": (
+        "cute toad with big golden eyes and detailed skin, professional "
+        "wildlife macro photography, correct anatomy"
+    ),
+}
+_GENERIC_ANIMAL_WORDS = (
+    "cat", "kitten", "dog", "puppy", "fox", "owl", "wolf", "deer",
+    "horse", "bird", "tiger", "lion", "panda", "rabbit", "bunny",
+    "whale", "turtle", "fish", "koi", "dragon", "axolotl",
+)
+
+
+def _subject_enhancer(prompt: str) -> str:
+    """Extra subject-specific phrases for prompts featuring known subjects."""
+    text = f" {prompt.lower()} "
+    for word, phrase in _SUBJECT_ENHANCERS.items():
+        if f" {word}" in text or f"{word}s " in text:
+            return f", {phrase}"
+    if any(f" {word}" in text or f"{word}s " in text for word in _GENERIC_ANIMAL_WORDS):
+        return (
+            ", adorable healthy animal with expressive eyes and correct "
+            "anatomy, professional wildlife photography"
+        )
+    return ""
+
 # --- Google Gemini ("nano banana" image model) -----------------------------
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
@@ -230,13 +264,23 @@ def _enhance_resolution(data: bytes, width: int, height: int):
             ret_w, ret_h = img.size
             if ret_w >= width and ret_h >= height:
                 return None  # provider delivered full size - leave untouched
+            img = img.convert("RGB")
+            # Pollinations stamps a "pollinations.ai" badge in the top-right
+            # and bottom-right corners of anonymous-tier images even with
+            # nologo=true (verified 2026-09). Trim those margins before
+            # upscaling - the cover-scale below restores the exact requested
+            # size, so the crop costs nothing in final resolution.
+            img = img.crop(
+                (0, int(ret_h * 0.07), ret_w, ret_h - int(ret_h * 0.065))
+            )
+            ret_w, ret_h = img.size
             # Cover-scale so both dimensions reach the request, then
             # center-crop to exactly width x height (no distortion, no
             # letterboxing - matches how Android fits wallpapers).
             factor = max(width / ret_w, height / ret_h)
             new_w = max(width, round(ret_w * factor))
             new_h = max(height, round(ret_h * factor))
-            upscaled = img.convert("RGB").resize((new_w, new_h), Image.LANCZOS)
+            upscaled = img.resize((new_w, new_h), Image.LANCZOS)
             left = (new_w - width) // 2
             top = (new_h - height) // 2
             enhanced = upscaled.crop((left, top, left + width, top + height))
@@ -277,7 +321,7 @@ def generate_image(
     # Flux has no true negative-prompt parameter; we append it as soft
     # guidance text and document that limitation in the API docs.
     # Quality suffix tunes every request toward wallpaper-grade output.
-    effective_prompt = f"{prompt}{POLLINATIONS_QUALITY_SUFFIX}"
+    effective_prompt = f"{prompt}{_subject_enhancer(prompt)}{POLLINATIONS_QUALITY_SUFFIX}"
     if negative_prompt:
         effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
 
