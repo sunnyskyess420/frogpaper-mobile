@@ -54,6 +54,10 @@ export default function GenerateScreen() {
   const [result, setResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveNotice, setSaveNotice] = useState(null);
+  const [abortController, setAbortController] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [lastSeed, setLastSeed] = useState(null);
+  const [seedInput, setSeedInput] = useState('');
 
   const preset = SIZE_PRESETS.find((item) => item.id === presetId);
   const style = STYLE_PRESETS.find((item) => item.id === styleId) || null;
@@ -86,19 +90,47 @@ export default function GenerateScreen() {
     setError(null);
     setResult(null);
     setSaveNotice(null);
+    setElapsed(0);
+    
+    const controller = new AbortController();
+    setAbortController(controller);
+    
+    // Start elapsed time counter
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    
     try {
+      const seedToUse = seedInput.trim() ? parseInt(seedInput.trim(), 10) : undefined;
       const response = await api.generate({
         prompt: style ? `${trimmed}, ${style.suffix}` : trimmed,
         negativePrompt: negative.trim() || null,
         width: preset.width,
         height: preset.height,
+        seed: seedToUse,
+        signal: controller.signal,
       });
       setResult(response.image);
+      setLastSeed(response.image.seed);
+      setSeedInput(''); // Clear seed input after successful generation
       loadRecent(); // the new prompt should appear in history right away
     } catch (err) {
-      setError(err.message || 'Generation failed. Is the backend running?');
+      if (err.name === 'AbortError' || err.message?.includes('abort')) {
+        setError('Generation cancelled.');
+      } else {
+        setError(err.message || 'Generation failed. Is the backend running?');
+      }
     } finally {
       setLoading(false);
+      setAbortController(null);
+      clearInterval(timer);
+    }
+  };
+
+  const cancelGeneration = () => {
+    if (abortController) {
+      abortController.abort();
     }
   };
 
@@ -186,6 +218,30 @@ export default function GenerateScreen() {
           ))}
         </View>
 
+        <Text style={styles.sectionLabel}>Seed (optional)</Text>
+        <View style={styles.seedRow}>
+          <TextInput
+            style={styles.seedInput}
+            placeholder="Random if empty"
+            placeholderTextColor={colors.muted}
+            value={seedInput}
+            onChangeText={setSeedInput}
+            keyboardType="number-pad"
+            maxLength={9}
+          />
+          {lastSeed !== null && (
+            <Pressable
+              onPress={() => setSeedInput(String(lastSeed))}
+              style={styles.seedChipButton}
+            >
+              <Text style={styles.seedChipText}>Reuse: {lastSeed}</Text>
+            </Pressable>
+          )}
+        </View>
+        <Text style={styles.seedHint}>
+          Same seed + same prompt = same image. Leave empty for random.
+        </Text>
+
         {recent.length > 0 ? (
           <View style={styles.ideasBlock}>
             <Text style={styles.sectionLabel}>Recent prompts</Text>
@@ -227,9 +283,14 @@ export default function GenerateScreen() {
         </Pressable>
 
         {loading && (
-          <Text style={styles.loadingHint}>
-            Painting your wallpaper... this can take 10-60 seconds.
-          </Text>
+          <View style={styles.loadingContainer}>
+            <Text style={styles.loadingHint}>
+              FLUX is painting your wallpaper... {elapsed}s elapsed
+            </Text>
+            <Pressable style={styles.cancelButton} onPress={cancelGeneration}>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </Pressable>
+          </View>
         )}
 
         {error !== null && (
@@ -377,6 +438,40 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 14,
   },
+  seedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  seedInput: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    color: colors.text,
+    fontSize: 15,
+    padding: spacing.md,
+  },
+  seedChipButton: {
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  seedChipText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  seedHint: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: spacing.xs,
+    marginBottom: spacing.lg,
+  },
   generateButton: {
     backgroundColor: colors.accent,
     borderRadius: radii.md,
@@ -396,7 +491,24 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     textAlign: 'center',
+  },
+  loadingContainer: {
+    alignItems: 'center',
     marginTop: spacing.md,
+  },
+  cancelButton: {
+    marginTop: spacing.sm,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: colors.cardAlt,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cancelButtonText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '600',
   },
   errorCard: {
     backgroundColor: '#2A1520',
