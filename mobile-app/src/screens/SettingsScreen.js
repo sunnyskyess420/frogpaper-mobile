@@ -6,10 +6,11 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import api, { discoverBaseUrl, getBaseUrl, LAN_IP } from '../services/api';
+import api, { discoverBaseUrl, getBaseUrl, getCustomServerUrl, LAN_IP, setCustomServerUrl } from '../services/api';
 import { colors, radii, spacing } from '../theme';
 
 export default function SettingsScreen() {
@@ -19,6 +20,7 @@ export default function SettingsScreen() {
     health: null,
     providers: [],
     error: null,
+    customUrl: '',
   });
 
   const refresh = useCallback(async () => {
@@ -29,18 +31,22 @@ export default function SettingsScreen() {
         api.health(),
         api.providers(),
       ]);
+      const customUrl = await getCustomServerUrl();
       setState({
         loading: false,
         health,
         providers: providersResponse.providers || [],
         error: null,
+        customUrl: customUrl || '',
       });
     } catch (err) {
+      const customUrl = await getCustomServerUrl();
       setState({
         loading: false,
         health: null,
         providers: [],
         error: err.message || 'Backend unreachable',
+        customUrl: customUrl || '',
       });
     }
   }, []);
@@ -50,6 +56,20 @@ export default function SettingsScreen() {
   }, [refresh]);
 
   const online = state.health !== null;
+
+  const handleCustomUrlChange = async (text) => {
+    setState((prev) => ({ ...prev, customUrl: text }));
+  };
+
+  const saveCustomUrl = async () => {
+    await setCustomServerUrl(state.customUrl);
+    await refresh();
+  };
+
+  const clearCustomUrl = async () => {
+    await setCustomServerUrl('');
+    await refresh();
+  };
 
   return (
     <ScrollView
@@ -81,6 +101,33 @@ export default function SettingsScreen() {
             <Text style={styles.buttonText}>Re-test connection</Text>
           )}
         </Pressable>
+      </View>
+
+      <Text style={styles.sectionLabel}>Custom server address</Text>
+      <View style={styles.card}>
+        <Text style={styles.hint}>
+          For cloud deployment, enter your backend URL here (e.g., https://your-app.onrender.com).
+          Leave empty to use automatic LAN discovery.
+        </Text>
+        <TextInput
+          style={styles.input}
+          placeholder="https://your-backend-url.com"
+          placeholderTextColor={colors.muted}
+          value={state.customUrl}
+          onChangeText={handleCustomUrlChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <View style={styles.buttonRow}>
+          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveCustomUrl}>
+            <Text style={styles.buttonText}>Save URL</Text>
+          </Pressable>
+          {state.customUrl && (
+            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearCustomUrl}>
+              <Text style={styles.buttonText}>Clear</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       <Text style={styles.sectionLabel}>AI provider</Text>
@@ -209,10 +256,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.md,
   },
+  buttonSecondary: {
+    backgroundColor: colors.cardAlt,
+    flex: 1,
+    marginHorizontal: spacing.xs,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    marginTop: spacing.md,
+  },
   buttonText: {
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+  },
+  input: {
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    color: colors.text,
+    fontSize: 15,
+    padding: spacing.md,
+    marginTop: spacing.sm,
   },
   aboutRow: {
     flexDirection: 'row',

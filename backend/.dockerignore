@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Secrets (tokens are passed as env vars in production)
+replicate_api_token.txt
+huggingface_token.txt
+gemini_api_key.txt
+
+# Tests (not needed in production)
+tests/
+test_*.py
+
+# Documentation
+docs/
+
+# Mobile app (not needed in backend container)
+../mobile-app/
