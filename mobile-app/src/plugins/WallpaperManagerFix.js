@@ -33,7 +33,14 @@
 // ever calls setWallpaper({uri: "file://..."}) (local cache file), which the
 // framework APIs handle natively. No Glide -> no support-v4 -> no duplicates,
 // and MyGlideModule.java (which imports Glide) is deleted from the build.
-const { withDangerousMod } = require('expo/config-plugins');
+//   APK, phones on the LAN could not use plain-http backends at all.
+//
+// Round 4 (app installed, phone browser OK but app showed "backend
+//   offline"): Android 9+ blocks cleartext HTTP inside apps by default;
+//   the LAN backend speaks http://. Phone browser worked (browsers may
+//   use cleartext), app failed. Fix: withAndroidManifest mod sets
+//   android:usesCleartextTraffic="true" on the MAIN app manifest.
+const { withDangerousMod, withAndroidManifest } = require('expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
@@ -375,10 +382,23 @@ function deleteFile(projectRoot, segments, label) {
   }
 }
 
+// Allows plain http:// traffic (the home-LAN backend is http, not https).
+// Applied on the main app manifest during prebuild.
+const withCleartextHttp = (config) => {
+  return withAndroidManifest(config, (mod) => {
+    const application = mod.modResults.manifest.application[0];
+    if (application && application.$) {
+      application.$['android:usesCleartextTraffic'] = 'true';
+    }
+    return mod;
+  });
+};
+
 const withWallpaperManagerFix = (config) => {
-  return withDangerousMod(config, [
-    'android',
-    async (modConfig) => {
+  return withCleartextHttp(
+    withDangerousMod(config, [
+      'android',
+      async (modConfig) => {
       const projectRoot = modConfig.modRequest.projectRoot;
       const results = [
         replaceFile(projectRoot, [...LIB, 'build.gradle'], NEW_GRADLE, 'build.gradle'),
@@ -389,8 +409,9 @@ const withWallpaperManagerFix = (config) => {
       ];
       console.log('[WallpaperManagerFix]', results.join(' | '));
       return modConfig;
-    },
-  ]);
+      }
+    ])
+  );
 };
 
 module.exports = withWallpaperManagerFix;
