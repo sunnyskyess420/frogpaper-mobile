@@ -40,6 +40,7 @@ from services.image_generation import (
     find_gallery_image,
     generate_image,
     generate_image_gemini,
+    generate_image_huggingface,
     list_gallery_images,
     recent_prompts,
     save_uploaded_image,
@@ -50,7 +51,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.9.3"
+APP_VERSION = "1.9.4"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 26 * 1024 * 1024  # 26 MB request cap (uploads)
@@ -184,6 +185,39 @@ def generate():
                 )
                 image["provider_fallback_from"] = "gemini"
                 image["fallback_reason"] = str(gem_exc)
+        elif provider_id == "huggingface":
+            try:
+                image = generate_image_huggingface(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    seed=seed,
+                    images_dir=IMAGES_DIR,
+                    negative_prompt=negative_prompt or None,
+                )
+            except GenerationError as hf_exc:
+                # Safety net: a bad token / DNS outage / gated model must
+                # never block the user - fall back to the free provider.
+                fallback = next(
+                    (p for p in PROVIDERS if p["id"] == "pollinations"), None
+                )
+                if fallback is None or fallback["status"] != "active":
+                    raise
+                log.warning(
+                    "Hugging Face failed (%s); falling back to Pollinations",
+                    hf_exc,
+                )
+                image = generate_image(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    seed=seed,
+                    model=fallback.get("model", "flux"),
+                    images_dir=IMAGES_DIR,
+                    negative_prompt=negative_prompt or None,
+                )
+                image["provider_fallback_from"] = "huggingface"
+                image["fallback_reason"] = str(hf_exc)
         else:
             image = generate_image(
                 prompt=prompt,
