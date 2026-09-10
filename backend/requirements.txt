@@ -4,3 +4,5 @@ Flask>=3.0,<4
 flask-cors>=4.0
 requests>=2.31
 Pillow>=10.0
+gunicorn>=21.0
+waitress>=3.0
