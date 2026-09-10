@@ -129,11 +129,33 @@ Progress so far:
   `com.android.support:support-v4:28.0.0` (downloadability verified,
   runtime only uses the Context overload). Pushed; raw file serves 200.
 
+- EAS cloud build #3 failed on a THIRD error: checkReleaseDuplicateClasses
+  - support-v4 28.0.0 (added in fix 2) collides with androidx.core 1.17.0
+  (both ship INotificationSideChannel, ResultReceiver, etc).
+- Fix 3 (634b009): removed Glide + support-v4 entirely. Plugin now
+  replaces WallPaperManager.java with a pure framework implementation
+  (BitmapFactory two-pass decode, HttpURLConnection with custom
+  headers, WallpaperManager.setBitmap + center-crop). Java verified
+  compile-clean via ecj 3.33 + API stubs (0 errors). Deleted
+  MyGlideModule.java; gradle deps = react-native only.
+- EAS cloud build #4 (after f1e3cc22): SUCCESS. APK v1.8.0 installed
+  on the user's phone. Artifact:
+  https://expo.dev/artifacts/eas/pMbEAm20UBR34m1e83YFxItiRnyO3Wl.zyXBVlwtFi0E.apk
+- NEW ISSUE (installed app shows "backend offline"): phone browser
+  reaches http://192.168.1.168:5000 fine (backend logs the phone's
+  requests) but the app reports offline after restarts. Diagnosis:
+  Android 9+ cleartext-HTTP block inside the release APK - the
+  prebuilt manifest had NO usesCleartextTraffic, so every http://
+  fetch is blocked by the OS (Expo Go allowed it; the standalone APK
+  does not). Fix (bbfda6f + 5d5ad72): plugin's withAndroidManifest
+  mod sets android:usesCleartextTraffic="true" on the main manifest.
+  Verified via local prebuild: attribute lands in the manifest.
+
 Remaining for this workstream:
-1. User pulls the fixed plugin onto the PC (one curl command) and runs
-   EAS build #3 -> expect success (risk assessed low).
-2. Download APK -> install on phone -> test save + set-as-wallpaper.
-3. Revoke the EAS access token used for CLI auth.
+1. Push cleartext fix -> user re-curls the one plugin file -> EAS
+   build #5 -> reinstall APK -> backend online.
+2. Test save + set-as-wallpaper on the phone.
+3. Revoke the EAS access token + GitHub token used for CLI auth.
 4. Refresh the downloadable project zip backup.
 
 ## Suggested next three moves (highest value first)
