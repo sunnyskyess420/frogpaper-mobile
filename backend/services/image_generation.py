@@ -160,15 +160,20 @@ REPLICATE_REQUEST_TIMEOUT = (10, 60)
 REPLICATE_DOWNLOAD_TIMEOUT = (10, 120)
 REPLICATE_POLL_INTERVAL = 2.0
 REPLICATE_POLL_LIMIT = 75  # ~150 s max wait for a finished render
-# Aspect ratios FLUX models accept on Replicate (no 21:9 on flux-dev).
+# Aspect ratios FLUX models accept on Replicate. Live-verified from the
+# flux-dev openapi schema on 2026-09-10: the model accepts all 11 values,
+# including the tall 9:21 that matches modern phone screens.
 _REPLICATE_RATIOS = [
     ("16:9", 16 / 9),
     ("3:2", 3 / 2),
     ("4:3", 4 / 3),
+    ("5:4", 5 / 4),
     ("1:1", 1.0),
+    ("4:5", 4 / 5),
     ("3:4", 3 / 4),
     ("2:3", 2 / 3),
     ("9:16", 9 / 16),
+    ("9:21", 9 / 21),
 ]
 
 
@@ -250,6 +255,32 @@ def _aspect_ratio_for(width, height):
     """Snap a width/height pair to the nearest ratio Gemini supports."""
     target = math.log(max(width, 1) / max(height, 1))
     return min(_ASPECT_RATIOS, key=lambda item: abs(math.log(item[1]) - target))[0]
+
+
+# Modern phone panels are ~18.5:9 to 20:9 tall, but the app's legacy default
+# canvas is 16:9 (1080x1920). Android fills the taller screen by zooming and
+# cropping the wallpaper, which the user experienced as "pictures are zoomed
+# in". Rendering at the phone's real shape removes that zoom entirely.
+TALL_PHONE_RATIO = 2220 / 1080      # Galaxy S9 FHD+ panel shape (18.5:9)
+LEGACY_PORTRAIT_MAX_RATIO = 1.875   # anything squarer than/equal to 16:9
+
+
+def fit_device_wallpaper(width, height):
+    """Retarget legacy 16:9 portrait requests to a tall-phone canvas.
+
+    1080x1920 -> 1080x2220 (same width, screen-true height). Landscape,
+    square and already-tall requests pass through untouched. The extra
+    height costs nothing: FLUX just paints a taller canvas and the
+    existing cover-crop enhancer trims to the exact size.
+    """
+    if height > width and height / width <= LEGACY_PORTRAIT_MAX_RATIO:
+        new_height = round(width * TALL_PHONE_RATIO)
+        log.info(
+            "Legacy 16:9 portrait %dx%d -> rendering %dx%d (tall phone shape)",
+            width, height, width, new_height,
+        )
+        return width, new_height
+    return width, height
 
 
 PROVIDERS = [
