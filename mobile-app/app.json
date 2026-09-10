@@ -33,7 +33,8 @@
           "savePhotosPermission": "Allow FrogPaper to save your generated wallpapers to your photo library.",
           "isAccessMediaLocationEnabled": false
         }
-      ]
+      ],
+      "./src/plugins/WallpaperManagerFix"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
