@@ -16,3 +16,4 @@ Thumbs.db
 backend/gemini_api_key.txt
 # Secrets - never commit
 backend/huggingface_token.txt
+backend/replicate_api_token.txt

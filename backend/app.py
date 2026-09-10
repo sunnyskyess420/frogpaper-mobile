@@ -41,6 +41,7 @@ from services.image_generation import (
     generate_image,
     generate_image_gemini,
     generate_image_huggingface,
+    generate_image_replicate,
     list_gallery_images,
     recent_prompts,
     refresh_provider_statuses,
@@ -52,7 +53,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.9.7"
+APP_VERSION = "1.9.8"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 26 * 1024 * 1024  # 26 MB request cap (uploads)
@@ -156,7 +157,40 @@ def generate():
         provider_id,
     )
     try:
-        if provider_id == "gemini":
+        if provider_id == "replicate":
+            try:
+                image = generate_image_replicate(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    seed=seed,
+                    images_dir=IMAGES_DIR,
+                    negative_prompt=negative_prompt or None,
+                )
+            except GenerationError as rep_exc:
+                # Safety net: a bad token / outage / rejected request must
+                # never block the user - fall back to the free provider.
+                fallback = next(
+                    (p for p in PROVIDERS if p["id"] == "pollinations"), None
+                )
+                if fallback is None or fallback["status"] != "active":
+                    raise
+                log.warning(
+                    "Replicate failed (%s); falling back to Pollinations",
+                    rep_exc,
+                )
+                image = generate_image(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    seed=seed,
+                    model=fallback.get("model", "flux"),
+                    images_dir=IMAGES_DIR,
+                    negative_prompt=negative_prompt or None,
+                )
+                image["provider_fallback_from"] = "replicate"
+                image["fallback_reason"] = str(rep_exc)
+        elif provider_id == "gemini":
             try:
                 image = generate_image_gemini(
                     prompt=prompt,
