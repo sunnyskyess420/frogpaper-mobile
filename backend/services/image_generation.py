@@ -34,9 +34,10 @@ DEFAULT_MODEL = "flux"
 # strongly to style guidance, and wallpapers specifically need vertical
 # composition + detail cues to look good on a phone screen.
 POLLINATIONS_QUALITY_SUFFIX = (
-    ". Vertical phone wallpaper composition, subject centered and fully "
-    "in frame, ultra-detailed, sharp focus, rich vibrant colors, dramatic "
-    "cinematic lighting, high dynamic range, 8k quality, clean edges "
+    ". Breathtaking professional phone wallpaper, one strong clear focal "
+    "point, generous negative space, rich saturated colors with cinematic "
+    "color grading, dramatic atmospheric lighting, sense of depth and "
+    "scale, intricate detail, masterpiece quality, 8k, clean edges "
     "suitable for a phone home screen"
 )
 
