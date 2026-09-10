@@ -5,9 +5,12 @@ The service layer is framework-agnostic on purpose: it raises
 GenerationError on failure and returns plain dicts, so app.py stays thin.
 """
 
+import base64
 import io
 import json
 import logging
+import math
+import os
 import random
 import time
 from datetime import datetime, timezone
@@ -26,7 +29,69 @@ log = logging.getLogger("frogpaper.generation")
 POLLINATIONS_ENDPOINT = "https://image.pollinations.ai/prompt/{prompt}"
 DEFAULT_MODEL = "flux"
 
+# --- Google Gemini ("nano banana" image model) -----------------------------
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
+GEMINI_KEY_FILE = Path(__file__).resolve().parent.parent / "gemini_api_key.txt"
+GEMINI_REQUEST_TIMEOUT = (10, 180)
+
+# Aspect ratios Gemini 2.5 Flash Image supports (name, width/height value).
+_ASPECT_RATIOS = [
+    ("21:9", 21 / 9),
+    ("16:9", 16 / 9),
+    ("3:2", 3 / 2),
+    ("4:3", 4 / 3),
+    ("1:1", 1.0),
+    ("3:4", 3 / 4),
+    ("2:3", 2 / 3),
+    ("9:16", 9 / 16),
+]
+
+
+def read_gemini_api_key():
+    """Gemini API key from the env var, or backend/gemini_api_key.txt."""
+    env_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if env_key:
+        return env_key
+    try:
+        if GEMINI_KEY_FILE.is_file():
+            key = GEMINI_KEY_FILE.read_text(encoding="utf-8").strip()
+            if key:
+                return key
+    except OSError:
+        pass
+    return None
+
+
+def gemini_configured():
+    """True when a Gemini API key is available."""
+    return bool(read_gemini_api_key())
+
+
+def default_provider_id():
+    """Best available provider: Gemini when configured, else Pollinations."""
+    return "gemini" if gemini_configured() else "pollinations"
+
+
+def _aspect_ratio_for(width, height):
+    """Snap a width/height pair to the nearest ratio Gemini supports."""
+    target = math.log(max(width, 1) / max(height, 1))
+    return min(_ASPECT_RATIOS, key=lambda item: abs(math.log(item[1]) - target))[0]
+
+
 PROVIDERS = [
+    {
+        "id": "gemini",
+        "name": "Google Gemini (Nano Banana)",
+        "model": GEMINI_IMAGE_MODEL,
+        "status": "active" if gemini_configured() else "inactive",
+        "requires_api_key": True,
+        "max_side": 2048,
+        "description": (
+            "Google's top image model - sharp, detailed wallpapers. "
+            "Free daily generations with an API key, paid after that."
+        ),
+    },
     {
         "id": "pollinations",
         "name": "Pollinations.ai",
@@ -35,7 +100,7 @@ PROVIDERS = [
         "requires_api_key": False,
         "max_side": 2048,
         "description": "Free text-to-image generation (Flux model), no API key required.",
-    }
+    },
 ]
 
 # (connect timeout, read timeout) - first generations can be slow
@@ -98,10 +163,10 @@ def delete_sidecar(images_dir, filename):
         log.warning("Could not delete sidecar for %s: %s", sidecar.name, exc)
 
 
-def _save_image(data: bytes, images_dir: Path, extension: str) -> str:
+def _save_image(data: bytes, images_dir: Path, extension: str, provider: str = "pollinations") -> str:
     """Write bytes to the gallery dir with a unique timestamped filename."""
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    base = f"pollinations_{stamp}"
+    base = f"{provider}_{stamp}"
     candidate = f"{base}{extension}"
     counter = 1
     while (images_dir / candidate).exists():
@@ -240,6 +305,194 @@ def generate_image(
     raise last_error
 
 
+def _gemini_image_configs(aspect_ratio):
+    """Request configs to try, best first (2K detail -> ratio only -> plain)."""
+    return [
+        {"imageConfig": {"aspectRatio": aspect_ratio, "imageSize": "2K"}},
+        {"imageConfig": {"aspectRatio": aspect_ratio}},
+        {},
+    ]
+
+
+def _finish_gemini_image(response, prompt, negative_prompt, seed, model, width, height, images_dir):
+    """Parse a successful Gemini response, save the image, return metadata."""
+    payload = response.json()
+    candidates = payload.get("candidates") or []
+    image_bytes = None
+    mime_type = ""
+
+    if candidates:
+        finish_reason = (candidates[0].get("finishReason") or "").upper()
+        parts = ((candidates[0].get("content") or {}).get("parts")) or []
+        for part in parts:
+            inline = part.get("inlineData") or {}
+            if inline.get("data"):
+                image_bytes = base64.b64decode(inline["data"])
+                mime_type = inline.get("mimeType", "image/png")
+                break
+        if image_bytes is None and finish_reason in (
+            "SAFETY", "IMAGE_SAFETY", "PROHIBITED_CONTENT", "BLOCKED",
+        ):
+            raise GenerationError(
+                "Google refused this prompt (safety filter) - try rewording it."
+            )
+    if image_bytes is None:
+        block = ((payload.get("promptFeedback") or {}).get("blockReason")) or ""
+        if block:
+            raise GenerationError(
+                f"Google refused this prompt ({block}) - try rewording it."
+            )
+        raise GenerationError("Google returned a response without an image.")
+
+    if len(image_bytes) < 1024:
+        raise GenerationError("Google returned a suspiciously small image payload.")
+
+    extension = _extension_for(mime_type)
+    filename = _save_image(image_bytes, images_dir, extension, provider="gemini")
+    dimensions = _read_dimensions(image_bytes) or {}
+    saved_path = images_dir / filename
+    stat = saved_path.stat()
+    _write_sidecar(
+        saved_path,
+        {
+            "provider": "gemini",
+            "model": model,
+            "prompt": prompt,
+            "negative_prompt": negative_prompt or None,
+            "seed": seed,
+            "requested_width": width,
+            "requested_height": height,
+            "aspect_ratio": _aspect_ratio_for(width, height),
+        },
+    )
+    return {
+        "filename": filename,
+        "url": f"/api/images/{filename}",
+        "provider": "gemini",
+        "model": model,
+        "source": "generated",
+        "prompt": prompt,
+        "negative_prompt": negative_prompt or None,
+        "seed": seed,
+        "width": dimensions.get("width", width),
+        "height": dimensions.get("height", height),
+        "size_bytes": stat.st_size,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _gemini_error_for(response):
+    """Map a Gemini API error response to a friendly GenerationError."""
+    try:
+        message = (response.json().get("error") or {}).get("message", "")
+    except ValueError:
+        message = response.text[:200]
+    text = message.lower()
+    status = response.status_code
+
+    if status in (400, 401) and ("api key" in text or "api_key" in text):
+        return GenerationError(
+            "Google rejected the API key - check the key inside "
+            "backend/gemini_api_key.txt (it should start with 'AIza')."
+        )
+    if status == 429 or "resource_exhausted" in text or "quota" in text:
+        return GenerationError(
+            "Gemini's free daily limit is used up. It resets tomorrow - "
+            "or enable billing on your Google project for more."
+        )
+    if status == 403:
+        return GenerationError(
+            "Google denied access (403). The key may need billing enabled, "
+            "or the image model is not allowed for this key."
+        )
+    return GenerationError(f"Google returned HTTP {status}: {message[:300]}")
+
+
+def generate_image_gemini(
+    prompt,
+    width=1080,
+    height=1920,
+    seed=None,
+    model=GEMINI_IMAGE_MODEL,
+    images_dir=None,
+    retries=2,
+    negative_prompt=None,
+):
+    """Call Google's Gemini image model and persist the result.
+
+    Returns the same metadata dict shape as generate_image(). Raises
+    GenerationError with a user-friendly message on any failure.
+    """
+    api_key = read_gemini_api_key()
+    if not api_key:
+        raise GenerationError(
+            "No Gemini API key found - save it to backend/gemini_api_key.txt."
+        )
+    if images_dir is None:
+        raise GenerationError("images_dir is required")
+    images_dir = Path(images_dir)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    effective_prompt = prompt
+    if negative_prompt:
+        effective_prompt = f"{prompt}. Avoid: {negative_prompt}."
+    aspect_ratio = _aspect_ratio_for(width, height)
+    url = f"{GEMINI_API_BASE}/{model}:generateContent"
+    base_body = {"contents": [{"parts": [{"text": effective_prompt}]}]}
+
+    last_error = None
+    for attempt in range(1, retries + 1):
+        for config in _gemini_image_configs(aspect_ratio):
+            body = dict(base_body)
+            if config:
+                body["generationConfig"] = config
+            try:
+                log.info(
+                    "Gemini attempt %d/%d (%dx%d -> %s, config=%s)",
+                    attempt, retries, width, height, aspect_ratio,
+                    sorted(config.get("imageConfig", {}).keys()) or "plain",
+                )
+                response = requests.post(
+                    url,
+                    json=body,
+                    timeout=GEMINI_REQUEST_TIMEOUT,
+                    headers={"x-goog-api-key": api_key, "User-Agent": USER_AGENT},
+                )
+            except requests.RequestException as exc:
+                last_error = GenerationError(f"Network error talking to Google: {exc}")
+                continue
+
+            if response.status_code == 200:
+                try:
+                    return _finish_gemini_image(
+                        response, prompt, negative_prompt, seed, model,
+                        width, height, images_dir,
+                    )
+                except GenerationError as exc:
+                    # A 200 without an image (safety block) won't improve
+                    # with a different imageConfig - stop immediately.
+                    raise exc
+
+            # Bad imageConfig -> try the next (simpler) config
+            text = response.text.lower()
+            if response.status_code == 400 and (
+                "imageconfig" in text or "image_config" in text
+                or "imagesize" in text or "image_size" in text
+            ):
+                last_error = _gemini_error_for(response)
+                continue
+
+            last_error = _gemini_error_for(response)
+            break  # real error (key/quota/network-shape) - no config will fix it
+
+        if attempt < retries:
+            pause = RETRY_BACKOFF_SECONDS * attempt
+            log.warning("Gemini attempt %d failed (%s); retrying", attempt, last_error)
+            time.sleep(pause)
+
+    raise last_error
+
+
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 
@@ -251,9 +504,12 @@ def _entry_for(path: Path):
     if dimensions is None:
         dimensions = _dimensions_from_path(path)
         _dimension_cache[cache_key] = dimensions
-    source = "generated" if path.name.startswith("pollinations_") else (
-        "uploaded" if path.name.startswith("uploaded_") else "imported"
-    )
+    if path.name.startswith(("pollinations_", "gemini_")):
+        source = "generated"
+    elif path.name.startswith("uploaded_"):
+        source = "uploaded"
+    else:
+        source = "imported"
     entry = {
         "filename": path.name,
         "url": f"/api/images/{path.name}",

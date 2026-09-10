@@ -7,7 +7,7 @@ Endpoints
 ---------
 GET  /api/health          -> service + gallery health summary
 GET  /api/providers       -> image generation providers
-POST /api/generate        -> generate an image (Pollinations.ai)
+POST /api/generate        -> generate an image (Gemini or Pollinations)
 GET  /api/gallery         -> list generated images (newest first)
 GET  /api/gallery/<name>  -> single image metadata (incl. prompt/seed)
 DELETE /api/gallery/<name> -> delete an image
@@ -35,9 +35,11 @@ from services.image_generation import (
     MAX_NEGATIVE_PROMPT_LENGTH,
     PROVIDERS,
     GenerationError,
+    default_provider_id,
     delete_sidecar,
     find_gallery_image,
     generate_image,
+    generate_image_gemini,
     list_gallery_images,
     recent_prompts,
     save_uploaded_image,
@@ -48,7 +50,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.9.0"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 26 * 1024 * 1024  # 26 MB request cap (uploads)
@@ -108,7 +110,7 @@ def health():
 @app.get("/api/providers")
 def providers():
     """List available image generation providers."""
-    return jsonify({"success": True, "active": "pollinations", "providers": PROVIDERS})
+    return jsonify({"success": True, "active": default_provider_id(), "providers": PROVIDERS})
 
 
 @app.post("/api/generate")
@@ -134,7 +136,7 @@ def generate():
     if seed is not None:
         seed = _parse_int(seed, 1, 1, 999999999)
 
-    provider_id = str(data.get("provider", "pollinations")).strip().lower()
+    provider_id = str(data.get("provider") or default_provider_id()).strip().lower()
     provider = next((p for p in PROVIDERS if p["id"] == provider_id), None)
     if provider is None:
         return _error_response(f"Unknown provider '{provider_id}'.", 400)
@@ -149,15 +151,26 @@ def generate():
         provider_id,
     )
     try:
-        image = generate_image(
-            prompt=prompt,
-            width=width,
-            height=height,
-            seed=seed,
-            model=provider.get("model", "flux"),
-            images_dir=IMAGES_DIR,
-            negative_prompt=negative_prompt or None,
-        )
+        if provider_id == "gemini":
+            image = generate_image_gemini(
+                prompt=prompt,
+                width=width,
+                height=height,
+                seed=seed,
+                model=provider.get("model", "gemini-2.5-flash-image"),
+                images_dir=IMAGES_DIR,
+                negative_prompt=negative_prompt or None,
+            )
+        else:
+            image = generate_image(
+                prompt=prompt,
+                width=width,
+                height=height,
+                seed=seed,
+                model=provider.get("model", "flux"),
+                images_dir=IMAGES_DIR,
+                negative_prompt=negative_prompt or None,
+            )
     except GenerationError as exc:
         log.error("Generation failed: %s", exc)
         return _error_response(
