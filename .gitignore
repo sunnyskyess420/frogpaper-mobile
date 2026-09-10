@@ -11,3 +11,6 @@ __pycache__/
 *.log
 .DS_Store
 Thumbs.db
+
+# Secrets - never commit
+backend/gemini_api_key.txt
