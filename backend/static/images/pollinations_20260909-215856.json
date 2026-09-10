@@ -1,9 +1,0 @@
-{
-  "provider": "pollinations",
-  "model": "flux",
-  "prompt": "Bioluminescent forest at night, magical atmosphere, epic fantasy art, magical atmosphere, rich colors",
-  "negative_prompt": null,
-  "seed": 774901181,
-  "requested_width": 1080,
-  "requested_height": 1920
-}
