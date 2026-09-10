@@ -556,10 +556,17 @@ def _gemini_error_for(response):
     text = message.lower()
     status = response.status_code
 
+    if "location is not supported" in text:
+        return GenerationError(
+            "Google says this location can't use the Gemini API - this is "
+            "about the network's region, not the key. If you're on a VPN, "
+            "try switching it off (or on), then restart the backend."
+        )
     if status in (400, 401) and ("api key" in text or "api_key" in text):
         return GenerationError(
             "Google rejected the API key - check the key inside "
-            "backend/gemini_api_key.txt (it should start with 'AIza')."
+            "backend/gemini_api_key.txt (new Google keys start with 'AQ.', "
+            "older ones with 'AIza')."
         )
     if status == 429 or "resource_exhausted" in text or "quota" in text:
         return GenerationError(
