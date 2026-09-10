@@ -114,9 +114,49 @@ def gemini_configured():
     return bool(read_gemini_api_key())
 
 
+# --- Hugging Face Inference (full-quality FLUX.1 models) -------------------
+HF_ROUTER_URL = "https://router.huggingface.co/hf-inference/models/{model}"
+# Best model first; schnell is the automatic fallback when dev is gated or
+# unavailable. (num_inference_steps differs per model.)
+HF_IMAGE_MODELS = [
+    ("black-forest-labs/FLUX.1-dev", 28),
+    ("black-forest-labs/FLUX.1-schnell", 4),
+]
+HF_TOKEN_FILE = Path(__file__).resolve().parent.parent / "huggingface_token.txt"
+HF_REQUEST_TIMEOUT = (10, 180)
+# FLUX renders on grids of 32 pixels. We request the biggest canvas that fits
+# this budget and let _enhance_resolution upscale to the exact requested size.
+HF_MAX_CANVAS_SIDE = 1280
+
+
+def read_huggingface_token():
+    """Hugging Face token from env vars, or backend/huggingface_token.txt."""
+    for env_name in ("HF_TOKEN", "HUGGINGFACE_TOKEN"):
+        env_key = (os.environ.get(env_name) or "").strip()
+        if env_key:
+            return env_key
+    try:
+        if HF_TOKEN_FILE.is_file():
+            token = HF_TOKEN_FILE.read_text(encoding="utf-8").strip()
+            if token:
+                return token
+    except OSError:
+        pass
+    return None
+
+
+def huggingface_configured():
+    """True when a Hugging Face token is available."""
+    return bool(read_huggingface_token())
+
+
 def default_provider_id():
-    """Best available provider: Gemini when configured, else Pollinations."""
-    return "gemini" if gemini_configured() else "pollinations"
+    """Best available provider: HF/Gemini when configured, else Pollinations."""
+    if huggingface_configured():
+        return "huggingface"
+    if gemini_configured():
+        return "gemini"
+    return "pollinations"
 
 
 def _aspect_ratio_for(width, height):
@@ -136,6 +176,19 @@ PROVIDERS = [
         "description": (
             "Google's top image model - sharp, detailed wallpapers. "
             "Free daily generations with an API key, paid after that."
+        ),
+    },
+    {
+        "id": "huggingface",
+        "name": "Hugging Face FLUX",
+        "model": "black-forest-labs/FLUX.1-dev",
+        "status": "active" if huggingface_configured() else "inactive",
+        "requires_api_key": True,
+        "max_side": 2048,
+        "description": (
+            "The full-quality FLUX.1 image model via Hugging Face - richer "
+            "light and detail than the free tier. Uses free monthly credits "
+            "with your own access token (hf_...)."
         ),
     },
     {
@@ -606,6 +659,204 @@ def generate_image_gemini(
     raise last_error
 
 
+def _hf_dimensions_for(width, height):
+    """Nearest FLUX-friendly canvas (multiples of 32) for a requested size."""
+    scale = min(1.0, HF_MAX_CANVAS_SIDE / max(width, height))
+    render_w = max(256, int(round(width * scale / 32.0)) * 32)
+    render_h = max(256, int(round(height * scale / 32.0)) * 32)
+    return render_w, render_h
+
+
+def _hf_error_for(response, model):
+    """Map a Hugging Face error response to a friendly GenerationError."""
+    try:
+        message = response.json().get("error", "")
+        if isinstance(message, dict):
+            message = message.get("message", "")
+    except ValueError:
+        message = response.text[:200]
+    text = str(message).lower()
+    status = response.status_code
+
+    if status == 401 or "invalid api token" in text or "bad token" in text:
+        return GenerationError(
+            "Hugging Face rejected the token - check the token inside "
+            "backend/huggingface_token.txt (it should start with 'hf_')."
+        )
+    if status == 403 or "gated" in text or "agree" in text:
+        return GenerationError(
+            f"Model {model} needs one-time permission: open its page on "
+            "huggingface.co while signed in and click 'Agree' to unlock it."
+        )
+    if status == 404 or "no inference provider" in text or "not deployed" in text:
+        return GenerationError(
+            f"Model {model} is not available on Hugging Face right now."
+        )
+    if status in (429, 503) or "quota" in text or "credit" in text:
+        return GenerationError(
+            "Hugging Face free credits are used up or the model is busy - "
+            "credits reset monthly. Try again soon."
+        )
+    return GenerationError(
+        f"Hugging Face returned HTTP {status}: {str(message)[:300]}"
+    )
+
+
+def _finish_huggingface_image(
+    image_bytes, content_type, hf_model, prompt, negative_prompt, seed,
+    width, height, render_w, render_h, images_dir,
+):
+    """Save a successful Hugging Face image and build its metadata dict."""
+    if len(image_bytes) < 1024:
+        raise GenerationError(
+            "Hugging Face returned a suspiciously small image payload."
+        )
+
+    extension = _extension_for(content_type)
+    enhancement = _enhance_resolution(image_bytes, width, height)
+    upscale_note = None
+    if enhancement is not None:
+        image_bytes = enhancement["data"]
+        extension = enhancement["extension"]
+        upscale_note = enhancement["upscaled_from"]
+        log.info(
+            "Hugging Face rendered %dx%d - enhanced to %dx%d",
+            render_w, render_h, width, height,
+        )
+
+    filename = _save_image(
+        image_bytes, images_dir, extension, provider="huggingface"
+    )
+    dimensions = _read_dimensions(image_bytes) or {}
+    saved_path = images_dir / filename
+    stat = saved_path.stat()
+    _write_sidecar(
+        saved_path,
+        {
+            "provider": "huggingface",
+            "model": hf_model,
+            "prompt": prompt,
+            "negative_prompt": negative_prompt or None,
+            "seed": seed,
+            "requested_width": width,
+            "requested_height": height,
+            "rendered_width": render_w,
+            "rendered_height": render_h,
+            "upscaled_from": upscale_note,
+        },
+    )
+    return {
+        "filename": filename,
+        "url": f"/api/images/{filename}",
+        "provider": "huggingface",
+        "model": hf_model,
+        "source": "generated",
+        "prompt": prompt,
+        "negative_prompt": negative_prompt or None,
+        "seed": seed,
+        "width": dimensions.get("width", width),
+        "height": dimensions.get("height", height),
+        "size_bytes": stat.st_size,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def generate_image_huggingface(
+    prompt,
+    width=1080,
+    height=1920,
+    seed=None,
+    model=None,
+    images_dir=None,
+    retries=2,
+    negative_prompt=None,
+):
+    """Call Hugging Face Inference (FLUX.1) and persist the result.
+
+    Tries the best model first (FLUX.1-dev) and automatically falls back to
+    the open-license FLUX.1-schnell when dev is gated or unavailable. Raises
+    GenerationError with a friendly message on failure - app.py then falls
+    back to Pollinations so the user is never blocked.
+    """
+    token = read_huggingface_token()
+    if not token:
+        raise GenerationError(
+            "No Hugging Face token found - save it to backend/huggingface_token.txt."
+        )
+    if images_dir is None:
+        raise GenerationError("images_dir is required")
+    images_dir = Path(images_dir)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    effective_prompt = (
+        f"{prompt}{_subject_enhancer(prompt)}{POLLINATIONS_QUALITY_SUFFIX}"
+    )
+    if negative_prompt:
+        effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
+
+    seed = seed or random.randint(1, 999_999_999)
+    render_w, render_h = _hf_dimensions_for(width, height)
+
+    model_list = [(model, 28)] if model else list(HF_IMAGE_MODELS)
+    last_error = None
+    for hf_model, steps in model_list:
+        url = HF_ROUTER_URL.format(model=hf_model)
+        body = {
+            "inputs": effective_prompt,
+            "parameters": {
+                "width": render_w,
+                "height": render_h,
+                "num_inference_steps": steps,
+                "seed": seed,
+            },
+        }
+        for attempt in range(1, retries + 1):
+            try:
+                log.info(
+                    "Hugging Face attempt %d/%d (%s, %dx%d canvas, seed=%d)",
+                    attempt, retries, hf_model, render_w, render_h, seed,
+                )
+                response = requests.post(
+                    url,
+                    json=body,
+                    timeout=HF_REQUEST_TIMEOUT,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "User-Agent": USER_AGENT,
+                    },
+                )
+            except requests.RequestException as exc:
+                last_error = GenerationError(
+                    f"Network error talking to Hugging Face: {exc}"
+                )
+                continue
+
+            content_type = response.headers.get("Content-Type", "")
+            if response.status_code == 200 and content_type.startswith("image/"):
+                return _finish_huggingface_image(
+                    response.content, content_type, hf_model, prompt,
+                    negative_prompt, seed, width, height,
+                    render_w, render_h, images_dir,
+                )
+
+            last_error = _hf_error_for(response, hf_model)
+            # A rejected token, gated model or missing model will not improve
+            # by retrying this model - move on to the next one (if any).
+            if response.status_code in (400, 401, 403, 404):
+                break
+            if attempt < retries:
+                pause = RETRY_BACKOFF_SECONDS * attempt
+                log.warning(
+                    "Hugging Face attempt %d failed (%s); retrying in %.1fs",
+                    attempt, last_error, pause,
+                )
+                time.sleep(pause)
+
+    raise last_error or GenerationError(
+        "Hugging Face could not generate an image."
+    )
+
+
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 
@@ -617,7 +868,7 @@ def _entry_for(path: Path):
     if dimensions is None:
         dimensions = _dimensions_from_path(path)
         _dimension_cache[cache_key] = dimensions
-    if path.name.startswith(("pollinations_", "gemini_")):
+    if path.name.startswith(("pollinations_", "gemini_", "huggingface_")):
         source = "generated"
     elif path.name.startswith("uploaded_"):
         source = "uploaded"
