@@ -144,6 +144,55 @@ HF_REQUEST_TIMEOUT = (10, 180)
 HF_MAX_CANVAS_SIDE = 1280
 
 
+# --- Replicate (paid FLUX renders, ~$0.003-0.025 per picture) -------------
+REPLICATE_API_BASE = "https://api.replicate.com/v1"
+# Best value first: FLUX.1-dev is the same engine the frog tests loved
+# (~$0.025 per picture); schnell is the ultra-cheap automatic fallback
+# (~$0.003 per picture).
+REPLICATE_IMAGE_MODELS = [
+    "black-forest-labs/flux-dev",
+    "black-forest-labs/flux-schnell",
+]
+REPLICATE_TOKEN_FILE = (
+    Path(__file__).resolve().parent.parent / "replicate_api_token.txt"
+)
+REPLICATE_REQUEST_TIMEOUT = (10, 60)
+REPLICATE_DOWNLOAD_TIMEOUT = (10, 120)
+REPLICATE_POLL_INTERVAL = 2.0
+REPLICATE_POLL_LIMIT = 75  # ~150 s max wait for a finished render
+# Aspect ratios FLUX models accept on Replicate (no 21:9 on flux-dev).
+_REPLICATE_RATIOS = [
+    ("16:9", 16 / 9),
+    ("3:2", 3 / 2),
+    ("4:3", 4 / 3),
+    ("1:1", 1.0),
+    ("3:4", 3 / 4),
+    ("2:3", 2 / 3),
+    ("9:16", 9 / 16),
+]
+
+
+def read_replicate_api_token():
+    """Replicate token from env vars, or backend/replicate_api_token.txt."""
+    for env_name in ("REPLICATE_API_TOKEN", "REPLICATE_TOKEN"):
+        env_key = (os.environ.get(env_name) or "").strip()
+        if env_key:
+            return env_key
+    try:
+        if REPLICATE_TOKEN_FILE.is_file():
+            token = REPLICATE_TOKEN_FILE.read_text(encoding="utf-8").strip()
+            if token:
+                return token
+    except OSError:
+        pass
+    return None
+
+
+def replicate_configured():
+    """True when a Replicate API token is available."""
+    return bool(read_replicate_api_token())
+
+
 def read_huggingface_token():
     """Hugging Face token from env vars, or backend/huggingface_token.txt."""
     for env_name in ("HF_TOKEN", "HUGGINGFACE_TOKEN"):
@@ -166,7 +215,9 @@ def huggingface_configured():
 
 
 def default_provider_id():
-    """Best available provider: HF/Gemini when configured, else Pollinations."""
+    """Best available provider: paid Replicate first, then HF/Gemini."""
+    if replicate_configured():
+        return "replicate"
     if huggingface_configured():
         return "huggingface"
     if gemini_configured():
@@ -183,7 +234,11 @@ def refresh_provider_statuses():
     every provider-listing / generation request.
     """
     for provider in PROVIDERS:
-        if provider["id"] == "gemini":
+        if provider["id"] == "replicate":
+            provider["status"] = (
+                "active" if replicate_configured() else "inactive"
+            )
+        elif provider["id"] == "gemini":
             provider["status"] = "active" if gemini_configured() else "inactive"
         elif provider["id"] == "huggingface":
             provider["status"] = (
@@ -198,6 +253,19 @@ def _aspect_ratio_for(width, height):
 
 
 PROVIDERS = [
+    {
+        "id": "replicate",
+        "name": "Replicate FLUX (paid)",
+        "model": "black-forest-labs/flux-dev",
+        "status": "active" if replicate_configured() else "inactive",
+        "requires_api_key": True,
+        "max_side": 2048,
+        "description": (
+            "The full-quality FLUX.1 engine via your paid Replicate account "
+            "(about 2.5 cents per wallpaper). The same engine that drew the "
+            "good frogs - no watermarks, your $5 credit lasts ~200 pictures."
+        ),
+    },
     {
         "id": "gemini",
         "name": "Google Gemini (Nano Banana)",
@@ -1048,6 +1116,275 @@ def generate_image_huggingface(
     )
 
 
+# --- Replicate (paid FLUX renders, ~$0.003-0.025 per picture) ---------------
+# (constants + token helpers live near the top, next to the HF section)
+
+
+def _replicate_aspect_ratio(width, height):
+    """Snap a width/height pair to the nearest ratio FLUX supports."""
+    target = math.log(max(width, 1) / max(height, 1))
+    return min(
+        _REPLICATE_RATIOS, key=lambda item: abs(math.log(item[1]) - target)
+    )[0]
+
+
+def _replicate_error_for(response):
+    """Map a Replicate API error to a friendly GenerationError."""
+    try:
+        detail = response.json().get("detail", "")
+    except ValueError:
+        detail = response.text[:200]
+    text = str(detail).lower()
+    status = response.status_code
+
+    if status == 401 or "invalid token" in text:
+        return GenerationError(
+            "Replicate rejected the API token - check the token inside "
+            "backend/replicate_api_token.txt (it should start with 'r8_')."
+        )
+    if status == 402 or "credit" in text or "billing" in text or "payment" in text:
+        return GenerationError(
+            "The Replicate account is out of credit - add more at "
+            "replicate.com/account/billing when you want to continue."
+        )
+    if status == 404 or "not found" in text:
+        return GenerationError(
+            f"Replicate model is not available right now ({str(detail)[:150]})."
+        )
+    if status == 422:
+        return GenerationError(
+            f"Replicate rejected the picture request ({str(detail)[:150]})."
+        )
+    if status == 429:
+        return GenerationError(
+            "Replicate is rate-limiting this token - wait a minute and "
+            "try again."
+        )
+    return GenerationError(
+        f"Replicate returned HTTP {status}: {str(detail)[:300]}"
+    )
+
+
+def _replicate_wait(poll_url, auth):
+    """Poll a Replicate prediction until it succeeds or gives up.
+
+    Returns (image_url, None) on success, or (None, GenerationError).
+    """
+    for _poll in range(1, REPLICATE_POLL_LIMIT + 1):
+        try:
+            poll_resp = requests.get(
+                poll_url, headers=auth, timeout=REPLICATE_REQUEST_TIMEOUT
+            )
+        except requests.RequestException as exc:
+            return None, GenerationError(
+                f"Network error while waiting for Replicate: {exc}"
+            )
+        if poll_resp.status_code != 200:
+            return None, _replicate_error_for(poll_resp)
+        prediction = poll_resp.json()
+        status = prediction.get("status")
+        if status == "succeeded":
+            output = prediction.get("output")
+            if isinstance(output, list):
+                output = output[0] if output else None
+            if not output:
+                return None, GenerationError(
+                    "Replicate finished but returned no image."
+                )
+            return output, None
+        if status in ("failed", "canceled"):
+            err = str(prediction.get("error") or "").strip() or (
+                "the model could not render this prompt"
+            )
+            lowered = err.lower()
+            if "nsfw" in lowered or "safety" in lowered or "flagged" in lowered:
+                return None, GenerationError(
+                    "Replicate's safety filter blocked this prompt - try "
+                    "rewording it a little."
+                )
+            return None, GenerationError(
+                f"Replicate render failed: {err[:250]}"
+            )
+        time.sleep(REPLICATE_POLL_INTERVAL)
+    return None, GenerationError(
+        "Replicate took too long to render - try again in a moment."
+    )
+
+
+def _finish_replicate_image(
+    image_url, rl_model, prompt, negative_prompt, seed,
+    width, height, images_dir,
+):
+    """Download a finished Replicate render, save it, build metadata."""
+    try:
+        download = requests.get(
+            image_url,
+            timeout=REPLICATE_DOWNLOAD_TIMEOUT,
+            headers={"User-Agent": USER_AGENT},
+        )
+    except requests.RequestException as exc:
+        raise GenerationError(
+            f"Could not download the finished picture: {exc}"
+        )
+    if download.status_code != 200:
+        raise GenerationError(
+            f"The finished picture could not be downloaded "
+            f"(HTTP {download.status_code})."
+        )
+    image_bytes = download.content
+    if len(image_bytes) < 1024:
+        raise GenerationError(
+            "Replicate returned a suspiciously small image payload."
+        )
+
+    extension = _extension_for(download.headers.get("Content-Type", ""))
+    enhancement = _enhance_resolution(image_bytes, width, height)
+    upscale_note = None
+    if enhancement is not None:
+        image_bytes = enhancement["data"]
+        extension = enhancement["extension"]
+        upscale_note = enhancement["upscaled_from"]
+        log.info("Replicate render enhanced to %dx%d", width, height)
+
+    filename = _save_image(
+        image_bytes, images_dir, extension, provider="replicate"
+    )
+    dimensions = _read_dimensions(image_bytes) or {}
+    saved_path = images_dir / filename
+    stat = saved_path.stat()
+    _write_sidecar(
+        saved_path,
+        {
+            "provider": "replicate",
+            "model": rl_model,
+            "prompt": prompt,
+            "negative_prompt": negative_prompt or None,
+            "seed": seed,
+            "requested_width": width,
+            "requested_height": height,
+            "upscaled_from": upscale_note,
+        },
+    )
+    return {
+        "filename": filename,
+        "url": f"/api/images/{filename}",
+        "provider": "replicate",
+        "model": rl_model,
+        "source": "generated",
+        "prompt": prompt,
+        "negative_prompt": negative_prompt or None,
+        "seed": seed,
+        "width": dimensions.get("width", width),
+        "height": dimensions.get("height", height),
+        "size_bytes": stat.st_size,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def generate_image_replicate(
+    prompt,
+    width=1080,
+    height=1920,
+    seed=None,
+    model=None,
+    images_dir=None,
+    retries=2,
+    negative_prompt=None,
+):
+    """Render through Replicate's paid FLUX models and persist the result.
+
+    Creates a prediction on the best model (FLUX.1-dev), polls until the
+    render finishes, downloads the picture and upscales it to the exact
+    requested wallpaper size. Falls back to the ultra-cheap FLUX.1-schnell
+    when dev misbehaves. Raises GenerationError with a friendly message on
+    failure - app.py then falls back to Pollinations so the user is never
+    blocked.
+    """
+    token = read_replicate_api_token()
+    if not token:
+        raise GenerationError(
+            "No Replicate API token found - save it to "
+            "backend/replicate_api_token.txt."
+        )
+    if images_dir is None:
+        raise GenerationError("images_dir is required")
+    images_dir = Path(images_dir)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    effective_prompt = (
+        f"{prompt}{_subject_enhancer(prompt)}{POLLINATIONS_QUALITY_SUFFIX}"
+    )
+    if negative_prompt:
+        effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
+
+    seed = seed or random.randint(1, 999_999_999)
+    aspect_ratio = _replicate_aspect_ratio(width, height)
+    auth = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
+
+    models_to_try = [model] if model else list(REPLICATE_IMAGE_MODELS)
+    last_error = None
+    for rl_model in models_to_try:
+        for attempt in range(1, retries + 1):
+            try:
+                log.info(
+                    "Replicate attempt %d/%d (%s, %dx%d -> %s, seed=%d)",
+                    attempt, retries, rl_model, width, height,
+                    aspect_ratio, seed,
+                )
+                create = requests.post(
+                    f"{REPLICATE_API_BASE}/models/{rl_model}/predictions",
+                    json={
+                        "input": {
+                            "prompt": effective_prompt,
+                            "aspect_ratio": aspect_ratio,
+                            "output_format": "jpg",
+                            "seed": seed,
+                        }
+                    },
+                    headers=auth,
+                    timeout=REPLICATE_REQUEST_TIMEOUT,
+                )
+            except requests.RequestException as exc:
+                last_error = GenerationError(
+                    f"Network error talking to Replicate: {exc}"
+                )
+                continue
+
+            if create.status_code not in (200, 201):
+                last_error = _replicate_error_for(create)
+                # Token/billing problems are hopeless for every model -
+                # stop the whole chain right away.
+                if create.status_code in (401, 402):
+                    raise last_error
+                # Bad model or bad request: the next model may work.
+                if create.status_code in (404, 422):
+                    break
+                if attempt < retries:
+                    time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+                continue
+
+            prediction = create.json()
+            poll_url = (prediction.get("urls") or {}).get("get")
+            if not poll_url:
+                last_error = GenerationError(
+                    "Replicate did not return a prediction to wait for."
+                )
+                continue
+            image_url, poll_error = _replicate_wait(poll_url, auth)
+            if image_url:
+                return _finish_replicate_image(
+                    image_url, rl_model, prompt, negative_prompt, seed,
+                    width, height, images_dir,
+                )
+            last_error = poll_error
+            if attempt < retries:
+                time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+
+    raise last_error or GenerationError(
+        "Replicate could not generate an image."
+    )
+
+
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 
@@ -1059,7 +1396,7 @@ def _entry_for(path: Path):
     if dimensions is None:
         dimensions = _dimensions_from_path(path)
         _dimension_cache[cache_key] = dimensions
-    if path.name.startswith(("pollinations_", "gemini_", "huggingface_")):
+    if path.name.startswith(("pollinations_", "gemini_", "huggingface_", "replicate_")):
         source = "generated"
     elif path.name.startswith("uploaded_"):
         source = "uploaded"
