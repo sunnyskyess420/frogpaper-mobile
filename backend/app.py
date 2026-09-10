@@ -52,7 +52,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.9.6"
+APP_VERSION = "1.9.7"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 26 * 1024 * 1024  # 26 MB request cap (uploads)
