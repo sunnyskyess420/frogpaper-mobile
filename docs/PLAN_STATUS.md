@@ -83,10 +83,10 @@ Live and verified on web 2026-09-10:
   manager behind a platform-split module with graceful degradation -
   inside Expo Go it explains that a development build is needed (see
   docs/DEV_BUILD.md); after `npx expo prebuild` the direct path activates.
-  NOT yet verified on a real Android device.
+  **VERIFIED on a real device 2026-09-11**: user's Galaxy S9 - home-screen wallpaper fills edge-to-edge, no zoom.
 
-Remaining: verify wallpaper on a real device dev build, lock-screen vs
-home-screen choice, share sheet, widgets, notifications.
+Remaining: lock-screen vs home-screen choice, share sheet, widgets,
+notifications.
 
 Note: iOS cannot set wallpapers from apps by design - the UI only offers
 save + manual instructions there.
