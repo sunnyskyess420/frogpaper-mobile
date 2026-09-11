@@ -45,18 +45,7 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "./src/plugins/WallpaperManagerFix",
-      [
-        "@sentry/react-native",
-        {
-          "url": "https://sentry.io/",
-          "organization": "frogpaper",
-          "project": "frogpaper-mobile",
-          "dsn": "REPLACE_WITH_YOUR_SENTRY_DSN_FROM_SENTRY_IO",
-          "enableNative": true,
-          "enableAutoSessionTracking": true
-        }
-      ]
+      "./src/plugins/WallpaperManagerFix"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
