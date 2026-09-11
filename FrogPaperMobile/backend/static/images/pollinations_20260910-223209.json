@@ -1,0 +1,10 @@
+{
+  "provider": "pollinations",
+  "model": "flux",
+  "prompt": "test cloud generation",
+  "negative_prompt": null,
+  "seed": 48485246,
+  "requested_width": 1080,
+  "requested_height": 2220,
+  "upscaled_from": "535x953"
+}

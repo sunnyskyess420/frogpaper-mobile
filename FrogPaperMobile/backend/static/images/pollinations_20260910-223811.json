@@ -1,0 +1,10 @@
+{
+  "provider": "pollinations",
+  "model": "flux",
+  "prompt": "frog on a lilypad",
+  "negative_prompt": null,
+  "seed": 591228762,
+  "requested_width": 1080,
+  "requested_height": 2220,
+  "upscaled_from": "535x953"
+}
