@@ -25,6 +25,13 @@ const PORT = 5000;
 const CUSTOM_SERVER_KEY = '@frogpaper_custom_server_url';
 const ACCESS_KEY_KEY = '@frogpaper_access_key';
 
+// BYOK keys - stored only on this device, sent with each generate request.
+// The backend uses these INSTEAD of any server-side keys when present, and
+// never logs or persists them. Cleared by tapping "Clear" in Settings.
+const GEMINI_KEY_STORE = '@frogpaper_user_gemini_key';
+const HF_TOKEN_STORE = '@frogpaper_user_hf_token';
+const REPLICATE_TOKEN_STORE = '@frogpaper_user_replicate_token';
+
 // Derives http://<PC-LAN-IP>:5000 from the Expo Go dev server host, or null
 // when not running inside Expo Go (web, production build).
 function devHostLanUrl() {
@@ -45,6 +52,11 @@ function devHostLanUrl() {
 
 let customServerUrl = null;
 let accessKey = null;
+
+// BYOK keys - cached in memory after first load. Updated by setX() functions.
+let userGeminiKey = null;
+let userHfToken = null;
+let userReplicateToken = null;
 
 export async function setAccessKey(key) {
   if (!key || key.trim() === '') {
@@ -71,6 +83,71 @@ export async function getAccessKey() {
 
 // Load access key on startup
 getAccessKey().catch(() => {});
+
+// --- BYOK (Bring Your Own Key) helpers -------------------------------------
+// These functions store the user's personal API keys on this device only.
+// They are sent as headers on every generate request and never appear in
+// URLs, body, or logs. They persist across app restarts until cleared.
+
+async function _loadByokKey(storageKey, setter) {
+  try {
+    const value = await AsyncStorage.getItem(storageKey);
+    setter(value || '');
+    return value || '';
+  } catch (error) {
+    return '';
+  }
+}
+
+async function _saveByokKey(storageKey, value, setter) {
+  if (!value || value.trim() === '') {
+    await AsyncStorage.removeItem(storageKey);
+    setter('');
+  } else {
+    const trimmed = value.trim();
+    await AsyncStorage.setItem(storageKey, trimmed);
+    setter(trimmed);
+  }
+}
+
+export async function setGeminiKey(key) {
+  await _saveByokKey(GEMINI_KEY_STORE, key, (v) => { userGeminiKey = v; });
+}
+
+export async function getGeminiKey() {
+  if (userGeminiKey !== null) return userGeminiKey;
+  return _loadByokKey(GEMINI_KEY_STORE, (v) => { userGeminiKey = v; });
+}
+
+export async function setHfToken(token) {
+  await _saveByokKey(HF_TOKEN_STORE, token, (v) => { userHfToken = v; });
+}
+
+export async function getHfToken() {
+  if (userHfToken !== null) return userHfToken;
+  return _loadByokKey(HF_TOKEN_STORE, (v) => { userHfToken = v; });
+}
+
+export async function setReplicateToken(token) {
+  await _saveByokKey(REPLICATE_TOKEN_STORE, token, (v) => { userReplicateToken = v; });
+}
+
+export async function getReplicateToken() {
+  if (userReplicateToken !== null) return userReplicateToken;
+  return _loadByokKey(REPLICATE_TOKEN_STORE, (v) => { userReplicateToken = v; });
+}
+
+// Preload all BYOK keys on startup so the first request can attach them.
+Promise.all([getGeminiKey(), getHfToken(), getReplicateToken()]).catch(() => {});
+
+// Returns a snapshot of all BYOK keys (for the Settings screen status row).
+export function getByokSnapshot() {
+  return {
+    gemini: userGeminiKey || '',
+    huggingface: userHfToken || '',
+    replicate: userReplicateToken || '',
+  };
+}
 
 export async function setCustomServerUrl(url) {
   if (!url || url.trim() === '') {
@@ -180,12 +257,26 @@ async function request(path, options = {}) {
   const base = getBaseUrl();
   const { signal, ...fetchOptions } = options;
   const headers = { 'Content-Type': 'application/json' };
-  
+
   // Add access key to headers if configured
   if (accessKey) {
     headers['X-Access-Key'] = accessKey;
   }
-  
+
+  // Attach BYOK keys (if the user has set any). The backend uses these
+  // INSTEAD OF any server-side keys when present, and never logs them.
+  // All three are sent on every API request so the backend can pick the
+  // right one for whichever provider the user picked (or the default).
+  if (userGeminiKey) {
+    headers['X-Gemini-Key'] = userGeminiKey;
+  }
+  if (userHfToken) {
+    headers['X-Hf-Token'] = userHfToken;
+  }
+  if (userReplicateToken) {
+    headers['X-Replicate-Token'] = userReplicateToken;
+  }
+
   const response = await fetch(`${base}${path}`, {
     headers,
     ...fetchOptions,
@@ -243,6 +334,16 @@ export const api = {
     const headers = {};
     if (accessKey) {
       headers['X-Access-Key'] = accessKey;
+    }
+    // Attach BYOK keys on upload too (consistent with all other requests).
+    if (userGeminiKey) {
+      headers['X-Gemini-Key'] = userGeminiKey;
+    }
+    if (userHfToken) {
+      headers['X-Hf-Token'] = userHfToken;
+    }
+    if (userReplicateToken) {
+      headers['X-Replicate-Token'] = userReplicateToken;
     }
     const response = await fetch(`${base}/api/gallery/upload`, {
       method: 'POST',

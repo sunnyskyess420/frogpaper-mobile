@@ -11,7 +11,22 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import api, { discoverBaseUrl, getBaseUrl, getCustomServerUrl, getAccessKey, setAccessKey, LAN_IP, setCustomServerUrl } from '../services/api';
+import api, {
+  discoverBaseUrl,
+  getBaseUrl,
+  getCustomServerUrl,
+  setCustomServerUrl,
+  getAccessKey,
+  setAccessKey,
+  getGeminiKey,
+  setGeminiKey,
+  getHfToken,
+  setHfToken,
+  getReplicateToken,
+  setReplicateToken,
+  getByokSnapshot,
+  LAN_IP,
+} from '../services/api';
 import {
   forceTestCrash,
   getEffectiveDsn,
@@ -24,6 +39,7 @@ import {
   setRuntimeEnvironment,
 } from '../services/sentry';
 import { colors, radii, spacing } from '../theme';
+import ByokHelpModal from '../components/ByokHelpModal';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -34,6 +50,16 @@ export default function SettingsScreen() {
     error: null,
     customUrl: '',
     accessKey: '',
+    // BYOK keys - local-only, sent as headers on generate requests.
+    // These hold whatever the user has typed (so they can edit before
+    // tapping Save), not necessarily the saved value.
+    userGeminiKey: '',
+    userHfToken: '',
+    userReplicateToken: '',
+    // BYOK status row: which keys are currently saved (true/false per provider).
+    byokStatus: { gemini: false, huggingface: false, replicate: false },
+    // Help modal visibility (opened from "How do I get API keys?" button).
+    byokHelpVisible: false,
     sentryDsn: '',
     sentryEnv: '',
     sentryStatus: 'not initialized',
@@ -48,14 +74,27 @@ export default function SettingsScreen() {
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       await discoverBaseUrl();
-      const [health, providersResponse, accessKeyValue, runtimeDsn, runtimeEnv] = await Promise.all([
+      const [
+        health,
+        providersResponse,
+        accessKeyValue,
+        runtimeDsn,
+        runtimeEnv,
+        geminiKey,
+        hfToken,
+        replicateToken,
+      ] = await Promise.all([
         api.health(),
         api.providers(),
         getAccessKey(),
         getRuntimeDsn(),
         getRuntimeEnvironment(),
+        getGeminiKey(),
+        getHfToken(),
+        getReplicateToken(),
       ]);
       const customUrl = await getCustomServerUrl();
+      const byok = getByokSnapshot();
       setState({
         loading: false,
         health,
@@ -63,6 +102,14 @@ export default function SettingsScreen() {
         error: null,
         customUrl: customUrl || '',
         accessKey: accessKeyValue || '',
+        userGeminiKey: geminiKey || '',
+        userHfToken: hfToken || '',
+        userReplicateToken: replicateToken || '',
+        byokStatus: {
+          gemini: !!byok.gemini,
+          huggingface: !!byok.huggingface,
+          replicate: !!byok.replicate,
+        },
         sentryDsn: runtimeDsn || '',
         sentryEnv: runtimeEnv || '',
         sentryStatus: isInitialized() ? 'initialized' : 'not initialized',
@@ -77,6 +124,10 @@ export default function SettingsScreen() {
       const accessKeyValue = await getAccessKey();
       const runtimeDsn = await getRuntimeDsn();
       const runtimeEnv = await getRuntimeEnvironment();
+      const geminiKey = await getGeminiKey();
+      const hfToken = await getHfToken();
+      const replicateToken = await getReplicateToken();
+      const byok = getByokSnapshot();
       setState({
         loading: false,
         health: null,
@@ -84,6 +135,14 @@ export default function SettingsScreen() {
         error: err.message || 'Backend unreachable',
         customUrl: customUrl || '',
         accessKey: accessKeyValue || '',
+        userGeminiKey: geminiKey || '',
+        userHfToken: hfToken || '',
+        userReplicateToken: replicateToken || '',
+        byokStatus: {
+          gemini: !!byok.gemini,
+          huggingface: !!byok.huggingface,
+          replicate: !!byok.replicate,
+        },
         sentryDsn: runtimeDsn || '',
         sentryEnv: runtimeEnv || '',
         sentryStatus: isInitialized() ? 'initialized' : 'not initialized',
@@ -128,6 +187,107 @@ export default function SettingsScreen() {
   const clearAccessKey = async () => {
     await setAccessKey('');
     await refresh();
+  };
+
+  // --- BYOK (Bring Your Own Key) handlers ---------------------------------
+  // Each provider has its own onChange / save / clear. Save persists the
+  // key to AsyncStorage (and the in-memory cache) so it gets attached to
+  // the next generate request. Clear wipes it from this device only.
+
+  const handleGeminiKeyChange = (text) => {
+    setState((prev) => ({ ...prev, userGeminiKey: text }));
+  };
+
+  const saveGeminiKey = async () => {
+    await setGeminiKey(state.userGeminiKey);
+    const byok = getByokSnapshot();
+    setState((prev) => ({
+      ...prev,
+      byokStatus: { ...prev.byokStatus, gemini: !!byok.gemini },
+    }));
+    Alert.alert(
+      'Gemini key saved',
+      byok.gemini
+        ? 'Your Gemini key is now used for every generate request that picks the Gemini provider.'
+        : 'Gemini key cleared. The next generate will fall back to the server default.',
+    );
+  };
+
+  const clearGeminiKey = async () => {
+    await setGeminiKey('');
+    setState((prev) => ({
+      ...prev,
+      userGeminiKey: '',
+      byokStatus: { ...prev.byokStatus, gemini: false },
+    }));
+  };
+
+  const handleHfTokenChange = (text) => {
+    setState((prev) => ({ ...prev, userHfToken: text }));
+  };
+
+  const saveHfToken = async () => {
+    await setHfToken(state.userHfToken);
+    const byok = getByokSnapshot();
+    setState((prev) => ({
+      ...prev,
+      byokStatus: { ...prev.byokStatus, huggingface: !!byok.huggingface },
+    }));
+    Alert.alert(
+      'Hugging Face token saved',
+      byok.huggingface
+        ? 'Your Hugging Face token is now used for every generate request that picks the Hugging Face provider.'
+        : 'Hugging Face token cleared. The next generate will fall back to the server default.',
+    );
+  };
+
+  const clearHfToken = async () => {
+    await setHfToken('');
+    setState((prev) => ({
+      ...prev,
+      userHfToken: '',
+      byokStatus: { ...prev.byokStatus, huggingface: false },
+    }));
+  };
+
+  const handleReplicateTokenChange = (text) => {
+    setState((prev) => ({ ...prev, userReplicateToken: text }));
+  };
+
+  const saveReplicateToken = async () => {
+    await setReplicateToken(state.userReplicateToken);
+    const byok = getByokSnapshot();
+    setState((prev) => ({
+      ...prev,
+      byokStatus: { ...prev.byokStatus, replicate: !!byok.replicate },
+    }));
+    Alert.alert(
+      'Replicate token saved',
+      byok.replicate
+        ? 'Your Replicate token is now used for every generate request that picks the Replicate provider.'
+        : 'Replicate token cleared. The next generate will fall back to the server default.',
+    );
+  };
+
+  const clearReplicateToken = async () => {
+    await setReplicateToken('');
+    setState((prev) => ({
+      ...prev,
+      userReplicateToken: '',
+      byokStatus: { ...prev.byokStatus, replicate: false },
+    }));
+  };
+
+  // Opens the in-app help modal that walks the user through getting free API
+  // keys for Google Gemini, Hugging Face, and Replicate. This is the only
+  // place users learn how to obtain keys - they won't see the GitHub README
+  // if they installed from the website.
+  const openByokHelp = () => {
+    setState((prev) => ({ ...prev, byokHelpVisible: true }));
+  };
+
+  const closeByokHelp = () => {
+    setState((prev) => ({ ...prev, byokHelpVisible: false }));
   };
 
   // --- Sentry / Diagnostics handlers ------------------------------------
@@ -355,6 +515,97 @@ export default function SettingsScreen() {
         </View>
       </View>
 
+      <Text style={styles.sectionLabel}>Your API keys</Text>
+      <View style={styles.card}>
+        <Text style={styles.hint}>
+          Bring your own keys (BYOK). Paste your own free API keys here to use your own quotas.
+          Keys are stored only on this phone and sent with each generate request. They never appear
+          in logs and are never saved on the server.
+        </Text>
+
+        <Pressable style={[styles.button, styles.buttonPrimary]} onPress={openByokHelp}>
+          <Text style={styles.buttonTextPrimary}>How do I get API keys?</Text>
+        </Pressable>
+
+        <Text style={styles.inputLabel}>Google Gemini key</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="AQ...  or  AIza..."
+          placeholderTextColor={colors.muted}
+          value={state.userGeminiKey}
+          onChangeText={handleGeminiKeyChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+        />
+        <View style={styles.buttonRow}>
+          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveGeminiKey}>
+            <Text style={styles.buttonText}>Save</Text>
+          </Pressable>
+          {state.byokStatus.gemini && (
+            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearGeminiKey}>
+              <Text style={styles.buttonText}>Clear</Text>
+            </Pressable>
+          )}
+        </View>
+
+        <Text style={styles.inputLabel}>Hugging Face token</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="hf_..."
+          placeholderTextColor={colors.muted}
+          value={state.userHfToken}
+          onChangeText={handleHfTokenChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+        />
+        <View style={styles.buttonRow}>
+          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveHfToken}>
+            <Text style={styles.buttonText}>Save</Text>
+          </Pressable>
+          {state.byokStatus.huggingface && (
+            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearHfToken}>
+              <Text style={styles.buttonText}>Clear</Text>
+            </Pressable>
+          )}
+        </View>
+
+        <Text style={styles.inputLabel}>Replicate token</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="r8_..."
+          placeholderTextColor={colors.muted}
+          value={state.userReplicateToken}
+          onChangeText={handleReplicateTokenChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+        />
+        <View style={styles.buttonRow}>
+          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveReplicateToken}>
+            <Text style={styles.buttonText}>Save</Text>
+          </Pressable>
+          {state.byokStatus.replicate && (
+            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearReplicateToken}>
+              <Text style={styles.buttonText}>Clear</Text>
+            </Pressable>
+          )}
+        </View>
+
+        <Text style={styles.hint}>
+          Status: {state.byokStatus.gemini ? 'Gemini: saved' : 'Gemini: none'}
+          {'  |  '}
+          {state.byokStatus.huggingface ? 'HF: saved' : 'HF: none'}
+          {'  |  '}
+          {state.byokStatus.replicate ? 'Replicate: saved' : 'Replicate: none'}
+        </Text>
+        <Text style={styles.hint}>
+          Get free keys at: aistudio.google.com/apikey (Gemini), huggingface.co/settings/tokens (HF),
+          replicate.com/accounts (Replicate, paid).
+        </Text>
+      </View>
+
       <Text style={styles.sectionLabel}>AI provider</Text>
       {state.providers.map((provider) => (
         <View key={provider.id} style={styles.card}>
@@ -510,6 +761,11 @@ export default function SettingsScreen() {
           <Text style={styles.errorText}>{state.error}</Text>
         </View>
       )}
+
+      <ByokHelpModal
+        visible={state.byokHelpVisible}
+        onClose={closeByokHelp}
+      />
     </ScrollView>
   );
 }
@@ -629,6 +885,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
+  buttonPrimary: {
+    backgroundColor: colors.accent,
+    paddingVertical: 12,
+    borderRadius: radii.md,
+    marginTop: spacing.md,
+    alignItems: 'center',
+  },
+  buttonTextPrimary: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '800',
+  },
   input: {
     backgroundColor: colors.cardAlt,
     borderColor: colors.border,
@@ -638,6 +906,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     padding: spacing.md,
     marginTop: spacing.sm,
+  },
+  inputLabel: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: spacing.md,
+    marginBottom: 2,
   },
   aboutRow: {
     flexDirection: 'row',
