@@ -11,12 +11,12 @@ is powered off.
 +------------------+        HTTPS         +--------------------+       HTTPS       +------------------+
 |  Android app     |  <-----------------> |  Flask backend     | <---------------> |  pollinations.ai |
 |  (Expo / RN)     |   /api/* JSON        |  on Render.com     |   image prompt    |  Flux model      |
-|  APK install     |                      |  frogpaper-mobile  |   <--- jpeg ---   |  (free, no key)  |
+|  APK install     |                      |  your-service      |   <--- jpeg ---   |  (free, no key)  |
 +------------------+                      +--------------------+                   +------------------+
 ```
 
-- **Backend (cloud)**: https://frogpaper-mobile.onrender.com - free Render
-  instance. It sleeps after ~15 minutes of quiet and wakes in a few seconds on
+- **Backend (cloud)**: a private Render.com address shared with app users
+  (kept out of this public README on purpose) - free Render instance. It sleeps after ~15 minutes of quiet and wakes in a few seconds on
   the next request; the app probes patiently, so the first tap after a break
   just takes a little longer.
 - **Backend (optional, PC)**: the same Flask app in `backend/` runs fine on any
@@ -72,8 +72,8 @@ matched with word boundaries, so "gothic cathedral" is never cat-ified.
 2. Tap it; allow "install from this source" if Android asks. Installing over
    an older FrogPaper keeps your saved address, favorites and settings.
 3. Open FrogPaper. Check **Settings > About** shows `FrogPaper Mobile 1.9.16`.
-4. In **Settings**, enter `frogpaper-mobile.onrender.com` as the server
-   address and tap **Save URL** - one time only, it is remembered. The Home
+4. In **Settings**, enter the server address you were given and tap
+   **Save URL** - one time only, it is remembered. The Home
    dot turns green when the cloud answers.
 5. Generate something. Wait out the green dot if the cloud was asleep.
 
@@ -135,9 +135,8 @@ syntax checks cannot see and that crashed the app on launch.
 **Green dot takes a while** - the free cloud tier sleeps; the first request
 wakes it (a few seconds, occasionally longer at peak). Later requests are fast.
 
-**HTTP 404 on connect** - check the saved address letter by letter: it must be
-`frogpaper-mobile.onrender.com` (not `frogpaper-website...`). Tap Clear, type
-it again, Save.
+**HTTP 404 on connect** - check the saved address letter by letter, character
+by character (a single wrong word gives 404). Tap Clear, type it again, Save.
 
 **Generation fails or times out** - Pollinations is a free community service
 and rate-limits at busy times. The backend retries with backoff; wait a minute
