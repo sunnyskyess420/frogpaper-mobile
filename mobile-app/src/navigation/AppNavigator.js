@@ -6,6 +6,7 @@ import GenerateScreen from '../screens/GenerateScreen';
 import DetailScreen from '../screens/DetailScreen';
 import HomeScreen from '../screens/HomeScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import SlideshowScreen from '../screens/SlideshowScreen';
 import { colors } from '../theme';
 
 const Stack = createNativeStackNavigator();
@@ -26,6 +27,7 @@ export default function AppNavigator() {
       <Stack.Screen name="Generate" component={GenerateScreen} options={{ title: 'Generate' }} />
       <Stack.Screen name="Gallery" component={GalleryScreen} options={{ title: 'Gallery' }} />
       <Stack.Screen name="Detail" component={DetailScreen} options={{ title: 'Detail' }} />
+      <Stack.Screen name="Slideshow" component={SlideshowScreen} options={{ title: 'Slideshow' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
     </Stack.Navigator>
   );

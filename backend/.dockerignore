@@ -26,6 +26,10 @@ Thumbs.db
 replicate_api_token.txt
 huggingface_token.txt
 gemini_api_key.txt
+access_key.txt
+
+# Runtime state (will be created in container)
+slideshow_config.json
 
 # Tests (not needed in production)
 tests/

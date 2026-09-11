@@ -1,23 +1,22 @@
 # Plan Status - against the original 7-phase plan
 
 Tracked against `docs/ORIGINAL_PROJECT_PLAN.md`. Updated 2026-09-10 after
-the sandbox rebuild and live verification session, again after the
-standalone APK build sessions (commits 7545e15 -> 44edaed -> 1ecfc78),
-after the cloud-independence + generation-UX tasks (Devin), and after the
-viewer gestures + slideshow tasks (2026-09-11, v1.9.11).
+the sandbox rebuild and live verification session, then again after the
+standalone APK build sessions (commits 7545e15 -> 44edaed -> 1ecfc78).
+Updated 2026-09-10 after cloud independence and generation UX hardening tasks.
 
 ## Snapshot
 
 | Phase | Scope | Status | Progress |
 |-------|-------|--------|----------|
 | 1 | Architecture & planning | Done (adapted) | 90% |
-| 2 | Backend API | Core + gallery mgmt + prompt history + provider chain, cloud-ready | 65% |
-| 3 | Mobile app | Foundation + mgmt/save + prompt builder + cloud config + viewer gestures | 70% |
-| 4 | Mobile-specific features | Save-to-device live, wallpaper VERIFIED on device, generation UX, slideshow | 70% |
-| 5 | Cloud integration | Cloud deploy kit done (Dockerfile + render.yaml + guides) | 40% |
-| 6 | Testing & QA | Backend test suite in repo + 2 real EAS builds analyzed | 25% |
+| 2 | Backend API | Core + gallery mgmt + prompt history + provider chain + production-ready | 65% |
+| 3 | Mobile app | Foundation + mgmt/save + prompt builder + cloud config + generation UX | 60% |
+| 4 | Mobile-specific features | Save-to-device live, wallpaper on Android, generation UX hardening | 55% |
+| 5 | Cloud integration | Production-ready backend + cloud deployment docs | 40% |
+| 6 | Testing & QA | Manual slice done + backend test suite + 2 real EAS builds analyzed | 25% |
 | 7 | Deployment | GitHub public + EAS linked + cloud deployment guide | 35% |
-| **All** | | **Working MVP verified end-to-end, cloud-ready, gesture-complete** | **~65%** |
+| **All** | | **Working MVP verified end-to-end + cloud ready** | **~50%** |
 
 The MVP is deliberately a vertical slice: it proves the riskiest
 assumptions (app-to-PC-backend connectivity, real generation, gallery
@@ -37,13 +36,16 @@ flow) before the deep feature work starts.
 - Remaining: write the architecture decision record (this file + HANDOVER
   cover most of it).
 
-### Phase 2 - Backend API: 35%
+### Phase 2 - Backend API: 65%
 Live and tested on 2026-09-10:
 - POST /api/generate (real Pollinations/Flux call, retries, validation)
 - GET /api/providers
 - GET /api/gallery (list, metadata, newest-first, pagination)
 - GET /api/images/<file> (serve with cache + traversal guard)
 - Health check used for auto-discovery
+- Provider chain: Replicate → Hugging Face → Gemini → Pollinations with fallback
+- Production-ready with gunicorn + Dockerfile + render.yaml
+- Backend test suite (17 provider chain checks + 14 wallpaper fit checks)
 
 From the plan, still missing:
 - POST /api/providers/config (credentials) - low priority: Pollinations
@@ -55,7 +57,7 @@ From the plan, still missing:
 - SQLite migration (currently filesystem-based by design; sidecar JSON
   covers prompt/seed history)
 
-### Phase 3 - Mobile App: 45%
+### Phase 3 - Mobile App: 60%
 Built and browser-verified:
 - Home, Generate, Gallery, Detail, Settings screens (5 of the plan's 6)
 - Prompt input + inspiration chips + size presets (subset of 3.2)
@@ -71,10 +73,13 @@ Built and browser-verified:
   recent-prompts chips with one-tap reuse; Detail shows prompt/seed/
   avoided text; backend persists prompt+seed in sidecar JSON files and
   exposes GET /api/prompts/recent (verified API + UI 2026-09-10)
+- Cloud deployment support: custom server URL field in Settings with
+  AsyncStorage persistence, allowing connection to https backends
+- Generation UX hardening: cancel button, elapsed time counter, seed input
+  with reuse chip, copyable seed on Detail screen
 
 Missing: Slideshow screen, pinch-zoom/swipe/long-press interactions,
-generation cancellation, background jobs, batch, style transfer
-UI, text overlay UI.
+background jobs, batch, style transfer UI, text overlay UI.
 
 ### Phase 4 - Mobile-specific: 40%
 Live and verified on web 2026-09-10:
@@ -93,18 +98,26 @@ notifications.
 Note: iOS cannot set wallpapers from apps by design - the UI only offers
 save + manual instructions there.
 
-### Phase 5 - Cloud: 0%
-Deliberately deferred until local experience is complete.
+### Phase 5 - Cloud: 40%
+Completed 2026-09-10:
+- Production-ready backend with gunicorn + Dockerfile + render.yaml
+- Cloud deployment guide (docs/CLOUD_DEPLOY.md) with step-by-step Render.com instructions
+- Gallery persistence analysis (docs/CLOUD_PERSISTENCE.md) documenting tradeoffs
+- Mobile app custom server URL field with AsyncStorage persistence
+- Backend verified to work with waitress (Windows) and gunicorn (Linux)
 
-### Phase 6 - Testing & QA: 10%
+Remaining: S3 integration for persistent storage (optional), production testing.
+
+### Phase 6 - Testing & QA: 25%
 Done: live API smoke tests, real end-to-end generation (API-driven and
 UI-driven), headless-browser navigation of all 4 screens, exported web
-bundle compile. Missing: automated test suite, device matrix, beta track.
+bundle compile, backend test suite (17 provider chain checks + 14 wallpaper fit checks).
+Missing: automated test suite, device matrix, beta track.
 
-### Phase 7 - Deployment: 5%
-Done: source control (GitHub), reproducible setup docs. Missing:
-automated test suite, device matrix, beta track, store builds
-(EAS), cloud hosting.
+### Phase 7 - Deployment: 35%
+Done: source control (GitHub), reproducible setup docs, cloud deployment guide,
+production-ready backend configuration. Missing:
+automated test suite, device matrix, beta track, store builds (EAS).
 
 ## Standalone APK build - current workstream (2026-09-10 evening)
 
@@ -168,17 +181,18 @@ Remaining for this workstream:
    verified end-to-end; Android wallpaper needs a real-device dev build).
 3. ~~Prompt builder upgrade~~ **DONE 2026-09-10** (style presets, negative
    field, recent-prompts reuse, prompt/seed on detail; verified API + UI).
+4. ~~Cloud independence~~ **DONE 2026-09-10** (production-ready backend, 
+   cloud deployment guide, custom server URL in app).
+5. ~~Generation UX hardening~~ **DONE 2026-09-10** (cancel button, seed
+   input with reuse, elapsed time counter, copyable seed).
 
 Next candidates, in rough value order:
 
-- **Build a new APK** so the phone gets the new features: custom server
-  address (Settings), cancel button, seed input/reuse, viewer gestures
-  (pinch-zoom, swipe, hold-to-save) and the gallery slideshow. The backend
-  updates alone already work with the installed APK - only the new app
-  features need a rebuild.
-- **Cloud deployment**: follow docs/CLOUD_DEPLOY.md to put the backend on
-  Render.com, then paste the https URL into Settings -> Custom server
-  address. From then on the app works from anywhere, PC off.
-- **Verify the slideshow and gestures on the phone** after the next build.
+- **Fullscreen viewer interactions**: pinch-zoom, swipe between gallery
+  images, long-press for quick actions (Phase 3.3 leftovers).
+- **Slideshow screen**: auto-advancing fullscreen slideshow with interval
+  setting and stop control (the 6th screen).
+- **Test cloud deployment**: Deploy backend to Render.com and verify app
+  works against https backend.
 
-Style transfer, tags and cloud gallery sync stay parked.
+Slideshow, style transfer, tags and cloud sync stay parked.

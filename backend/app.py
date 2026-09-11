@@ -14,6 +14,9 @@ DELETE /api/gallery/<name> -> delete an image
 POST /api/gallery/upload  -> add your own image
 GET  /api/prompts/recent  -> distinct recently-used prompts
 GET  /api/images/<name>   -> serve one image file
+POST /api/slideshow/config -> save slideshow configuration (interval, enabled)
+GET  /api/slideshow/config -> get current slideshow configuration
+GET  /api/slideshow/next   -> get next wallpaper for slideshow
 
 Run (Windows)
 -------------
@@ -22,6 +25,7 @@ cd E:\\FROGPAPER\\FrogPaperMobile\\backend
 python app.py
 """
 
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -54,7 +58,11 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.9.16"
+APP_VERSION = "1.9.12"
+
+# Access key for API authentication (shared secret between app and backend)
+# Set via RENDER_ACCESS_KEY environment variable on Render, or fallback to local file
+ACCESS_KEY_FILE = BASE_DIR / "access_key.txt"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 26 * 1024 * 1024  # 26 MB request cap (uploads)
@@ -71,8 +79,57 @@ log = logging.getLogger("frogpaper")
 
 
 # ---------------------------------------------------------------------------
+# Authentication middleware
+# ---------------------------------------------------------------------------
+
+@app.before_request
+def check_access_key():
+    """Require access key for all /api/* routes."""
+    # Only check API routes
+    if not request.path.startswith("/api/"):
+        return
+    
+    # Health check is exempt for connectivity testing
+    if request.path == "/api/health":
+        return
+    
+    if not require_access_key():
+        log.warning("Request rejected: missing or invalid access key from %s", request.remote_addr)
+        return _error_response("Access key required. Configure it in app Settings.", 401)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def read_access_key():
+    """Read the access key from environment variable or file."""
+    env_key = os.environ.get("FROGPAPER_ACCESS_KEY", "").strip()
+    if env_key:
+        return env_key
+    try:
+        if ACCESS_KEY_FILE.is_file():
+            key = ACCESS_KEY_FILE.read_text(encoding="utf-8").strip()
+            if key:
+                return key
+    except OSError:
+        pass
+    return None
+
+
+def require_access_key():
+    """Check if the request has a valid access key in headers."""
+    expected_key = read_access_key()
+    # If no key is configured, allow requests (for local development)
+    if not expected_key:
+        return True
+    
+    provided_key = request.headers.get("X-Access-Key", "").strip()
+    if not provided_key:
+        return False
+    
+    # Constant-time comparison to prevent timing attacks
+    return provided_key == expected_key
 
 def _parse_int(value, default, minimum, maximum):
     """Parse an int with clamping - never let bad input crash a route."""
@@ -369,6 +426,100 @@ def serve_image(filename):
     response = send_from_directory(IMAGES_DIR, safe_name, conditional=True)
     response.headers["Cache-Control"] = "public, max-age=86400"
     return response
+
+
+# ---------------------------------------------------------------------------
+# Slideshow endpoints
+# ---------------------------------------------------------------------------
+
+SLIDESHOW_CONFIG_FILE = BASE_DIR / "slideshow_config.json"
+
+
+def _read_slideshow_config():
+    """Read slideshow configuration from file, return defaults if missing."""
+    try:
+        if SLIDESHOW_CONFIG_FILE.is_file():
+            data = SLIDESHOW_CONFIG_FILE.read_text(encoding="utf-8")
+            config = json.loads(data)
+            # Ensure required fields exist
+            return {
+                "enabled": config.get("enabled", False),
+                "interval_minutes": config.get("interval_minutes", 60),
+                "last_shown_index": config.get("last_shown_index", 0),
+            }
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        log.warning("Could not read slideshow config: %s", exc)
+    return {"enabled": False, "interval_minutes": 60, "last_shown_index": 0}
+
+
+def _write_slideshow_config(config):
+    """Write slideshow configuration to file."""
+    try:
+        SLIDESHOW_CONFIG_FILE.write_text(
+            json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError as exc:
+        log.error("Could not write slideshow config: %s", exc)
+        raise
+
+
+@app.post("/api/slideshow/config")
+def slideshow_config_post():
+    """Save slideshow configuration."""
+    data = request.get_json(silent=True) or {}
+    
+    enabled = bool(data.get("enabled", False))
+    interval_minutes = _parse_int(data.get("interval_minutes"), 60, 5, 1440)  # 5 min to 24 hours
+    
+    config = _read_slideshow_config()
+    config["enabled"] = enabled
+    config["interval_minutes"] = interval_minutes
+    # Reset index when enabling or changing interval
+    if enabled:
+        config["last_shown_index"] = 0
+    
+    _write_slideshow_config(config)
+    log.info("Slideshow config updated: enabled=%s, interval=%d min", enabled, interval_minutes)
+    
+    return jsonify({"success": True, "config": config})
+
+
+@app.get("/api/slideshow/config")
+def slideshow_config_get():
+    """Get current slideshow configuration."""
+    config = _read_slideshow_config()
+    return jsonify({"success": True, "config": config})
+
+
+@app.get("/api/slideshow/next")
+def slideshow_next():
+    """Get the next wallpaper for slideshow, cycling through gallery."""
+    config = _read_slideshow_config()
+    
+    if not config["enabled"]:
+        return _error_response("Slideshow is not enabled.", 400)
+    
+    images = list_gallery_images(IMAGES_DIR)
+    if not images:
+        return _error_response("No images available for slideshow.", 404)
+    
+    # Get next image in cycle
+    current_index = config.get("last_shown_index", 0)
+    next_index = (current_index + 1) % len(images)
+    next_image = images[next_index]
+    
+    # Update the index
+    config["last_shown_index"] = next_index
+    _write_slideshow_config(config)
+    
+    log.info("Slideshow next: image %d/%d (%s)", next_index + 1, len(images), next_image["filename"])
+    
+    return jsonify({
+        "success": True,
+        "image": next_image,
+        "index": next_index,
+        "total": len(images),
+    })
 
 
 # ---------------------------------------------------------------------------

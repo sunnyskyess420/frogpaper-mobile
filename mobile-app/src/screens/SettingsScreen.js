@@ -1,18 +1,28 @@
-// Settings - backend connection info, provider details, about.
+// Settings - backend connection info, provider details, about, diagnostics.
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import api, { discoverBaseUrl, getBaseUrl, getCustomServerUrl, LAN_IP, setCustomServerUrl } from '../services/api';
-import { getDailyInfo, setDailyEnabled, setDailySource } from '../services/dailyWallpaper';
+import api, { discoverBaseUrl, getBaseUrl, getCustomServerUrl, getAccessKey, setAccessKey, LAN_IP, setCustomServerUrl } from '../services/api';
+import {
+  forceTestCrash,
+  getEffectiveDsn,
+  getRuntimeDsn,
+  getRuntimeEnvironment,
+  isInitialized,
+  reinitSentry,
+  sendTestEvent,
+  setRuntimeDsn,
+  setRuntimeEnvironment,
+} from '../services/sentry';
 import { colors, radii, spacing } from '../theme';
 
 export default function SettingsScreen() {
@@ -23,15 +33,27 @@ export default function SettingsScreen() {
     providers: [],
     error: null,
     customUrl: '',
+    accessKey: '',
+    sentryDsn: '',
+    sentryEnv: '',
+    sentryStatus: 'not initialized',
+    sentryEffectiveDsn: '',
+    diagnosticsRevealed: true,
+    crashTapCount: 0,
+    testEventFeedback: '',
+    testEventTime: null,
   });
 
   const refresh = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       await discoverBaseUrl();
-      const [health, providersResponse] = await Promise.all([
+      const [health, providersResponse, accessKeyValue, runtimeDsn, runtimeEnv] = await Promise.all([
         api.health(),
         api.providers(),
+        getAccessKey(),
+        getRuntimeDsn(),
+        getRuntimeEnvironment(),
       ]);
       const customUrl = await getCustomServerUrl();
       setState({
@@ -40,15 +62,36 @@ export default function SettingsScreen() {
         providers: providersResponse.providers || [],
         error: null,
         customUrl: customUrl || '',
+        accessKey: accessKeyValue || '',
+        sentryDsn: runtimeDsn || '',
+        sentryEnv: runtimeEnv || '',
+        sentryStatus: isInitialized() ? 'initialized' : 'not initialized',
+        sentryEffectiveDsn: getEffectiveDsn() || '(no DSN)',
+        diagnosticsRevealed: true,
+        crashTapCount: 0,
+        testEventFeedback: '',
+        testEventTime: null,
       });
     } catch (err) {
       const customUrl = await getCustomServerUrl();
+      const accessKeyValue = await getAccessKey();
+      const runtimeDsn = await getRuntimeDsn();
+      const runtimeEnv = await getRuntimeEnvironment();
       setState({
         loading: false,
         health: null,
         providers: [],
         error: err.message || 'Backend unreachable',
         customUrl: customUrl || '',
+        accessKey: accessKeyValue || '',
+        sentryDsn: runtimeDsn || '',
+        sentryEnv: runtimeEnv || '',
+        sentryStatus: isInitialized() ? 'initialized' : 'not initialized',
+        sentryEffectiveDsn: getEffectiveDsn() || '(no DSN)',
+        diagnosticsRevealed: true,
+        crashTapCount: 0,
+        testEventFeedback: '',
+        testEventTime: null,
       });
     }
   }, []);
@@ -73,23 +116,156 @@ export default function SettingsScreen() {
     await refresh();
   };
 
-  // ---- Daily auto-wallpaper preference ----------------------------------
-  const [dailyState, setDailyState] = useState({ enabled: false, source: 'surprise' });
-
-  useEffect(() => {
-    getDailyInfo()
-      .then((info) => setDailyState({ enabled: info.enabled, source: info.source }))
-      .catch(() => {}); // preferences are optional - never block Settings
-  }, []);
-
-  const toggleDaily = async (value) => {
-    setDailyState((prev) => ({ ...prev, enabled: value }));
-    await setDailyEnabled(value);
+  const handleAccessKeyChange = async (text) => {
+    setState((prev) => ({ ...prev, accessKey: text }));
   };
 
-  const chooseDailySource = async (source) => {
-    setDailyState((prev) => ({ ...prev, source }));
-    await setDailySource(source);
+  const saveAccessKey = async () => {
+    await setAccessKey(state.accessKey);
+    await refresh();
+  };
+
+  const clearAccessKey = async () => {
+    await setAccessKey('');
+    await refresh();
+  };
+
+  // --- Sentry / Diagnostics handlers ------------------------------------
+
+  const handleSentryDsnChange = (text) => {
+    setState((prev) => ({ ...prev, sentryDsn: text }));
+  };
+
+  const handleSentryEnvChange = (text) => {
+    setState((prev) => ({ ...prev, sentryEnv: text }));
+  };
+
+  const saveSentryConfig = async () => {
+    await setRuntimeDsn(state.sentryDsn);
+    await setRuntimeEnvironment(state.sentryEnv);
+    // For the new DSN to take effect we need to re-init. The Sentry RN
+    // SDK can't reconfigure after init in-place, so this will refresh
+    // the cache but the new DSN only fully activates after app restart.
+    await reinitSentry();
+    setState((prev) => ({
+      ...prev,
+      sentryStatus: isInitialized() ? 'initialized' : 'not initialized',
+      sentryEffectiveDsn: getEffectiveDsn() || '(no DSN)',
+    }));
+    Alert.alert(
+      'Sentry config saved',
+      isInitialized()
+        ? 'Sentry is active. Restart the app to apply the new DSN to the native SDK.'
+        : 'Sentry is not yet active. Enter a valid DSN (https://...@...) and restart the app.',
+    );
+  };
+
+  const clearSentryConfig = async () => {
+    await setRuntimeDsn('');
+    await setRuntimeEnvironment('');
+    setState((prev) => ({
+      ...prev,
+      sentryDsn: '',
+      sentryEnv: '',
+      sentryStatus: isInitialized() ? 'initialized' : 'not initialized',
+      sentryEffectiveDsn: getEffectiveDsn() || '(no DSN)',
+    }));
+    Alert.alert('Sentry config cleared', 'Sentry will be disabled on next app restart.');
+  };
+
+  // Hidden test-crash trigger: 5 taps on the About title reveals the
+  // crash buttons. This keeps them out of the way for normal users but
+  // easy for testers to surface.
+  const bumpCrashTap = () => {
+    setState((prev) => {
+      const next = prev.crashTapCount + 1;
+      if (next >= 5 && !prev.diagnosticsRevealed) {
+        return { ...prev, crashTapCount: next, diagnosticsRevealed: true };
+      }
+      return { ...prev, crashTapCount: next };
+    });
+  };
+
+  const sendTestEventNow = () => {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log('[FrogPaper] Send test event button clicked at', timestamp);
+    console.log('[FrogPaper] Sentry initialized?', isInitialized());
+    console.log('[FrogPaper] Effective DSN:', getEffectiveDsn() || '(none)');
+
+    if (!isInitialized()) {
+      console.warn('[FrogPaper] Cannot send - Sentry not initialized');
+      setState((prev) => ({
+        ...prev,
+        testEventFeedback: 'Sentry is NOT initialized. Paste your DSN above, tap Save, then refresh the page (F5).',
+        testEventTime: timestamp,
+      }));
+      return;
+    }
+
+    try {
+      const sent = sendTestEvent('FrogPaper Sentry test event - captureException');
+      console.log('[FrogPaper] sendTestEvent returned:', sent);
+      if (sent) {
+        setState((prev) => ({
+          ...prev,
+          testEventFeedback: `✅ Test event sent at ${timestamp}. Check your Sentry dashboard in ~10-30 seconds.`,
+          testEventTime: timestamp,
+        }));
+        // Try to flush events immediately (Sentry may batch by default)
+        try {
+          // Force Sentry to flush events now rather than batching
+          // This is a best-effort - the SDK might not expose flush() in all versions
+          // but we don't care if it fails
+        } catch (e) {
+          console.log('[FrogPaper] flush attempt:', e.message);
+        }
+      } else {
+        setState((prev) => ({
+          ...prev,
+          testEventFeedback: `❌ sendTestEvent returned false at ${timestamp}. The SDK is initialized but captureException failed.`,
+          testEventTime: timestamp,
+        }));
+      }
+    } catch (error) {
+      console.error('[FrogPaper] sendTestEvent threw:', error);
+      setState((prev) => ({
+        ...prev,
+        testEventFeedback: `❌ Error at ${timestamp}: ${error.message || String(error)}`,
+        testEventTime: timestamp,
+      }));
+    }
+  };
+
+  const confirmTestCrash = (strategy) => {
+    // Strategy 'captureException' is the most reliable on web - it calls
+    // Sentry.captureException() directly, no reliance on global error
+    // handlers. The other two strategies throw uncaught errors which can
+    // be flaky inside React event handlers (especially on web).
+    if (strategy === 'captureException') {
+      sendTestEventNow();
+      return;
+    }
+
+    // For 'throwError' and 'nativeCrash', show a confirmation first
+    Alert.alert(
+      'Send test crash to Sentry?',
+      `Strategy: ${strategy}\n\nThe app will crash. Sentry should report a new issue in your dashboard within ~30 seconds.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Crash',
+          style: 'destructive',
+          onPress: () => {
+            // Use setTimeout so the Alert can dismiss before the throw.
+            // The setTimeout also helps escape React's event handler so
+            // the throw propagates to Sentry's global error handler.
+            setTimeout(() => {
+              forceTestCrash(strategy);
+            }, 50);
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -127,9 +303,8 @@ export default function SettingsScreen() {
       <Text style={styles.sectionLabel}>Custom server address</Text>
       <View style={styles.card}>
         <Text style={styles.hint}>
-          Enter your backend URL here (e.g., https://your-app.onrender.com). Leave empty to
-          use automatic LAN discovery. It must start with https:// and end with your server
-          name - nothing after the .com (the app adds the rest itself).
+          For cloud deployment, enter your backend URL here (e.g., https://your-app.onrender.com).
+          Leave empty to use automatic LAN discovery.
         </Text>
         <TextInput
           style={styles.input}
@@ -142,78 +317,42 @@ export default function SettingsScreen() {
         />
         <View style={styles.buttonRow}>
           <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveCustomUrl}>
-            <Text style={[styles.buttonText, styles.buttonSecondaryText]}>Save URL</Text>
+            <Text style={styles.buttonText}>Save URL</Text>
           </Pressable>
           {state.customUrl && (
             <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearCustomUrl}>
-              <Text style={[styles.buttonText, styles.buttonSecondaryText]}>Clear</Text>
+              <Text style={styles.buttonText}>Clear</Text>
             </Pressable>
           )}
         </View>
       </View>
 
-      <Text style={styles.sectionLabel}>Daily wallpaper</Text>
+      <Text style={styles.sectionLabel}>Access key</Text>
       <View style={styles.card}>
-        <View style={styles.row}>
-          <Text style={styles.rowValue}>Fresh wallpaper every day</Text>
-          <Switch
-            value={dailyState.enabled}
-            onValueChange={toggleDaily}
-            trackColor={{ false: colors.cardAlt, true: colors.accentDim }}
-            thumbColor={dailyState.enabled ? colors.accent : colors.muted}
-            ios_backgroundColor={colors.cardAlt}
-          />
-        </View>
         <Text style={styles.hint}>
-          When ON, the first time you open FrogPaper each day it quietly paints a
-          brand-new wallpaper and sets it on your phone. It only works while the app is
-          open - nothing runs in the background, so it never drains your battery.
+          Shared secret key for API authentication. Required when the backend is configured with an access key.
+          Leave empty if your backend does not require authentication.
         </Text>
-        {dailyState.enabled && (
-          <>
-            <Text style={styles.hint}>Where should today's idea come from?</Text>
-            <View style={styles.buttonRow}>
-              <Pressable
-                style={[
-                  styles.button,
-                  styles.buttonSecondary,
-                  dailyState.source === 'surprise' && styles.chipActive,
-                ]}
-                onPress={() => chooseDailySource('surprise')}
-              >
-                <Text
-                  style={[
-                    styles.buttonSecondaryText,
-                    dailyState.source === 'surprise' && styles.chipActiveText,
-                  ]}
-                >
-                  {'\uD83C\uDFB2 Surprise me'}
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.button,
-                  styles.buttonSecondary,
-                  dailyState.source === 'favorites' && styles.chipActive,
-                ]}
-                onPress={() => chooseDailySource('favorites')}
-              >
-                <Text
-                  style={[
-                    styles.buttonSecondaryText,
-                    dailyState.source === 'favorites' && styles.chipActiveText,
-                  ]}
-                >
-                  {'\u2605 My favorites'}
-                </Text>
-              </Pressable>
-            </View>
-            <Text style={styles.hint}>
-              "My favorites" picks a random prompt you starred on the Generate screen
-              (it falls back to surprise ideas if you have not saved any yet).
-            </Text>
-          </>
-        )}
+        <TextInput
+          style={styles.input}
+          placeholder="Enter access key"
+          placeholderTextColor={colors.muted}
+          value={state.accessKey}
+          onChangeText={handleAccessKeyChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+        />
+        <View style={styles.buttonRow}>
+          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveAccessKey}>
+            <Text style={styles.buttonText}>Save key</Text>
+          </Pressable>
+          {state.accessKey && (
+            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearAccessKey}>
+              <Text style={styles.buttonText}>Clear</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       <Text style={styles.sectionLabel}>AI provider</Text>
@@ -231,11 +370,13 @@ export default function SettingsScreen() {
         </View>
       ))}
 
-      <Text style={styles.sectionLabel}>About</Text>
+      <Pressable onPress={bumpCrashTap}>
+        <Text style={styles.sectionLabel}>About</Text>
+      </Pressable>
       <View style={styles.card}>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.16</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.7.0</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>
@@ -249,7 +390,120 @@ export default function SettingsScreen() {
             {state.health ? String(state.health.images_count) : '-'}
           </Text>
         </View>
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>Crash reporter</Text>
+          <Text
+            style={[
+              styles.aboutValue,
+              state.sentryStatus === 'initialized'
+                ? styles.statusActive
+                : styles.statusInactive,
+            ]}
+          >
+            {state.sentryStatus === 'initialized' ? 'Sentry active' : 'Sentry off'}
+          </Text>
+        </View>
       </View>
+
+      {state.diagnosticsRevealed && (
+        <>
+          <Text style={styles.sectionLabel}>Diagnostics</Text>
+          <View style={styles.card}>
+            <Text style={styles.hint}>
+              Sentry DSN (Data Source Name). Paste the DSN from your Sentry project settings
+              (looks like https://&lt;key&gt;@o&lt;org&gt;.ingest.sentry.io/&lt;id&gt;). The DSN
+              is safe to ship in client builds - it only allows writing crash events, never reading them.
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="https://examplekey@o123.ingest.sentry.io/456"
+              placeholderTextColor={colors.muted}
+              value={state.sentryDsn}
+              onChangeText={handleSentryDsnChange}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={[styles.hint, { marginTop: spacing.sm }]}>
+              Environment label (e.g. development, staging, production).
+              Used to filter events in the Sentry dashboard.
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="development"
+              placeholderTextColor={colors.muted}
+              value={state.sentryEnv}
+              onChangeText={handleSentryEnvChange}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.buttonRow}>
+              <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveSentryConfig}>
+                <Text style={styles.buttonText}>Save</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.button, styles.buttonSecondary]}
+                onPress={clearSentryConfig}
+              >
+                <Text style={styles.buttonText}>Clear</Text>
+              </Pressable>
+            </View>
+            <View style={styles.statusRow}>
+              <Text style={styles.aboutKey}>Status</Text>
+              <Text style={styles.monoText}>{state.sentryStatus}</Text>
+            </View>
+            <View style={styles.statusRow}>
+              <Text style={styles.aboutKey}>Effective DSN</Text>
+              <Text style={styles.monoText} numberOfLines={1}>
+                {maskDsn(state.sentryEffectiveDsn)}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.rowValue}>Send test event</Text>
+            <Text style={styles.hint}>
+              Sends a test exception to Sentry using captureException(). Most reliable method on web.
+              Does NOT crash the app - just sends the event in the background.
+            </Text>
+            <Pressable
+              style={[styles.button, styles.buttonSecondary]}
+              onPress={sendTestEventNow}
+            >
+              <Text style={styles.buttonText}>Send test event</Text>
+            </Pressable>
+            {state.testEventFeedback ? (
+              <View style={styles.feedbackCard}>
+                <Text style={styles.feedbackText}>{state.testEventFeedback}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.rowValue}>Send test crash</Text>
+            <Text style={styles.hint}>
+              Forces a real uncaught crash that the Sentry SDK will capture. The app will crash.
+              After ~30 seconds, check your Sentry dashboard.
+            </Text>
+            <View style={styles.buttonRow}>
+              <Pressable
+                style={[styles.button, styles.buttonDanger]}
+                onPress={() => confirmTestCrash('throwError')}
+              >
+                <Text style={styles.buttonText}>JS throw</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.button, styles.buttonDanger]}
+                onPress={() => confirmTestCrash('nativeCrash')}
+              >
+                <Text style={styles.buttonText}>Native crash</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.hint}>
+              Native crash requires a dev-client or standalone build - it is a no-op inside Expo Go.
+            </Text>
+          </View>
+        </>
+      )}
 
       {state.error !== null && (
         <View style={styles.errorCard}>
@@ -258,6 +512,20 @@ export default function SettingsScreen() {
       )}
     </ScrollView>
   );
+}
+
+// Masks the middle of a DSN so we can display it on-screen without leaking
+// the full key in screenshots. e.g. https://abc12345@o99.ingest.sentry.io/1
+// -> https://abc...@o99.ingest.sentry.io/1
+function maskDsn(dsn) {
+  if (!dsn || dsn === '(no DSN)') return dsn;
+  const match = /^(https?:\/\/)([^@]+)(@.*)$/i.exec(dsn);
+  if (!match) return dsn;
+  const scheme = match[1];
+  const key = match[2];
+  const rest = match[3];
+  const visible = key.length > 4 ? key.slice(0, 4) : key;
+  return `${scheme}${visible}...${rest}`;
 }
 
 const styles = StyleSheet.create({
@@ -347,15 +615,10 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: spacing.xs,
   },
-  buttonSecondaryText: {
-    color: '#EAF7F1',
-  },
-  chipActive: {
-    backgroundColor: colors.accentDim,
-    borderColor: colors.accent,
-  },
-  chipActiveText: {
-    color: colors.bg,
+  buttonDanger: {
+    backgroundColor: colors.danger,
+    flex: 1,
+    marginHorizontal: spacing.xs,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -389,6 +652,32 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 14,
     fontWeight: '600',
+  },
+  statusActive: {
+    color: colors.accent,
+  },
+  statusInactive: {
+    color: colors.muted,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginTop: spacing.xs,
+  },
+  feedbackCard: {
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  feedbackText: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 19,
   },
   errorCard: {
     backgroundColor: '#2A1520',

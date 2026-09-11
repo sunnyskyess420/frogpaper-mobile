@@ -13,7 +13,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import SlideshowModal from '../components/SlideshowModal';
 import api from '../services/api';
 import { colors, radii, spacing } from '../theme';
 
@@ -26,8 +25,6 @@ export default function GalleryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
-  const [slideshowVisible, setSlideshowVisible] = useState(false);
-  const [slideshowStart, setSlideshowStart] = useState(0);
   const hasLoadedRef = useRef(false);
 
   const load = useCallback(async (showSpinner = true) => {
@@ -92,24 +89,10 @@ export default function GalleryScreen() {
     }
   };
 
-  const openSlideshow = (startIndex = 0) => {
-    if (images.length === 0) {
-      return;
-    }
-    setSlideshowStart(Math.min(Math.max(startIndex, 0), images.length - 1));
-    setSlideshowVisible(true);
-  };
-
-  const renderItem = ({ item, index }) => (
+  const renderItem = ({ item }) => (
     <Pressable
       style={styles.cell}
-      onPress={() =>
-        navigation.navigate('Detail', {
-          filename: item.filename,
-          filenames: images.map((image) => image.filename),
-        })
-      }
-      onLongPress={() => openSlideshow(index)}
+      onPress={() => navigation.navigate('Detail', { filename: item.filename })}
     >
       <Image
         source={{ uri: api.imageUrl(item.filename) }}
@@ -151,26 +134,17 @@ export default function GalleryScreen() {
             <Text style={styles.header}>
               {total} wallpaper{total === 1 ? '' : 's'} on the server
             </Text>
-            <View style={styles.headerButtons}>
-              <Pressable
-                style={[styles.uploadButton, styles.headerButton, uploading && styles.uploadButtonBusy]}
-                onPress={pickAndUpload}
-                disabled={uploading}
-              >
-                {uploading ? (
-                  <ActivityIndicator color={colors.bg} />
-                ) : (
-                  <Text style={styles.uploadButtonText}>Upload image</Text>
-                )}
-              </Pressable>
-              <Pressable
-                style={[styles.slideshowButton, styles.headerButton, images.length === 0 && styles.slideshowButtonDisabled]}
-                onPress={() => openSlideshow(0)}
-                disabled={images.length === 0}
-              >
-                <Text style={styles.slideshowButtonText}>Play slideshow</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              style={[styles.uploadButton, uploading && styles.uploadButtonBusy]}
+              onPress={pickAndUpload}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <ActivityIndicator color={colors.bg} />
+              ) : (
+                <Text style={styles.uploadButtonText}>Upload image</Text>
+              )}
+            </Pressable>
           </View>
         }
         ListEmptyComponent={
@@ -182,13 +156,6 @@ export default function GalleryScreen() {
             </Text>
           </View>
         }
-      />
-
-      <SlideshowModal
-        visible={slideshowVisible}
-        images={images}
-        initialIndex={slideshowStart}
-        onClose={() => setSlideshowVisible(false)}
       />
 
       {error !== null && (
@@ -237,31 +204,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     marginBottom: spacing.md,
-    flex: 1,
-  },
-  headerButtons: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  headerButton: {
-    marginBottom: spacing.md,
-  },
-  slideshowButton: {
-    backgroundColor: colors.card,
-    borderColor: colors.accent,
-    borderWidth: 1,
-    borderRadius: radii.sm,
-    paddingVertical: 12,
-    alignItems: 'center',
-    flex: 1,
-  },
-  slideshowButtonDisabled: {
-    opacity: 0.4,
-  },
-  slideshowButtonText: {
-    color: colors.accent,
-    fontSize: 15,
-    fontWeight: '800',
   },
   uploadButtonBusy: {
     opacity: 0.7,
