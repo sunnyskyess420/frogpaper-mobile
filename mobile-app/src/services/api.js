@@ -1,26 +1,20 @@
 // API service layer - talks to the Flask backend.
 //
-// Backend URL resolution is automatic per platform:
-//   - web            -> http://localhost:5000
-//   - Android device -> tries the Expo Go dev-host LAN IP (auto-detected),
-//                       then emulator alias 10.0.2.2, then LAN_IP, then localhost
-//   - iOS device     -> tries the Expo Go dev-host LAN IP (auto-detected),
-//                       then LAN_IP, then localhost
+// Backend URL resolution order:
+//   1. Custom server URL saved in Settings (e.g. https://frogpaper-mobile.onrender.com)
+//      - tried first, with a patient timeout (cloud servers sleep and wake slowly)
+//   2. Android emulator alias 10.0.2.2, LAN IP, localhost (PC backend workflow)
 //
-// The auto-detected IP comes from Expo Go itself: when the phone loads the app
-// from the dev server it already knows the PC's LAN address (expoConfig.hostUri,
-// e.g. "192.168.1.20:8081"). The backend lives on the same PC, just on port 5000.
-//
-// LAN_IP is only a manual fallback: if auto-detection fails (e.g. production
-// build), set it to your PC's LAN IP (run `ipconfig` on Windows and look for
-// the IPv4 Address of your Wi-Fi adapter).
+// The custom URL is persisted with AsyncStorage so it survives app restarts.
 
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const LAN_IP = '192.168.1.168'; // manual fallback - your Windows PC running the backend (check with `ipconfig` if your router reassigns IPs)
 export const EMULATOR_ALIAS = '10.0.2.2'; // Android emulator alias for the host machine
 const PORT = 5000;
+const CUSTOM_URL_KEY = '@frogpaper/custom_server_url';
 
 // Derives http://<PC-LAN-IP>:5000 from the Expo Go dev server host, or null
 // when not running inside Expo Go (web, production build).
@@ -40,22 +34,68 @@ function devHostLanUrl() {
   return null;
 }
 
+// Cleans up what the user typed in Settings:
+//   "  frogpaper-mobile.onrender.com/  " -> "https://frogpaper-mobile.onrender.com"
+export function sanitizeCustomUrl(url) {
+  if (typeof url !== 'string') return '';
+  let value = url.trim();
+  if (!value) return '';
+  if (!/^https?:\/\//i.test(value)) {
+    value = `https://${value}`;
+  }
+  while (value.endsWith('/')) {
+    value = value.slice(0, -1);
+  }
+  return value;
+}
+
+export async function getCustomServerUrl() {
+  try {
+    const saved = await AsyncStorage.getItem(CUSTOM_URL_KEY);
+    return saved ? sanitizeCustomUrl(saved) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+export async function setCustomServerUrl(url) {
+  const cleaned = sanitizeCustomUrl(url);
+  try {
+    if (cleaned) {
+      await AsyncStorage.setItem(CUSTOM_URL_KEY, cleaned);
+    } else {
+      await AsyncStorage.removeItem(CUSTOM_URL_KEY);
+    }
+  } catch (error) {
+    // storage unavailable - still apply in-memory so this session works
+  }
+  customUrl = cleaned || null;
+  baseUrl = customUrl; // force re-discovery on the next request
+  return cleaned;
+}
+
+let customUrl = null; // in-memory cache of the saved custom server URL
+
 function candidateBaseUrls() {
+  const candidates = [];
+  if (customUrl) {
+    candidates.push(customUrl);
+  }
   if (Platform.OS === 'web') {
-    return [`http://localhost:${PORT}`];
+    candidates.push(`http://localhost:${PORT}`);
+    return candidates.filter(Boolean);
   }
   if (Platform.OS === 'android') {
-    return [
+    candidates.push(
       devHostLanUrl(),
       `http://${LAN_IP}:${PORT}`,
       `http://${EMULATOR_ALIAS}:${PORT}`,
       `http://localhost:${PORT}`,
-    ].filter(Boolean);
+    );
+  } else {
+    candidates.push(devHostLanUrl(), `http://${LAN_IP}:${PORT}`, `http://localhost:${PORT}`);
   }
-  // iOS
-  return [devHostLanUrl(), `http://${LAN_IP}:${PORT}`, `http://localhost:${PORT}`].filter(
-    Boolean,
-  );
+  return candidates.filter(Boolean);
 }
 
 let baseUrl = null;
@@ -74,11 +114,28 @@ async function probe(base, timeoutMs) {
 
 // Tries each candidate URL and remembers the first one that answers /api/health.
 export async function discoverBaseUrl(timeoutMs = 2500) {
+  if (customUrl === null) {
+    customUrl = await getCustomServerUrl();
+  }
   const candidates = candidateBaseUrls();
   for (const candidate of candidates) {
-    const reachable = await probe(candidate, timeoutMs);
+    // the custom URL usually points at a cloud host that may be waking from
+    // sleep - give it a much more patient timeout than the LAN probes
+    const isCustom = customUrl && candidate === customUrl;
+    const timeout = isCustom ? Math.max(timeoutMs * 4, 10000) : timeoutMs;
+    const reachable = await probe(candidate, timeout);
     if (reachable) {
       baseUrl = candidate;
+      return baseUrl;
+    }
+  }
+  // Cloud servers asleep on the free tier can take up to a minute to answer.
+  // If a custom URL is configured, give it one long patient retry before
+  // declaring the backend unreachable.
+  if (customUrl) {
+    const reachable = await probe(customUrl, 30000);
+    if (reachable) {
+      baseUrl = customUrl;
       return baseUrl;
     }
   }
@@ -114,10 +171,21 @@ async function parseResponse(response) {
 
 async function request(path, options = {}) {
   const base = getBaseUrl();
-  const response = await fetch(`${base}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+  // every request gets a safety timeout so the UI can never spin forever;
+  // callers that pass their own AbortController signal (e.g. generate cancel)
+  // keep full control instead
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs || 60000);
+  let response;
+  try {
+    response = await fetch(`${base}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+      signal: options.signal || controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   return parseResponse(response);
 }
 
@@ -129,7 +197,7 @@ export const api = {
     return request('/api/health');
   },
   providers: () => request('/api/providers'),
-  generate: ({ prompt, negativePrompt, width = 1080, height = 1920, seed }) =>
+  generate: ({ prompt, negativePrompt, width = 1080, height = 1920, seed, signal }) =>
     request('/api/generate', {
       method: 'POST',
       body: JSON.stringify({
@@ -139,6 +207,7 @@ export const api = {
         height,
         ...(seed !== undefined && seed !== null ? { seed } : {}),
       }),
+      ...(signal ? { signal } : {}),
     }),
   recentPrompts: (limit = 8) =>
     request(`/api/prompts/recent?limit=${limit}`),
