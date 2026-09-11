@@ -5,12 +5,14 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api, { discoverBaseUrl, getBaseUrl, getCustomServerUrl, LAN_IP, setCustomServerUrl } from '../services/api';
+import { getDailyInfo, setDailyEnabled, setDailySource } from '../services/dailyWallpaper';
 import { colors, radii, spacing } from '../theme';
 
 export default function SettingsScreen() {
@@ -69,6 +71,25 @@ export default function SettingsScreen() {
   const clearCustomUrl = async () => {
     await setCustomServerUrl('');
     await refresh();
+  };
+
+  // ---- Daily auto-wallpaper preference ----------------------------------
+  const [dailyState, setDailyState] = useState({ enabled: false, source: 'surprise' });
+
+  useEffect(() => {
+    getDailyInfo()
+      .then((info) => setDailyState({ enabled: info.enabled, source: info.source }))
+      .catch(() => {}); // preferences are optional - never block Settings
+  }, []);
+
+  const toggleDaily = async (value) => {
+    setDailyState((prev) => ({ ...prev, enabled: value }));
+    await setDailyEnabled(value);
+  };
+
+  const chooseDailySource = async (source) => {
+    setDailyState((prev) => ({ ...prev, source }));
+    await setDailySource(source);
   };
 
   return (
@@ -131,6 +152,70 @@ export default function SettingsScreen() {
         </View>
       </View>
 
+      <Text style={styles.sectionLabel}>Daily wallpaper</Text>
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <Text style={styles.rowValue}>Fresh wallpaper every day</Text>
+          <Switch
+            value={dailyState.enabled}
+            onValueChange={toggleDaily}
+            trackColor={{ false: colors.cardAlt, true: colors.accentDim }}
+            thumbColor={dailyState.enabled ? colors.accent : colors.muted}
+            ios_backgroundColor={colors.cardAlt}
+          />
+        </View>
+        <Text style={styles.hint}>
+          When ON, the first time you open FrogPaper each day it quietly paints a
+          brand-new wallpaper and sets it on your phone. It only works while the app is
+          open - nothing runs in the background, so it never drains your battery.
+        </Text>
+        {dailyState.enabled && (
+          <>
+            <Text style={styles.hint}>Where should today's idea come from?</Text>
+            <View style={styles.buttonRow}>
+              <Pressable
+                style={[
+                  styles.button,
+                  styles.buttonSecondary,
+                  dailyState.source === 'surprise' && styles.chipActive,
+                ]}
+                onPress={() => chooseDailySource('surprise')}
+              >
+                <Text
+                  style={[
+                    styles.buttonSecondaryText,
+                    dailyState.source === 'surprise' && styles.chipActiveText,
+                  ]}
+                >
+                  {'\uD83C\uDFB2 Surprise me'}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.button,
+                  styles.buttonSecondary,
+                  dailyState.source === 'favorites' && styles.chipActive,
+                ]}
+                onPress={() => chooseDailySource('favorites')}
+              >
+                <Text
+                  style={[
+                    styles.buttonSecondaryText,
+                    dailyState.source === 'favorites' && styles.chipActiveText,
+                  ]}
+                >
+                  {'\u2605 My favorites'}
+                </Text>
+              </Pressable>
+            </View>
+            <Text style={styles.hint}>
+              "My favorites" picks a random prompt you starred on the Generate screen
+              (it falls back to surprise ideas if you have not saved any yet).
+            </Text>
+          </>
+        )}
+      </View>
+
       <Text style={styles.sectionLabel}>AI provider</Text>
       {state.providers.map((provider) => (
         <View key={provider.id} style={styles.card}>
@@ -150,7 +235,7 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.14</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.15</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>
@@ -264,6 +349,13 @@ const styles = StyleSheet.create({
   },
   buttonSecondaryText: {
     color: '#EAF7F1',
+  },
+  chipActive: {
+    backgroundColor: colors.accentDim,
+    borderColor: colors.accent,
+  },
+  chipActiveText: {
+    color: colors.bg,
   },
   buttonRow: {
     flexDirection: 'row',
