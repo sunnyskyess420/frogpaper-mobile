@@ -46,6 +46,14 @@ export function sanitizeCustomUrl(url) {
   while (value.endsWith('/')) {
     value = value.slice(0, -1);
   }
+  // people often paste the health-check page - the app adds these paths itself
+  value = value.replace(/\/api\/health$/i, '');
+  value = value.replace(/\/api$/i, '');
+  // stray punctuation from phone keyboards
+  value = value.replace(/[.,;:!]+$/, '');
+  while (value.endsWith('/')) {
+    value = value.slice(0, -1);
+  }
   return value;
 }
 

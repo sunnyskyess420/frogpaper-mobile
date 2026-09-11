@@ -106,8 +106,9 @@ export default function SettingsScreen() {
       <Text style={styles.sectionLabel}>Custom server address</Text>
       <View style={styles.card}>
         <Text style={styles.hint}>
-          For cloud deployment, enter your backend URL here (e.g., https://your-app.onrender.com).
-          Leave empty to use automatic LAN discovery.
+          Enter your backend URL here (e.g., https://your-app.onrender.com). Leave empty to
+          use automatic LAN discovery. It must start with https:// and end with your server
+          name - nothing after the .com (the app adds the rest itself).
         </Text>
         <TextInput
           style={styles.input}
@@ -120,11 +121,11 @@ export default function SettingsScreen() {
         />
         <View style={styles.buttonRow}>
           <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveCustomUrl}>
-            <Text style={styles.buttonText}>Save URL</Text>
+            <Text style={[styles.buttonText, styles.buttonSecondaryText]}>Save URL</Text>
           </Pressable>
           {state.customUrl && (
             <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearCustomUrl}>
-              <Text style={styles.buttonText}>Clear</Text>
+              <Text style={[styles.buttonText, styles.buttonSecondaryText]}>Clear</Text>
             </Pressable>
           )}
         </View>
@@ -149,7 +150,7 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.12</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.13</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>
@@ -260,6 +261,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardAlt,
     flex: 1,
     marginHorizontal: spacing.xs,
+  },
+  buttonSecondaryText: {
+    color: '#EAF7F1',
   },
   buttonRow: {
     flexDirection: 'row',
