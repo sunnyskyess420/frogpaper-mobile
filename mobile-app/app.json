@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "FrogPaper Mobile",
+    "slug": "frogpaper-mobile",
+    "version": "1.9.16",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B1220",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.frogpaper.mobile",
+      "versionCode": 7,
+      "usesCleartextTraffic": true,
+      "adaptiveIcon": {
+        "backgroundColor": "#0B1220",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Allow FrogPaper to save your generated wallpapers to your photo library.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
+      "./src/plugins/WallpaperManagerFix"
+    ],
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "22d0cc52-7a83-4ead-8088-4e3694fe1d55"
+      }
+    },
+    "owner": "sunnyadl"
+  }
+}
