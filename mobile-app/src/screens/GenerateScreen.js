@@ -17,6 +17,7 @@ import { useNavigation } from '@react-navigation/native';
 import api from '../services/api';
 import { capabilities, saveToDevice } from '../services/deviceMedia';
 import { colors, radii, spacing } from '../theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SIZE_PRESETS = [
   { id: 'phone', label: 'Phone portrait', width: 1080, height: 1920 },
@@ -39,7 +40,26 @@ const IDEAS = [
   'Neon frog on a lily pad in a cyberpunk city, rain, wallpaper',
   'Pastel sunset over misty mountains, minimalist, vertical',
   'Bioluminescent forest at night, magical atmosphere',
+  'A frog wizard in a purple hat casting glowing spells, fantasy art',
+  'Tiny astronaut frog floating in space, stars, cute',
+  'Cherry blossom branch over a quiet pond at sunrise',
+  'Aurora borealis over snowy pine forest, vivid colors',
+  'Retro synthwave grid sun, purple and pink gradient',
+  'Cozy cabin in autumn woods, warm window light, rain',
+  'Koi fish swimming in a dark pond with lotus flowers',
+  'A regal frog king with a golden crown, oil painting style',
+  'Desert dunes at golden hour, long shadows, minimal',
+  'Ghibli-style floating islands with waterfalls, blue sky',
+  'A row of succulents on a windowsill, soft morning light',
+  'Galaxy frog with tiny planets around it, dreamy',
+  'Tokyo street at night after rain, neon reflections',
+  'Watercolor hummingbird and hibiscus, white background',
+  'Frog knight in shiny armor holding a leaf shield, cute',
+  'Northern lake with a wooden dock under a starry sky',
+  'Abstract flowing silk waves, teal and gold, elegant',
 ];
+
+const FAVORITES_KEY = '@frogpaper/favorite_prompts';
 
 export default function GenerateScreen() {
   const navigation = useNavigation();
@@ -58,6 +78,7 @@ export default function GenerateScreen() {
   const [elapsed, setElapsed] = useState(0);
   const [lastSeed, setLastSeed] = useState(null);
   const [seedInput, setSeedInput] = useState('');
+  const [favorites, setFavorites] = useState([]);
 
   const preset = SIZE_PRESETS.find((item) => item.id === presetId);
   const style = STYLE_PRESETS.find((item) => item.id === styleId) || null;
@@ -74,6 +95,46 @@ export default function GenerateScreen() {
   useEffect(() => {
     loadRecent();
   }, [loadRecent]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(FAVORITES_KEY)
+      .then((raw) => {
+        const list = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(list)) setFavorites(list.filter((x) => typeof x === 'string'));
+      })
+      .catch(() => {}); // favorites are optional - never block the screen on them
+  }, []);
+
+  const persistFavorites = async (list) => {
+    setFavorites(list);
+    try {
+      await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
+    } catch (err) {
+      // storage full or unavailable - keep the in-memory list for this session
+    }
+  };
+
+  const surpriseMe = () => {
+    const pool = IDEAS.filter((idea) => idea !== prompt.trim());
+    const idea = pool[Math.floor(Math.random() * pool.length)] || IDEAS[0];
+    setPrompt(idea);
+  };
+
+  const toggleFavorite = () => {
+    const text = prompt.trim();
+    if (text.length < 3) {
+      return;
+    }
+    if (favorites.includes(text)) {
+      persistFavorites(favorites.filter((item) => item !== text));
+    } else {
+      persistFavorites([text, ...favorites].slice(0, 12));
+    }
+  };
+
+  const removeFavorite = (text) => {
+    persistFavorites(favorites.filter((item) => item !== text));
+  };
 
   const reusePrompt = (item) => {
     setPrompt(item.prompt || '');
@@ -171,6 +232,30 @@ export default function GenerateScreen() {
         />
         <Text style={styles.charCount}>{prompt.length}/600</Text>
 
+        <View style={styles.promptActions}>
+          <Pressable style={styles.pillButton} onPress={surpriseMe}>
+            <Text style={styles.pillButtonText}>🎲 Surprise me</Text>
+          </Pressable>
+          {prompt.trim().length >= 3 && (
+            <Pressable
+              style={[
+                styles.pillButton,
+                favorites.includes(prompt.trim()) && styles.pillButtonSaved,
+              ]}
+              onPress={toggleFavorite}
+            >
+              <Text
+                style={[
+                  styles.pillButtonText,
+                  favorites.includes(prompt.trim()) && styles.pillButtonTextSaved,
+                ]}
+              >
+                {favorites.includes(prompt.trim()) ? '★ Saved' : '☆ Save prompt'}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
         <Text style={styles.sectionLabel}>Style (optional)</Text>
         <View style={styles.presets}>
           {STYLE_PRESETS.map((item) => (
@@ -241,6 +326,28 @@ export default function GenerateScreen() {
         <Text style={styles.seedHint}>
           Same seed + same prompt = same image. Leave empty for random.
         </Text>
+
+        {favorites.length > 0 && (
+          <View style={styles.ideasBlock}>
+            <Text style={styles.sectionLabel}>★ Favorite prompts</Text>
+            {favorites.map((text) => (
+              <View key={text} style={styles.favChip}>
+                <Pressable style={styles.favChipMain} onPress={() => setPrompt(text)}>
+                  <Text style={styles.ideaText} numberOfLines={1}>
+                    {text}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  hitSlop={8}
+                  style={styles.favChipDelete}
+                  onPress={() => removeFavorite(text)}
+                >
+                  <Text style={styles.favChipDeleteText}>✕</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
 
         {recent.length > 0 ? (
           <View style={styles.ideasBlock}>
@@ -471,6 +578,53 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: spacing.xs,
     marginBottom: spacing.lg,
+  },
+  promptActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  pillButton: {
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    backgroundColor: colors.cardAlt,
+  },
+  pillButtonSaved: {
+    backgroundColor: colors.accentDim,
+  },
+  pillButtonText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  pillButtonTextSaved: {
+    color: colors.bg,
+  },
+  favChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    marginTop: spacing.sm,
+  },
+  favChipMain: {
+    flex: 1,
+    padding: spacing.md,
+  },
+  favChipDelete: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  favChipDeleteText: {
+    color: colors.danger,
+    fontSize: 16,
+    fontWeight: '700',
   },
   generateButton: {
     backgroundColor: colors.accent,
