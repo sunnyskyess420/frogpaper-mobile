@@ -140,6 +140,25 @@ def _parse_int(value, default, minimum, maximum):
     return max(minimum, min(maximum, parsed))
 
 
+def _read_user_key(header_name):
+    """Read a user-supplied API key from a request header.
+
+    SECURITY: This is the ONLY place user keys are touched. They are:
+      - Never logged (we never pass them to log.*)
+      - Never stored on disk (no file write, no DB write)
+      - Never echoed back in error responses
+      - Only handed to the provider function for the current request
+    Keys are stripped of surrounding whitespace and returned as None when
+    absent or empty - the provider functions then know to fall back to
+    the server's env var (legacy behavior) or fail cleanly.
+    """
+    raw = request.headers.get(header_name, "")
+    if not raw:
+        return None
+    cleaned = raw.strip()
+    return cleaned or None
+
+
 def _error_response(message, status, details=None):
     body = {"success": False, "error": {"message": message, "status": status}}
     if details:
@@ -210,12 +229,27 @@ def generate():
     if provider["status"] != "active":
         return _error_response(f"Provider '{provider_id}' is not available yet.", 503)
 
+    # BYOK: read user-supplied keys from headers. Keys are never logged
+    # (see _read_user_key docstring). They are passed to the provider
+    # function for THIS request only, then discarded.
+    user_gemini_key = _read_user_key("X-Gemini-Key")
+    user_hf_token = _read_user_key("X-Hf-Token")
+    user_replicate_token = _read_user_key("X-Replicate-Token")
+    byok_summary = []
+    if user_gemini_key:
+        byok_summary.append("gemini")
+    if user_hf_token:
+        byok_summary.append("huggingface")
+    if user_replicate_token:
+        byok_summary.append("replicate")
+
     log.info(
-        "Generate request: prompt=%r %dx%d provider=%s",
+        "Generate request: prompt=%r %dx%d provider=%s byok=%s",
         prompt[:60],
         width,
         height,
         provider_id,
+        ",".join(byok_summary) if byok_summary else "none",
     )
     try:
         if provider_id == "replicate":
@@ -227,6 +261,7 @@ def generate():
                     seed=seed,
                     images_dir=IMAGES_DIR,
                     negative_prompt=negative_prompt or None,
+                    user_api_token=user_replicate_token,
                 )
             except GenerationError as rep_exc:
                 # Safety net: a bad token / outage / rejected request must
@@ -261,6 +296,7 @@ def generate():
                     model=provider.get("model", "gemini-2.5-flash-image"),
                     images_dir=IMAGES_DIR,
                     negative_prompt=negative_prompt or None,
+                    user_api_key=user_gemini_key,
                 )
             except GenerationError as gem_exc:
                 # Safety net: a broken/expired/rejected Gemini key must never
@@ -293,6 +329,7 @@ def generate():
                     seed=seed,
                     images_dir=IMAGES_DIR,
                     negative_prompt=negative_prompt or None,
+                    user_api_token=user_hf_token,
                 )
             except GenerationError as hf_exc:
                 # Safety net: a bad token / DNS outage / gated model must

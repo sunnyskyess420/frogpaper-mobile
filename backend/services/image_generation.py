@@ -227,7 +227,13 @@ def huggingface_configured():
 
 
 def default_provider_id():
-    """Best available provider: paid Replicate first, then HF/Gemini."""
+    """Best available provider: paid Replicate first, then HF/Gemini.
+
+    When no server-side keys are configured (the recommended BYOK setup),
+    this returns 'pollinations' so the app still works for users who
+    haven't pasted their own keys yet. Users with their own keys should
+    pick the specific provider in the Generate screen.
+    """
     if replicate_configured():
         return "replicate"
     if huggingface_configured():
@@ -297,11 +303,13 @@ PROVIDERS = [
         "model": "black-forest-labs/flux-dev",
         "status": "active" if replicate_configured() else "inactive",
         "requires_api_key": True,
+        "byok_supported": True,
+        "byok_header": "X-Replicate-Token",
+        "byok_hint": "Get a token at replicate.com/accounts (starts with 'r8_').",
         "max_side": 2048,
         "description": (
-            "The full-quality FLUX.1 engine via your paid Replicate account "
-            "(about 2.5 cents per wallpaper). The same engine that drew the "
-            "good frogs - no watermarks, your $5 credit lasts ~200 pictures."
+            "The full-quality FLUX.1 engine via a paid Replicate account "
+            "(about 2.5 cents per wallpaper). Bring your own token."
         ),
     },
     {
@@ -310,10 +318,13 @@ PROVIDERS = [
         "model": GEMINI_IMAGE_MODEL,
         "status": "active" if gemini_configured() else "inactive",
         "requires_api_key": True,
+        "byok_supported": True,
+        "byok_header": "X-Gemini-Key",
+        "byok_hint": "Get a key at aistudio.google.com/apikey (starts with 'AQ' or 'AIza').",
         "max_side": 2048,
         "description": (
             "Google's top image model - sharp, detailed wallpapers. "
-            "Free daily generations with an API key, paid after that."
+            "Free daily generations with your own API key."
         ),
     },
     {
@@ -322,6 +333,9 @@ PROVIDERS = [
         "model": "black-forest-labs/FLUX.1-dev",
         "status": "active" if huggingface_configured() else "inactive",
         "requires_api_key": True,
+        "byok_supported": True,
+        "byok_header": "X-Hf-Token",
+        "byok_hint": "Get a token at huggingface.co/settings/tokens (starts with 'hf_').",
         "max_side": 2048,
         "description": (
             "The full-quality FLUX.1 image model via Hugging Face - richer "
@@ -335,6 +349,9 @@ PROVIDERS = [
         "model": DEFAULT_MODEL,
         "status": "active",
         "requires_api_key": False,
+        "byok_supported": False,
+        "byok_header": None,
+        "byok_hint": None,
         "max_side": 2048,
         "description": "Free text-to-image generation (Flux model), no API key required.",
     },
@@ -856,6 +873,7 @@ def generate_image_gemini(
     images_dir=None,
     retries=2,
     negative_prompt=None,
+    user_api_key=None,
 ):
     """Call Google's Gemini image model and persist the result.
 
@@ -864,12 +882,24 @@ def generate_image_gemini(
     to a built-in chain when the listing is unavailable. Returns the same
     metadata dict shape as generate_image(). Raises GenerationError with
     a user-friendly message on any failure.
+
+    BYOK: when `user_api_key` is supplied (non-empty), it is used INSTEAD
+    OF any server-side key. The user's key is never logged or persisted.
+    When no user key is supplied, falls back to the server's env var /
+    file (legacy behavior; remove the env var on Render to force BYOK).
     """
-    api_key = read_gemini_api_key()
-    if not api_key:
-        raise GenerationError(
-            "No Gemini API key found - save it to backend/gemini_api_key.txt."
-        )
+    # SECURITY: never log the user-supplied key. We only log "user-supplied"
+    # or "server-default" so logs stay safe even in production.
+    api_key = (user_api_key or "").strip() if user_api_key else ""
+    if api_key:
+        log.info("Gemini call using user-supplied API key (BYOK)")
+    else:
+        api_key = read_gemini_api_key()
+        if not api_key:
+            raise GenerationError(
+                "No Gemini API key. Either paste one in Settings -> Your API "
+                "keys (recommended), or set GEMINI_API_KEY on the server."
+            )
     if images_dir is None:
         raise GenerationError("images_dir is required")
     images_dir = Path(images_dir)
@@ -1072,6 +1102,7 @@ def generate_image_huggingface(
     images_dir=None,
     retries=2,
     negative_prompt=None,
+    user_api_token=None,
 ):
     """Call Hugging Face Inference (FLUX.1 via fal-ai) and persist the result.
 
@@ -1079,12 +1110,23 @@ def generate_image_huggingface(
     the open-license FLUX.1-schnell when dev is gated or unavailable. Raises
     GenerationError with a friendly message on failure - app.py then falls
     back to Pollinations so the user is never blocked.
+
+    BYOK: when `user_api_token` is supplied (non-empty), it is used INSTEAD
+    OF any server-side token. The user's token is never logged or persisted.
+    When no user token is supplied, falls back to the server's env var /
+    file (legacy behavior; remove the env var on Render to force BYOK).
     """
-    token = read_huggingface_token()
-    if not token:
-        raise GenerationError(
-            "No Hugging Face token found - save it to backend/huggingface_token.txt."
-        )
+    # SECURITY: never log the user-supplied token.
+    token = (user_api_token or "").strip() if user_api_token else ""
+    if token:
+        log.info("Hugging Face call using user-supplied token (BYOK)")
+    else:
+        token = read_huggingface_token()
+        if not token:
+            raise GenerationError(
+                "No Hugging Face token. Either paste one in Settings -> Your "
+                "API keys (recommended), or set HF_TOKEN on the server."
+            )
     if images_dir is None:
         raise GenerationError("images_dir is required")
     images_dir = Path(images_dir)
@@ -1372,6 +1414,7 @@ def generate_image_replicate(
     images_dir=None,
     retries=2,
     negative_prompt=None,
+    user_api_token=None,
 ):
     """Render through Replicate's paid FLUX models and persist the result.
 
@@ -1381,13 +1424,24 @@ def generate_image_replicate(
     when dev misbehaves. Raises GenerationError with a friendly message on
     failure - app.py then falls back to Pollinations so the user is never
     blocked.
+
+    BYOK: when `user_api_token` is supplied (non-empty), it is used INSTEAD
+    OF any server-side token. The user's token is never logged or persisted.
+    When no user token is supplied, falls back to the server's env var /
+    file (legacy behavior; remove the env var on Render to force BYOK).
     """
-    token = read_replicate_api_token()
-    if not token:
-        raise GenerationError(
-            "No Replicate API token found - save it to "
-            "backend/replicate_api_token.txt."
-        )
+    # SECURITY: never log the user-supplied token.
+    token = (user_api_token or "").strip() if user_api_token else ""
+    if token:
+        log.info("Replicate call using user-supplied token (BYOK)")
+    else:
+        token = read_replicate_api_token()
+        if not token:
+            raise GenerationError(
+                "No Replicate API token. Either paste one in Settings -> Your "
+                "API keys (recommended), or set REPLICATE_API_TOKEN on the "
+                "server."
+            )
     if images_dir is None:
         raise GenerationError("images_dir is required")
     images_dir = Path(images_dir)
