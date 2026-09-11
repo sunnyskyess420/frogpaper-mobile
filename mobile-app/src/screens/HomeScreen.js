@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import api, { getBaseUrl } from '../services/api';
 import { dailyPhase, runDailyWallpaper } from '../services/dailyWallpaper';
 import { colors, radii, spacing } from '../theme';
