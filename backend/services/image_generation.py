@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import random
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,6 +55,22 @@ _SUBJECT_ENHANCERS = {
         "cute toad with big golden eyes and detailed skin, professional "
         "wildlife macro photography, correct anatomy"
     ),
+    "cat": (
+        "cute cat with expressive eyes and detailed soft fur, professional "
+        "pet photography, correct anatomy"
+    ),
+    "dog": (
+        "cute dog with expressive eyes and detailed fluffy fur, professional "
+        "pet photography, correct anatomy"
+    ),
+    "owl": (
+        "majestic owl with big round eyes and detailed feathers, professional "
+        "wildlife photography, correct anatomy"
+    ),
+    "dragon": (
+        "majestic dragon with detailed scales and expressive eyes, epic "
+        "fantasy art, correct anatomy"
+    ),
 }
 _GENERIC_ANIMAL_WORDS = (
     "cat", "kitten", "dog", "puppy", "fox", "owl", "wolf", "deer",
@@ -62,13 +79,19 @@ _GENERIC_ANIMAL_WORDS = (
 )
 
 
+def _word_match(text: str, word: str) -> bool:
+    """Whole-word match, plural-tolerant ('frog', 'frogs'), never substring
+    ('cat' must not fire inside 'cathedral' or 'category')."""
+    return re.search(rf"\b{word}s?\b", text) is not None
+
+
 def _subject_enhancer(prompt: str) -> str:
     """Extra subject-specific phrases for prompts featuring known subjects."""
-    text = f" {prompt.lower()} "
+    text = prompt.lower()
     for word, phrase in _SUBJECT_ENHANCERS.items():
-        if f" {word}" in text or f"{word}s " in text:
+        if _word_match(text, word):
             return f", {phrase}"
-    if any(f" {word}" in text or f"{word}s " in text for word in _GENERIC_ANIMAL_WORDS):
+    if any(_word_match(text, word) for word in _GENERIC_ANIMAL_WORDS):
         return (
             ", adorable healthy animal with expressive eyes and correct "
             "anatomy, professional wildlife photography"

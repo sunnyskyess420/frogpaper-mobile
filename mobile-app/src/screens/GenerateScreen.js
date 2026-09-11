@@ -18,6 +18,7 @@ import api from '../services/api';
 import { capabilities, saveToDevice } from '../services/deviceMedia';
 import { colors, radii, spacing } from '../theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { IDEAS, FAVORITES_KEY } from '../services/promptLibrary';
 
 const SIZE_PRESETS = [
   { id: 'phone', label: 'Phone portrait', width: 1080, height: 1920 },
@@ -34,32 +35,12 @@ const STYLE_PRESETS = [
   { id: 'minimal', label: 'Minimalist', suffix: 'minimalist, clean composition, lots of negative space' },
   { id: 'painting', label: 'Oil painting', suffix: 'oil painting, textured brush strokes, classic art style' },
   { id: 'anime', label: 'Anime', suffix: 'anime style illustration, vibrant colors, clean line art' },
+  { id: 'watercolor', label: 'Watercolor', suffix: 'delicate watercolor painting, soft washes of pigment, paper texture' },
+  { id: 'pixel', label: 'Pixel art', suffix: 'retro pixel art, crisp pixels, 16-bit game aesthetic' },
+  { id: 'render3d', label: '3D render', suffix: 'polished 3D render, soft studio lighting, subsurface scattering, octane style' },
+  { id: 'synthwave', label: 'Synthwave', suffix: 'synthwave retro 80s aesthetic, neon grid, purple and pink glow' },
+  { id: 'lowpoly', label: 'Low poly', suffix: 'low poly geometric art, faceted shapes, elegant color palette' },
 ];
-
-const IDEAS = [
-  'Neon frog on a lily pad in a cyberpunk city, rain, wallpaper',
-  'Pastel sunset over misty mountains, minimalist, vertical',
-  'Bioluminescent forest at night, magical atmosphere',
-  'A frog wizard in a purple hat casting glowing spells, fantasy art',
-  'Tiny astronaut frog floating in space, stars, cute',
-  'Cherry blossom branch over a quiet pond at sunrise',
-  'Aurora borealis over snowy pine forest, vivid colors',
-  'Retro synthwave grid sun, purple and pink gradient',
-  'Cozy cabin in autumn woods, warm window light, rain',
-  'Koi fish swimming in a dark pond with lotus flowers',
-  'A regal frog king with a golden crown, oil painting style',
-  'Desert dunes at golden hour, long shadows, minimal',
-  'Ghibli-style floating islands with waterfalls, blue sky',
-  'A row of succulents on a windowsill, soft morning light',
-  'Galaxy frog with tiny planets around it, dreamy',
-  'Tokyo street at night after rain, neon reflections',
-  'Watercolor hummingbird and hibiscus, white background',
-  'Frog knight in shiny armor holding a leaf shield, cute',
-  'Northern lake with a wooden dock under a starry sky',
-  'Abstract flowing silk waves, teal and gold, elegant',
-];
-
-const FAVORITES_KEY = '@frogpaper/favorite_prompts';
 
 export default function GenerateScreen() {
   const navigation = useNavigation();
@@ -170,6 +151,7 @@ export default function GenerateScreen() {
         width: preset.width,
         height: preset.height,
         seed: seedToUse,
+        timeoutMs: 180000, // peak-hour cloud queues can outlast the 60s default
         signal: controller.signal,
       });
       setResult(response.image);

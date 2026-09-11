@@ -1,5 +1,5 @@
 // Home - landing screen with live backend status and quick actions.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import api, { getBaseUrl } from '../services/api';
+import { dailyPhase, runDailyWallpaper } from '../services/dailyWallpaper';
 import { colors, radii, spacing } from '../theme';
 
 export default function HomeScreen() {
@@ -32,6 +33,74 @@ export default function HomeScreen() {
   useEffect(() => {
     checkBackend();
   }, [checkBackend]);
+
+  // ---- Daily auto-wallpaper ---------------------------------------------
+  // Phases: 'hidden' (off) | 'running' | 'done' | 'already-run' |
+  //         'cooldown' | 'failed'
+  const [daily, setDaily] = useState({ phase: 'hidden' });
+  const dailyBusyRef = useRef(false);
+  const onlineRef = useRef(false);
+
+  const refreshDaily = useCallback(async () => {
+    if (dailyBusyRef.current || !onlineRef.current) {
+      return;
+    }
+    try {
+      const { phase } = await dailyPhase();
+      if (phase === 'hidden') {
+        setDaily({ phase: 'hidden' });
+        return;
+      }
+      if (phase === 'due') {
+        dailyBusyRef.current = true;
+        setDaily({ phase: 'running' });
+        const result = await runDailyWallpaper();
+        dailyBusyRef.current = false;
+        setDaily(
+          result.kind === 'ok'
+            ? { phase: 'done', result }
+            : { phase: 'failed', result }
+        );
+        return;
+      }
+      setDaily({ phase }); // 'already-run' | 'cooldown'
+    } catch (err) {
+      setDaily({ phase: 'hidden' }); // never let the daily feature break Home
+    }
+  }, []);
+
+  useEffect(() => {
+    onlineRef.current = status.state === 'online';
+    if (onlineRef.current) {
+      refreshDaily();
+    } else {
+      setDaily((prev) => (prev.phase === 'running' ? prev : { phase: 'hidden' }));
+    }
+  }, [status.state, refreshDaily]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Re-check when the user returns to Home (e.g. after enabling the
+      // feature in Settings) - the status effect only fires on state change.
+      refreshDaily();
+      return () => {};
+    }, [refreshDaily])
+  );
+
+  const makeDailyNow = async () => {
+    if (dailyBusyRef.current) {
+      return;
+    }
+    dailyBusyRef.current = true;
+    setDaily({ phase: 'running' });
+    const result = await runDailyWallpaper({ force: true });
+    dailyBusyRef.current = false;
+    setDaily(
+      result.kind === 'ok'
+        ? { phase: 'done', result }
+        : { phase: 'failed', result }
+    );
+  };
 
   const online = status.state === 'online';
   const checking = status.state === 'checking';
@@ -94,6 +163,63 @@ export default function HomeScreen() {
           </>
         )}
       </View>
+
+      {daily.phase !== 'hidden' && (
+        <View style={[styles.dailyCard, daily.phase === 'failed' && styles.dailyCardFailed]}>
+          {daily.phase === 'running' ? (
+            <>
+              <ActivityIndicator color={colors.accent} />
+              <View style={styles.statusTextWrap}>
+                <Text style={styles.dailyTitle}>Painting today's wallpaper...</Text>
+                <Text style={styles.dailySub}>
+                  The cloud is creating a fresh wallpaper and setting it for you. This can
+                  take a minute or two.
+                </Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.dailyEmoji}>
+                {daily.phase === 'done' || daily.phase === 'already-run'
+                  ? '\u2705'
+                  : daily.phase === 'cooldown'
+                    ? '\u23F3'
+                    : '\u26A0\uFE0F'}
+              </Text>
+              <View style={styles.statusTextWrap}>
+                <Text style={styles.dailyTitle}>
+                  {daily.phase === 'done' || daily.phase === 'already-run'
+                    ? "Today's fresh wallpaper is set!"
+                    : daily.phase === 'cooldown'
+                      ? 'Daily wallpaper hit a snag'
+                      : 'Daily wallpaper could not finish'}
+                </Text>
+                <Text style={styles.dailySub}>
+                  {daily.phase === 'done' || daily.phase === 'already-run'
+                    ? 'Come back tomorrow for another surprise.'
+                    : daily.phase === 'cooldown'
+                      ? 'FrogPaper will try again next time you open the app.'
+                      : (daily.result && daily.result.message) ||
+                        'Check your connection and try again.'}
+                </Text>
+              </View>
+              {(daily.phase === 'failed' ||
+                daily.phase === 'cooldown' ||
+                daily.phase === 'already-run') && (
+                <TouchableOpacity
+                  style={styles.dailyButton}
+                  onPress={makeDailyNow}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.dailyButtonText}>
+                    {daily.phase === 'already-run' ? 'Another' : 'Try now'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
+        </View>
+      )}
 
       <View style={styles.actionList}>
         {actions.map((action) => (
@@ -188,6 +314,44 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     marginTop: 2,
+  },
+  dailyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderColor: colors.accentDim,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    gap: spacing.md,
+  },
+  dailyCardFailed: {
+    borderColor: colors.warn,
+  },
+  dailyEmoji: {
+    fontSize: 22,
+  },
+  dailyTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  dailySub: {
+    color: colors.muted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  dailyButton: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
+  dailyButtonText: {
+    color: colors.bg,
+    fontSize: 14,
+    fontWeight: '800',
   },
   actionList: {
     gap: spacing.md,
