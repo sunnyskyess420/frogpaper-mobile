@@ -1,0 +1,22 @@
+# Runtime / build artifacts - never commit
+backend/venv/
+mobile-app/node_modules/
+mobile-app/.expo/
+mobile-app/dist/
+mobile-app/web-build/
+__pycache__/
+*.pyc
+
+# Local junk
+*.log
+.DS_Store
+Thumbs.db
+
+# Secrets - never commit
+backend/gemini_api_key.txt
+# Secrets - never commit
+backend/huggingface_token.txt
+backend/replicate_api_token.txt
+
+# Runtime gallery images - generated content, not source
+backend/static/images/

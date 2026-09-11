@@ -1,0 +1,405 @@
+// Settings - backend connection info, provider details, about.
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import api, { discoverBaseUrl, getBaseUrl, getCustomServerUrl, LAN_IP, setCustomServerUrl } from '../services/api';
+import { getDailyInfo, setDailyEnabled, setDailySource } from '../services/dailyWallpaper';
+import { colors, radii, spacing } from '../theme';
+
+export default function SettingsScreen() {
+  const insets = useSafeAreaInsets();
+  const [state, setState] = useState({
+    loading: true,
+    health: null,
+    providers: [],
+    error: null,
+    customUrl: '',
+  });
+
+  const refresh = useCallback(async () => {
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      await discoverBaseUrl();
+      const [health, providersResponse] = await Promise.all([
+        api.health(),
+        api.providers(),
+      ]);
+      const customUrl = await getCustomServerUrl();
+      setState({
+        loading: false,
+        health,
+        providers: providersResponse.providers || [],
+        error: null,
+        customUrl: customUrl || '',
+      });
+    } catch (err) {
+      const customUrl = await getCustomServerUrl();
+      setState({
+        loading: false,
+        health: null,
+        providers: [],
+        error: err.message || 'Backend unreachable',
+        customUrl: customUrl || '',
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const online = state.health !== null;
+
+  const handleCustomUrlChange = async (text) => {
+    setState((prev) => ({ ...prev, customUrl: text }));
+  };
+
+  const saveCustomUrl = async () => {
+    await setCustomServerUrl(state.customUrl);
+    await refresh();
+  };
+
+  const clearCustomUrl = async () => {
+    await setCustomServerUrl('');
+    await refresh();
+  };
+
+  // ---- Daily auto-wallpaper preference ----------------------------------
+  const [dailyState, setDailyState] = useState({ enabled: false, source: 'surprise' });
+
+  useEffect(() => {
+    getDailyInfo()
+      .then((info) => setDailyState({ enabled: info.enabled, source: info.source }))
+      .catch(() => {}); // preferences are optional - never block Settings
+  }, []);
+
+  const toggleDaily = async (value) => {
+    setDailyState((prev) => ({ ...prev, enabled: value }));
+    await setDailyEnabled(value);
+  };
+
+  const chooseDailySource = async (source) => {
+    setDailyState((prev) => ({ ...prev, source }));
+    await setDailySource(source);
+  };
+
+  return (
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
+    >
+      <Text style={styles.sectionLabel}>Connection</Text>
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <View style={[styles.dot, online ? styles.dotOnline : styles.dotOffline]} />
+          <Text style={styles.rowValue}>
+            {state.loading
+              ? 'Checking...'
+              : online
+                ? 'Connected to backend'
+                : 'Backend unreachable'}
+          </Text>
+        </View>
+        <Text style={styles.monoText}>{getBaseUrl()}</Text>
+        <Text style={styles.hint}>
+          Android emulator reaches your PC via 10.0.2.2. Physical phones use the LAN IP
+          ({LAN_IP}) - both are tried automatically. To change the LAN IP, edit
+          LAN_IP in src/services/api.js.
+        </Text>
+        <Pressable style={styles.button} onPress={refresh} disabled={state.loading}>
+          {state.loading ? (
+            <ActivityIndicator color={colors.bg} />
+          ) : (
+            <Text style={styles.buttonText}>Re-test connection</Text>
+          )}
+        </Pressable>
+      </View>
+
+      <Text style={styles.sectionLabel}>Custom server address</Text>
+      <View style={styles.card}>
+        <Text style={styles.hint}>
+          Enter your backend URL here (e.g., https://your-app.onrender.com). Leave empty to
+          use automatic LAN discovery. It must start with https:// and end with your server
+          name - nothing after the .com (the app adds the rest itself).
+        </Text>
+        <TextInput
+          style={styles.input}
+          placeholder="https://your-backend-url.com"
+          placeholderTextColor={colors.muted}
+          value={state.customUrl}
+          onChangeText={handleCustomUrlChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <View style={styles.buttonRow}>
+          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveCustomUrl}>
+            <Text style={[styles.buttonText, styles.buttonSecondaryText]}>Save URL</Text>
+          </Pressable>
+          {state.customUrl && (
+            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearCustomUrl}>
+              <Text style={[styles.buttonText, styles.buttonSecondaryText]}>Clear</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+
+      <Text style={styles.sectionLabel}>Daily wallpaper</Text>
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <Text style={styles.rowValue}>Fresh wallpaper every day</Text>
+          <Switch
+            value={dailyState.enabled}
+            onValueChange={toggleDaily}
+            trackColor={{ false: colors.cardAlt, true: colors.accentDim }}
+            thumbColor={dailyState.enabled ? colors.accent : colors.muted}
+            ios_backgroundColor={colors.cardAlt}
+          />
+        </View>
+        <Text style={styles.hint}>
+          When ON, the first time you open FrogPaper each day it quietly paints a
+          brand-new wallpaper and sets it on your phone. It only works while the app is
+          open - nothing runs in the background, so it never drains your battery.
+        </Text>
+        {dailyState.enabled && (
+          <>
+            <Text style={styles.hint}>Where should today's idea come from?</Text>
+            <View style={styles.buttonRow}>
+              <Pressable
+                style={[
+                  styles.button,
+                  styles.buttonSecondary,
+                  dailyState.source === 'surprise' && styles.chipActive,
+                ]}
+                onPress={() => chooseDailySource('surprise')}
+              >
+                <Text
+                  style={[
+                    styles.buttonSecondaryText,
+                    dailyState.source === 'surprise' && styles.chipActiveText,
+                  ]}
+                >
+                  {'\uD83C\uDFB2 Surprise me'}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.button,
+                  styles.buttonSecondary,
+                  dailyState.source === 'favorites' && styles.chipActive,
+                ]}
+                onPress={() => chooseDailySource('favorites')}
+              >
+                <Text
+                  style={[
+                    styles.buttonSecondaryText,
+                    dailyState.source === 'favorites' && styles.chipActiveText,
+                  ]}
+                >
+                  {'\u2605 My favorites'}
+                </Text>
+              </Pressable>
+            </View>
+            <Text style={styles.hint}>
+              "My favorites" picks a random prompt you starred on the Generate screen
+              (it falls back to surprise ideas if you have not saved any yet).
+            </Text>
+          </>
+        )}
+      </View>
+
+      <Text style={styles.sectionLabel}>AI provider</Text>
+      {state.providers.map((provider) => (
+        <View key={provider.id} style={styles.card}>
+          <Text style={styles.rowValue}>{provider.name}</Text>
+          <Text style={styles.hint}>{provider.description}</Text>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaChip}>model: {provider.model}</Text>
+            <Text style={styles.metaChip}>status: {provider.status}</Text>
+            <Text style={styles.metaChip}>
+              api key: {provider.requires_api_key ? 'required' : 'not needed'}
+            </Text>
+          </View>
+        </View>
+      ))}
+
+      <Text style={styles.sectionLabel}>About</Text>
+      <View style={styles.card}>
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>App</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.16</Text>
+        </View>
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>Backend</Text>
+          <Text style={styles.aboutValue}>
+            {state.health ? `v${state.health.version}` : '-'}
+          </Text>
+        </View>
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>Images on server</Text>
+          <Text style={styles.aboutValue}>
+            {state.health ? String(state.health.images_count) : '-'}
+          </Text>
+        </View>
+      </View>
+
+      {state.error !== null && (
+        <View style={styles.errorCard}>
+          <Text style={styles.errorText}>{state.error}</Text>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+  content: {
+    padding: spacing.lg,
+  },
+  sectionLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: spacing.sm,
+    marginTop: spacing.md,
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  dotOnline: {
+    backgroundColor: colors.accent,
+  },
+  dotOffline: {
+    backgroundColor: colors.danger,
+  },
+  rowValue: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  monoText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontFamily: 'monospace',
+  },
+  hint: {
+    color: colors.muted,
+    fontSize: 13,
+    marginTop: spacing.sm,
+    lineHeight: 19,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  metaChip: {
+    color: colors.accent,
+    fontSize: 12,
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    overflow: 'hidden',
+  },
+  button: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.sm,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+  buttonSecondary: {
+    backgroundColor: colors.cardAlt,
+    flex: 1,
+    marginHorizontal: spacing.xs,
+  },
+  buttonSecondaryText: {
+    color: '#EAF7F1',
+  },
+  chipActive: {
+    backgroundColor: colors.accentDim,
+    borderColor: colors.accent,
+  },
+  chipActiveText: {
+    color: colors.bg,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    marginTop: spacing.md,
+  },
+  buttonText: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  input: {
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    color: colors.text,
+    fontSize: 15,
+    padding: spacing.md,
+    marginTop: spacing.sm,
+  },
+  aboutRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  aboutKey: {
+    color: colors.muted,
+    fontSize: 14,
+  },
+  aboutValue: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  errorCard: {
+    backgroundColor: '#2A1520',
+    borderColor: colors.danger,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 14,
+  },
+});
