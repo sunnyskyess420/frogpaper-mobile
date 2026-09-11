@@ -1,127 +1,154 @@
 # FrogPaper Mobile
 
-AI wallpaper studio: an Expo (React Native) app that talks to a small Flask
-backend, which generates phone wallpapers via Pollinations.ai (Flux model,
-no API key required).
+AI wallpaper studio for Android. Describe anything - frogs, castles, galaxies,
+your cat as a knight - and FrogPaper paints it at wallpaper resolution, saves
+it to your gallery and can set it as your phone wallpaper in one tap.
+
+The heavy lifting happens in the cloud, so the phone works even when your PC
+is powered off.
 
 ```
-+----------------+       HTTP        +------------------+      HTTPS      +-----------------+
-|   mobile-app   |  <------------->  |     backend      | <-------------> |  pollinations.ai |
-|  Expo / RN web |  /api/* (JSON)    |  Flask :5000     |  image prompt   |   Flux model     |
-|  Android, iOS  |                   |  static/images/  |  <--- jpeg ---  |                  |
-+----------------+                   +------------------+                 +-----------------+
++------------------+        HTTPS         +--------------------+       HTTPS       +------------------+
+|  Android app     |  <-----------------> |  Flask backend     | <---------------> |  pollinations.ai |
+|  (Expo / RN)     |   /api/* JSON        |  on Render.com     |   image prompt    |  Flux model      |
+|  APK install     |                      |  frogpaper-mobile  |   <--- jpeg ---   |  (free, no key)  |
++------------------+                      +--------------------+                   +------------------+
 ```
+
+- **Backend (cloud)**: https://frogpaper-mobile.onrender.com - free Render
+  instance. It sleeps after ~15 minutes of quiet and wakes in a few seconds on
+  the next request; the app probes patiently, so the first tap after a break
+  just takes a little longer.
+- **Backend (optional, PC)**: the same Flask app in `backend/` runs fine on any
+  computer (`python app.py`, port 5000). Useful for development or offline use.
+
+## What the app can do (v1.9.16)
+
+**Generate screen**
+- Prompt box with 4 size presets (phone portrait 1080x1920, landscape,
+  square, wide) and optional negative prompt + seed controls
+- **12 style engines**: Natural, Vivid, Dark fantasy, Minimalist, Oil painting,
+  Anime, Watercolor, Pixel art, 3D render, Synthwave, Low poly
+- **Surprise me** dice: rolls a random curated idea (20 prompts, frogs and
+  non-frogs mixed), never repeating the prompt currently in the box
+- **Prompt favorites**: tap the star to save a prompt (up to 12), tap a chip
+  to reuse it, X to delete - favorites survive app restarts
+- Cancel button and a 180-second ceiling so slow peak-hour cloud queues
+  cannot hang the app
+
+**Any subject, not just frogs**
+The AI paints whatever the prompt describes. Frogs are the mascot and fill a
+good share of the curated idea list, but the backend detects the subject and
+only adds matching quality cues: frogs get frog touches, common animals
+(cat, dog, owl, dragon and more) get an animal booster, and everything else
+passes through untouched with a neutral quality suffix. Subject words are
+matched with word boundaries, so "gothic cathedral" is never cat-ified.
+
+**Home screen**
+- Live backend status (checking / online / offline) with the cloud version
+- **Daily wallpaper card**: if enabled in Settings, the first time you open
+  FrogPaper each day it quietly generates a fresh wallpaper (surprise idea or
+  one of your starred favorites), saves it to the gallery and sets it as the
+  wallpaper. If an attempt fails it waits 2 hours before auto-retrying, and
+  Try now / Another buttons let you force a new one any time. Deliberately no
+  background scheduler - it only runs while the app is open, so Samsung
+  battery management cannot kill it and it costs zero battery.
+
+**Gallery + Detail**
+- Every generation is kept in the backend gallery and shown with real
+  dimensions and the prompt used
+- Save any image to the device gallery (photo permission requested once)
+
+**Settings**
+- Custom server address with one-time Save (auto-fixes missing `https://`,
+  trailing slashes and stray punctuation; strips accidental `/api/health`
+  suffixes) plus a Clear button
+- Daily wallpaper toggle + idea source (Surprise me / My favorites)
+- AI provider status and app/backend version info
+
+## Install on your phone
+
+1. Get the newest `FrogPaper-v1.9.16.apk` and copy it to the phone.
+2. Tap it; allow "install from this source" if Android asks. Installing over
+   an older FrogPaper keeps your saved address, favorites and settings.
+3. Open FrogPaper. Check **Settings > About** shows `FrogPaper Mobile 1.9.16`.
+4. In **Settings**, enter `frogpaper-mobile.onrender.com` as the server
+   address and tap **Save URL** - one time only, it is remembered. The Home
+   dot turns green when the cloud answers.
+5. Generate something. Wait out the green dot if the cloud was asleep.
+
+## Version history
+
+| Version | What changed |
+|---------|--------------|
+| 1.9.16 | Launch-crash fix: `useFocusEffect` import missing in HomeScreen (v1.9.15 died on open); new missing-import scanner added to the pre-build checks |
+| 1.9.15 | 5 new style engines (12 total), daily auto-wallpaper, subject boosters for cat/dog/owl/dragon, word-boundary matching fix, 180 s generate timeout |
+| 1.9.14 | Surprise me dice, prompt favorites (star/chips), backend version sync |
+| 1.9.13 | Readable Save/Clear buttons, smarter address sanitizer and hint |
+| 1.9.12 | Custom server URL saved on the phone, patient cloud wake-up probing, working Cancel button - first fully cloud build |
+| <1.9.11 | PC/LAN-only era: app needed the PC backend on the same Wi-Fi |
 
 ## Repository structure
 
 ```
-FrogPaperMobile/
-|-- backend/                  Flask API (port 5000)
-|   |-- app.py                All routes + JSON error handling + CORS
+frogpaper-mobile/
+|-- backend/                  Flask API (Render deploy + local dev)
+|   |-- app.py                Routes, JSON errors, CORS, health endpoint
 |   |-- services/
-|   |   `-- image_generation.py   Pollinations provider + gallery listing
-|   |-- static/images/        Generated wallpapers live here (add your own)
-|   |-- requirements.txt
-|   `-- test_generation.py    Standalone generation test (no HTTP needed)
-|-- mobile-app/               Expo app (SDK 57, RN 0.86)
-|   |-- App.js                Entry: theme + navigation container
+|   |   `-- image_generation.py   Pollinations provider + subject boosters
+|   |-- static/images/        Generated wallpapers (cloud: ephemeral)
+|   `-- requirements.txt
+|-- mobile-app/               Expo app (SDK 57, RN 0.86, Hermes)
+|   |-- app.json              Version + versionCode live here
 |   `-- src/
-|       |-- navigation/AppNavigator.js   Stack: Home / Generate / Gallery / Settings
-|       |-- screens/          Home, Generate, Gallery, Detail, Settings screens
-|       |-- services/api.js   API layer with automatic backend URL resolution
-|       |-- services/deviceMedia.*.js  Save-to-device + wallpaper (per-platform)
+|       |-- screens/          Home, Generate, Gallery, Detail, Settings
+|       |-- services/
+|       |   |-- api.js        URL resolution, patient probing, generate()
+|       |   |-- dailyWallpaper.js Daily logic (phases, cooldown, run)
+|       |   |-- promptLibrary.js  Shared idea list + favorites key
+|       |   `-- deviceMedia.*.js  Save-to-gallery + wallpaper per platform
 |       `-- theme.js          Dark theme tokens (frog-green accent)
-`-- docs/                     API reference, handover notes, screenshots
+`-- docs/                     API reference and handover notes
 ```
 
-## Quick start (Windows)
+## Building the APK
 
-### 1. Backend
-
-```powershell
-cd E:\FROGPAPER\FrogPaperMobile\backend
-python -m venv venv                # first time only
-.\venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
+```bash
+cd mobile-app
+npm install
+eas build --platform android --profile preview      # needs an Expo token
 ```
 
-The API is now on `http://127.0.0.1:5000` and reachable on your LAN at
-`http://<your-ip>:5000` (host is `0.0.0.0`).
+Pre-delivery checks used for every release:
 
-### 2. Mobile app
-
-```powershell
-cd E:\FROGPAPER\FrogPaperMobile\mobile-app
-npm install                        # first time only
-npx expo start --web               # web test at http://localhost:8081
+```bash
+npx esbuild --loader:.js=jsx src/screens/File.js --outfile=/dev/null   # syntax
+python3 ../scripts/scan_undef.py src/screens/*.js src/services/*.js    # missing imports
+python3 ../scripts/verify_bundle.py FrogPaper-vX.Y.Z.apk               # 21 markers
 ```
 
-- **Web**: opens automatically, connects to `http://localhost:5000`.
-- **Android emulator**: press `a` in the Expo terminal. The app tries
-  `http://10.0.2.2:5000` automatically (emulator alias for your PC).
-- **Physical phone**: install Expo Go, scan the QR code (same Wi-Fi as your
-  PC). The app tries your LAN IP automatically.
-
-## Where your wallpapers live
-
-`backend/static/images/`. Every generated image is saved there with a
-timestamped filename (`pollinations_YYYYMMDD-HHMMSS.jpg`). If you already
-have a local collection (for example 82 existing images), copy the files
-into this folder - the gallery serves everything it finds there, no
-database, no migration.
-
-## Configuration
-
-| What | Where | Default |
-|------|-------|---------|
-| Backend port | `PORT` env var in `backend/app.py` | `5000` |
-| LAN IP of your PC | auto-detected from Expo Go (`expoConfig.hostUri`); manual fallback `LAN_IP` in `mobile-app/src/services/api.js` | automatic / `10.2.0.2` |
-| Emulator alias | `EMULATOR_ALIAS` in the same file | `10.0.2.2` |
-| Image size presets | `SIZE_PRESETS` in `GenerateScreen.js` | 1080x1920 etc. |
-
-Note: Pollinations' Flux model buckets requested resolutions - a 1080x1920
-request currently comes back as 576x1024. The real size is always reported
-in the API response and under the preview in the app.
-
-## Verification status (tested live 2026-09-10)
-
-| Check | Result |
-|-------|--------|
-| `GET /api/health` | PASS |
-| Input validation (short prompt -> JSON 400) | PASS |
-| `POST /api/generate` (real Pollinations call) | PASS - image saved |
-| `GET /api/gallery` listing + metadata | PASS |
-| Web bundle compiles (`expo export`) | PASS |
-| Headless-browser click-through of all 4 screens | PASS |
-| In-app UI generation (prompt -> result card) | PASS |
-| Gallery updates after generation | PASS |
-
-Proof screenshots: `docs/screenshots/`.
+`scan_undef.py` exists because v1.9.15 shipped a missing hook import that
+syntax checks cannot see and that crashed the app on launch.
 
 ## Troubleshooting
 
-**App says "Backend offline"**
-- Is the backend terminal still running `python app.py`?
-- Web client needs the backend on `http://localhost:5000` - check
-  `http://127.0.0.1:5000/api/health` in your browser first.
-- Phone on Wi-Fi: the app auto-detects your PC's IP from the Expo Go dev
-  server (same Wi-Fi required). If it still shows offline, set `LAN_IP` in
-  `mobile-app/src/services/api.js` to your PC's IPv4 (`ipconfig`), and make
-  sure Windows Firewall allows Python on private networks (first run asks).
+**Green dot takes a while** - the free cloud tier sleeps; the first request
+wakes it (a few seconds, occasionally longer at peak). Later requests are fast.
 
-**Expo dev server starts but the page never loads**
-- Stop it (`Ctrl+C`) and restart with a clean cache: `npx expo start --clear`
-- Port 8081 busy? `npx expo start --web --port 8082`
-- Delete the app cache folders: `.expo/` and `node_modules/.cache/`, then
-  `npm install` again.
+**HTTP 404 on connect** - check the saved address letter by letter: it must be
+`frogpaper-mobile.onrender.com` (not `frogpaper-website...`). Tap Clear, type
+it again, Save.
 
-**Generation returns HTTP 502**
-- Pollinations is a free community service; it occasionally rate-limits or
-  times out. The backend retries 3 times with backoff - try again in a
-  minute.
+**Generation fails or times out** - Pollinations is a free community service
+and rate-limits at busy times. The backend retries with backoff; wait a minute
+and try again. Daily wallpaper attempts enter a 2-hour cooldown after a
+failure and retry on the next app open.
+
+**Wallpaper "Try now" says it needs a development build** - direct wallpaper
+setting uses a native module that ships inside the release APK; inside Expo Go
+it degrades gracefully with a save-to-gallery fallback instead.
 
 ## Documentation
 
 - `docs/BACKEND_COMPLETE.md` - full API reference with examples
-- `docs/HANDOVER_2026-09-10.md` - what was rebuilt, tested and why
+- `docs/HANDOVER_2026-09-10.md` - original rebuild and test notes
