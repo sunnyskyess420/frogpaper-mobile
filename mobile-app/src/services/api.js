@@ -1,7 +1,7 @@
 // API service layer - talks to the Flask backend.
 //
 // Backend URL resolution order:
-//   1. Custom server URL saved in Settings (e.g. https://frogpaper-mobile.onrender.com)
+//   1. Custom server URL saved in Settings (e.g. https://your-backend.onrender.com)
 //      - tried first, with a patient timeout (cloud servers sleep and wake slowly)
 //   2. Android emulator alias 10.0.2.2, LAN IP, localhost (PC backend workflow)
 //
@@ -35,7 +35,7 @@ function devHostLanUrl() {
 }
 
 // Cleans up what the user typed in Settings:
-//   "  frogpaper-mobile.onrender.com/  " -> "https://frogpaper-mobile.onrender.com"
+//   "  my-backend.onrender.com/  " -> "https://my-backend.onrender.com"
 export function sanitizeCustomUrl(url) {
   if (typeof url !== 'string') return '';
   let value = url.trim();
