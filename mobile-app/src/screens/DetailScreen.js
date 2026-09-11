@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import ZoomableImage from '../components/ZoomableImage';
+import * as Clipboard from 'expo-clipboard';
 import api from '../services/api';
 import {
   capabilities,
@@ -43,8 +44,6 @@ export default function DetailScreen() {
   const route = useRoute();
   const insets = useSafeAreaInsets();
   const filename = route.params?.filename;
-  const filenames = route.params?.filenames;
-  const imageIndex = Array.isArray(filenames) ? filenames.indexOf(filename) : -1;
 
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -54,7 +53,7 @@ export default function DetailScreen() {
   const [saving, setSaving] = useState(false);
   const [wallpaperBusy, setWallpaperBusy] = useState(false);
   const [notice, setNotice] = useState(null);
-  const [zoomed, setZoomed] = useState(false);
+  const [copiedSeed, setCopiedSeed] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,10 +115,15 @@ export default function DetailScreen() {
     }
   };
 
-  const handleIndexChange = (nextIndex) => {
-    if (Array.isArray(filenames) && nextIndex >= 0 && nextIndex < filenames.length) {
-      setNotice(null);
-      navigation.setParams({ filename: filenames[nextIndex] });
+  const copySeed = async () => {
+    if (detail?.seed !== undefined && detail.seed !== null) {
+      try {
+        await Clipboard.setStringAsync(String(detail.seed));
+        setCopiedSeed(true);
+        setTimeout(() => setCopiedSeed(false), 2000);
+      } catch (err) {
+        console.error('Failed to copy seed:', err);
+      }
     }
   };
 
@@ -134,7 +138,6 @@ export default function DetailScreen() {
   return (
     <ScrollView
       style={styles.screen}
-      scrollEnabled={!zoomed}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
     >
       {error !== null && (
@@ -148,21 +151,11 @@ export default function DetailScreen() {
 
       {detail && (
         <>
-          <ZoomableImage
-            uri={api.imageUrl(detail.filename)}
-            filenames={filenames}
-            index={imageIndex < 0 ? 0 : imageIndex}
-            onIndexChange={
-              Array.isArray(filenames) && filenames.length > 1 ? handleIndexChange : undefined
-            }
-            onLongPress={doSave}
-            onZoomChange={setZoomed}
-            showCounter
+          <Image
+            source={{ uri: api.imageUrl(detail.filename) }}
             style={styles.image}
+            resizeMode="contain"
           />
-          <Text style={styles.gestureHint}>
-            Pinch to zoom - swipe to browse - hold to save
-          </Text>
 
           <View style={styles.infoCard}>
             <View style={styles.infoRow}>
@@ -194,9 +187,19 @@ export default function DetailScreen() {
               </Text>
             </View>
             {detail.seed !== undefined && detail.seed !== null && (
-              <View style={styles.infoRow}>
+              <View style={styles.seedRow}>
                 <Text style={styles.infoKey}>Seed</Text>
-                <Text style={styles.infoValue}>{detail.seed}</Text>
+                <Text style={styles.infoValue} selectable>
+                  {detail.seed}
+                </Text>
+                <Pressable
+                  onPress={copySeed}
+                  style={styles.copyButton}
+                >
+                  <Text style={styles.copyButtonText}>
+                    {copiedSeed ? 'Copied!' : 'Copy'}
+                  </Text>
+                </Pressable>
               </View>
             )}
             {detail.prompt ? (
@@ -306,14 +309,9 @@ const styles = StyleSheet.create({
   },
   image: {
     width: '100%',
-    height: 420,
+    height: 380,
     borderRadius: radii.lg,
-  },
-  gestureHint: {
-    color: colors.muted,
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: spacing.sm,
+    backgroundColor: colors.cardAlt,
   },
   infoCard: {
     backgroundColor: colors.card,
@@ -329,6 +327,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 7,
   },
+  seedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 7,
+  },
   infoKey: {
     color: colors.muted,
     fontSize: 14,
@@ -337,7 +341,20 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 14,
     fontWeight: '600',
-    maxWidth: '65%',
+    maxWidth: '50%',
+  },
+  copyButton: {
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  copyButtonText: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '600',
   },
   promptBlock: {
     marginTop: spacing.sm,

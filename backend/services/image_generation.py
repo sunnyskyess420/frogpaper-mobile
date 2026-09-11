@@ -12,7 +12,6 @@ import logging
 import math
 import os
 import random
-import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,22 +54,6 @@ _SUBJECT_ENHANCERS = {
         "cute toad with big golden eyes and detailed skin, professional "
         "wildlife macro photography, correct anatomy"
     ),
-    "cat": (
-        "cute cat with expressive eyes and detailed soft fur, professional "
-        "pet photography, correct anatomy"
-    ),
-    "dog": (
-        "cute dog with expressive eyes and detailed fluffy fur, professional "
-        "pet photography, correct anatomy"
-    ),
-    "owl": (
-        "majestic owl with big round eyes and detailed feathers, professional "
-        "wildlife photography, correct anatomy"
-    ),
-    "dragon": (
-        "majestic dragon with detailed scales and expressive eyes, epic "
-        "fantasy art, correct anatomy"
-    ),
 }
 _GENERIC_ANIMAL_WORDS = (
     "cat", "kitten", "dog", "puppy", "fox", "owl", "wolf", "deer",
@@ -79,19 +62,13 @@ _GENERIC_ANIMAL_WORDS = (
 )
 
 
-def _word_match(text: str, word: str) -> bool:
-    """Whole-word match, plural-tolerant ('frog', 'frogs'), never substring
-    ('cat' must not fire inside 'cathedral' or 'category')."""
-    return re.search(rf"\b{word}s?\b", text) is not None
-
-
 def _subject_enhancer(prompt: str) -> str:
     """Extra subject-specific phrases for prompts featuring known subjects."""
-    text = prompt.lower()
+    text = f" {prompt.lower()} "
     for word, phrase in _SUBJECT_ENHANCERS.items():
-        if _word_match(text, word):
+        if f" {word}" in text or f"{word}s " in text:
             return f", {phrase}"
-    if any(_word_match(text, word) for word in _GENERIC_ANIMAL_WORDS):
+    if any(f" {word}" in text or f"{word}s " in text for word in _GENERIC_ANIMAL_WORDS):
         return (
             ", adorable healthy animal with expressive eyes and correct "
             "anatomy, professional wildlife photography"
@@ -186,20 +163,10 @@ REPLICATE_IMAGE_MODELS = [
 REPLICATE_TOKEN_FILE = (
     Path(__file__).resolve().parent.parent / "replicate_api_token.txt"
 )
-REPLICATE_REQUEST_TIMEOUT = (10, 60)   # poll GETs (normally answer in <2 s)
-# Creating a prediction normally answers in a couple of seconds. When
-# Replicate is congested the create POST instead hangs the full read window -
-# with a 60 s window that burned 2+ minutes before the Pollinations fallback
-# ever got its turn (2026-09-11 incident: app cancelled at 180 s while the
-# Replicate chain was still hanging). 20 s is still generous to accept a job.
-REPLICATE_CREATE_TIMEOUT = (10, 20)
+REPLICATE_REQUEST_TIMEOUT = (10, 60)
 REPLICATE_DOWNLOAD_TIMEOUT = (10, 120)
 REPLICATE_POLL_INTERVAL = 2.0
 REPLICATE_POLL_LIMIT = 75  # ~150 s max wait for a finished render
-# Whole-Replicate-phase deadline (all models x attempts + polling). The app
-# cancels at 180 s, so Replicate must hand back to the Pollinations fallback
-# with plenty of runway left. 90 s of Replicate leaves >=80 s for Pollinations.
-REPLICATE_PHASE_BUDGET = 90.0
 # Aspect ratios FLUX models accept on Replicate. Live-verified from the
 # flux-dev openapi schema on 2026-09-10: the model accepts all 11 values,
 # including the tall 9:21 that matches modern phone screens.
@@ -1280,22 +1247,12 @@ def _replicate_error_for(response):
     )
 
 
-def _replicate_wait(poll_url, auth, deadline=None):
+def _replicate_wait(poll_url, auth):
     """Poll a Replicate prediction until it succeeds or gives up.
 
     Returns (image_url, None) on success, or (None, GenerationError).
-    When a phase deadline is given, polling stops early so the caller can
-    fall back to the next provider inside the request's time budget.
     """
-    poll_limit = REPLICATE_POLL_LIMIT
-    if deadline is not None:
-        remaining_polls = int((deadline - time.monotonic()) / REPLICATE_POLL_INTERVAL)
-        poll_limit = max(0, min(poll_limit, remaining_polls))
-        if poll_limit < 1:
-            return None, GenerationError(
-                "Replicate was still busy when the wait budget ran out."
-            )
-    for _poll in range(1, poll_limit + 1):
+    for _poll in range(1, REPLICATE_POLL_LIMIT + 1):
         try:
             poll_resp = requests.get(
                 poll_url, headers=auth, timeout=REPLICATE_REQUEST_TIMEOUT
@@ -1447,16 +1404,9 @@ def generate_image_replicate(
     auth = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
 
     models_to_try = [model] if model else list(REPLICATE_IMAGE_MODELS)
-    # Give the whole Replicate phase a hard budget so the Pollinations
-    # fallback always gets its turn inside the app's 180 s ceiling.
-    deadline = time.monotonic() + REPLICATE_PHASE_BUDGET
     last_error = None
     for rl_model in models_to_try:
-        if time.monotonic() >= deadline:
-            break
         for attempt in range(1, retries + 1):
-            if time.monotonic() >= deadline:
-                break
             try:
                 log.info(
                     "Replicate attempt %d/%d (%s, %dx%d -> %s, seed=%d)",
@@ -1474,7 +1424,7 @@ def generate_image_replicate(
                         }
                     },
                     headers=auth,
-                    timeout=REPLICATE_CREATE_TIMEOUT,
+                    timeout=REPLICATE_REQUEST_TIMEOUT,
                 )
             except requests.RequestException as exc:
                 last_error = GenerationError(
@@ -1491,7 +1441,7 @@ def generate_image_replicate(
                 # Bad model or bad request: the next model may work.
                 if create.status_code in (404, 422):
                     break
-                if attempt < retries and time.monotonic() < deadline:
+                if attempt < retries:
                     time.sleep(RETRY_BACKOFF_SECONDS * attempt)
                 continue
 
@@ -1502,14 +1452,14 @@ def generate_image_replicate(
                     "Replicate did not return a prediction to wait for."
                 )
                 continue
-            image_url, poll_error = _replicate_wait(poll_url, auth, deadline=deadline)
+            image_url, poll_error = _replicate_wait(poll_url, auth)
             if image_url:
                 return _finish_replicate_image(
                     image_url, rl_model, prompt, negative_prompt, seed,
                     width, height, images_dir,
                 )
             last_error = poll_error
-            if attempt < retries and time.monotonic() < deadline:
+            if attempt < retries:
                 time.sleep(RETRY_BACKOFF_SECONDS * attempt)
 
     raise last_error or GenerationError(

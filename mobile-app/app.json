@@ -2,7 +2,7 @@
   "expo": {
     "name": "FrogPaper Mobile",
     "slug": "frogpaper-mobile",
-    "version": "1.9.16",
+    "version": "1.8.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -18,22 +18,13 @@
     },
     "android": {
       "package": "com.frogpaper.mobile",
-      "versionCode": 7,
-      "usesCleartextTraffic": true,
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#0B1220",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "permissions": [
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
-      ]
+      }
     },
     "plugins": [
       [
@@ -43,16 +34,20 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "./src/plugins/WallpaperManagerFix"
+      [
+        "@sentry/react-native",
+        {
+          "url": "https://sentry.io/",
+          "organization": "frogpaper",
+          "project": "frogpaper-mobile",
+          "dsn": "REPLACE_WITH_YOUR_SENTRY_DSN_FROM_SENTRY_IO",
+          "enableNative": true,
+          "enableAutoSessionTracking": true
+        }
+      ]
     ],
     "web": {
       "favicon": "./assets/favicon.png"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "22d0cc52-7a83-4ead-8088-4e3694fe1d55"
-      }
-    },
-    "owner": "sunnyadl"
+    }
   }
 }
