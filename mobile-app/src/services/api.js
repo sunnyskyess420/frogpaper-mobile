@@ -138,7 +138,14 @@ export async function getReplicateToken() {
 }
 
 // Preload all BYOK keys on startup so the first request can attach them.
-Promise.all([getGeminiKey(), getHfToken(), getReplicateToken()]).catch(() => {});
+const byokPreloadPromise = Promise.all([getGeminiKey(), getHfToken(), getReplicateToken()]).catch(() => {});
+
+// Async snapshot: waits until preloaded keys are actually in memory.
+// Fixes the race where the Generate screen read keys before they loaded.
+export async function getByokSnapshotAsync() {
+  await byokPreloadPromise;
+  return getByokSnapshot();
+}
 
 // Returns a snapshot of all BYOK keys (for the Settings screen status row).
 export function getByokSnapshot() {

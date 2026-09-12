@@ -15,7 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import api from '../services/api';
-import { getByokSnapshot } from '../services/api';
+import { getByokSnapshot, getByokSnapshotAsync } from '../services/api';
 import { capabilities, saveToDevice } from '../services/deviceMedia';
 import { colors, radii, spacing } from '../theme';
 
@@ -81,7 +81,7 @@ export default function GenerateScreen() {
     try {
       const response = await api.providers();
       const activeProviders = response.providers || [];
-      const byokSnap = getByokSnapshot() || { gemini: false, huggingface: false, replicate: false };
+      const byokSnap = (await getByokSnapshotAsync()) || { gemini: false, huggingface: false, replicate: false };
       setByok(byokSnap);
       const usableNow = (p) => p.status === 'active' || !!(byokSnap && byokSnap[p.id]);
       setProviders(activeProviders);
