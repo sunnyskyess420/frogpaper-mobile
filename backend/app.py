@@ -226,7 +226,11 @@ def generate():
     provider = next((p for p in PROVIDERS if p["id"] == provider_id), None)
     if provider is None:
         return _error_response(f"Unknown provider '{provider_id}'.", 400)
-    if provider["status"] != "active":
+    if provider["status"] != "active" and not (
+        (provider["id"] == "gemini" and _read_user_key("X-Gemini-Key"))
+        or (provider["id"] == "huggingface" and _read_user_key("X-Hf-Token"))
+        or (provider["id"] == "replicate" and _read_user_key("X-Replicate-Token"))
+    ):
         return _error_response(f"Provider '{provider_id}' is not available yet.", 503)
 
     # BYOK: read user-supplied keys from headers. Keys are never logged
