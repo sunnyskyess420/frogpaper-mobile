@@ -67,7 +67,7 @@ export default function SettingsScreen() {
     diagnosticsRevealed: true,
     crashTapCount: 0,
     testEventFeedback: '',
-    testEventTime: null,
+    testEventTime: null, byokHelpVisible: false,
   });
 
   const refresh = useCallback(async () => {
@@ -117,7 +117,7 @@ export default function SettingsScreen() {
         diagnosticsRevealed: true,
         crashTapCount: 0,
         testEventFeedback: '',
-        testEventTime: null,
+        testEventTime: null, byokHelpVisible: false,
       });
     } catch (err) {
       const customUrl = await getCustomServerUrl();
@@ -150,7 +150,7 @@ export default function SettingsScreen() {
         diagnosticsRevealed: true,
         crashTapCount: 0,
         testEventFeedback: '',
-        testEventTime: null,
+        testEventTime: null, byokHelpVisible: false,
       });
     }
   }, []);
