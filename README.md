@@ -1,8 +1,7 @@
 # FrogPaper Mobile
 
-AI wallpaper studio: an Expo (React Native) app that talks to a small Flask
-backend, which generates phone wallpapers via Pollinations.ai (Flux model,
-no API key required).
+AI wallpaper studio for Android. Generate AI wallpapers with free or bring-your-own-key engines, manage them with gestures, and auto-shuffle them as your phone wallpaper.
+
 
 ```
 +----------------+       HTTP        +------------------+      HTTPS      +-----------------+
