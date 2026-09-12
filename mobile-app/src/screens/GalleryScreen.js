@@ -1,6 +1,7 @@
 // Gallery - grid of generated wallpapers with upload, detail and delete.
 import React, { useCallback, useRef, useState } from 'react';
 import {
+  Alert,
   ActivityIndicator,
   FlatList,
   Image,
@@ -58,6 +59,30 @@ export default function GalleryScreen() {
     load(false);
   }, [load]);
 
+  // Long-press a gallery tile to delete it (with confirmation).
+  const confirmDelete = (item) => {
+    Alert.alert(
+      'Delete wallpaper?',
+      `${item.filename} will be removed from the server.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.deleteImage(item.filename);
+              setImages((prev) => prev.filter((img) => img.filename !== item.filename));
+              setTotal((prev) => Math.max(0, prev - 1));
+            } catch (err) {
+              setError(err.message || 'Delete failed.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const pickAndUpload = async () => {
     // Permission is required on native; on web it resolves immediately.
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -93,6 +118,7 @@ export default function GalleryScreen() {
     <Pressable
       style={styles.cell}
       onPress={() => navigation.navigate('Detail', { filename: item.filename })}
+      onLongPress={() => confirmDelete(item)}
     >
       <Image
         source={{ uri: api.imageUrl(item.filename) }}
