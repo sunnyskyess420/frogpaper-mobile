@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import api from '../services/api';
+import { getByokSnapshot } from '../services/api';
 import { capabilities, saveToDevice } from '../services/deviceMedia';
 import { colors, radii, spacing } from '../theme';
 
@@ -50,6 +51,7 @@ export default function GenerateScreen() {
   const [styleId, setStyleId] = useState(null);
   const [providerId, setProviderId] = useState(null);
   const [providers, setProviders] = useState([]);
+  const [byok, setByok] = useState({ gemini: false, huggingface: false, replicate: false });
   const [recent, setRecent] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -64,6 +66,7 @@ export default function GenerateScreen() {
   const preset = SIZE_PRESETS.find((item) => item.id === presetId);
   const style = STYLE_PRESETS.find((item) => item.id === styleId) || null;
   const selectedProvider = providers.find((p) => p.id === providerId) || null;
+  const isUsable = (p) => p.status === 'active' || !!(byok && byok[p.id]);
 
   const loadRecent = useCallback(async () => {
     try {
@@ -78,15 +81,22 @@ export default function GenerateScreen() {
     try {
       const response = await api.providers();
       const activeProviders = response.providers || [];
+      const byokSnap = getByokSnapshot() || { gemini: false, huggingface: false, replicate: false };
+      setByok(byokSnap);
+      const usableNow = (p) => p.status === 'active' || !!(byokSnap && byokSnap[p.id]);
       setProviders(activeProviders);
-      // Auto-select the first active provider if none is selected
       if (!providerId && activeProviders.length > 0) {
-        const defaultProvider = activeProviders.find(p => p.status === 'active') || activeProviders[0];
-        setProviderId(defaultProvider.id);
+        const defaultProvider =
+          activeProviders.find(p => p.id === 'pollinations' && usableNow(p)) ||
+          activeProviders.find(p => p.id === 'gemini' && usableNow(p)) ||
+          activeProviders.find(p => p.id === 'huggingface' && usableNow(p)) ||
+          activeProviders.find(p => usableNow(p)) ||
+          activeProviders[0];
+        if (defaultProvider) setProviderId(defaultProvider.id);
       }
     } catch (err) {
       console.error('Failed to load providers:', err);
-      setProviders([]); // providers list is optional - never block generation on it
+      setProviders([]);
     }
   }, [providerId]);
 
@@ -244,19 +254,19 @@ export default function GenerateScreen() {
           {providers.map((provider) => (
             <Pressable
               key={provider.id}
-              onPress={() => provider.status === 'active' && setProviderId(provider.id)}
+              onPress={() => isUsable(provider) && setProviderId(provider.id)}
               style={[
                 styles.presetChip,
                 providerId === provider.id && styles.presetChipActive,
-                provider.status !== 'active' && styles.presetChipDisabled,
+                !isUsable(provider) && styles.presetChipDisabled,
               ]}
-              disabled={provider.status !== 'active'}
+              disabled={!isUsable(provider)}
             >
               <Text
                 style={[
                   styles.presetText,
                   providerId === provider.id && styles.presetTextActive,
-                  provider.status !== 'active' && styles.presetTextDisabled,
+                  !isUsable(provider) && styles.presetTextDisabled,
                 ]}
               >
                 {provider.name}
