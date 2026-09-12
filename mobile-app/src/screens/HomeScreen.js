@@ -1,5 +1,5 @@
 // Home - landing screen with live backend status and quick actions.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -12,18 +12,39 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import api, { getBaseUrl } from '../services/api';
+import {
+  shuffleWallpaperOnce,
+  getShuffleOnOpen,
+  setShuffleOnOpen,
+} from '../services/shuffle';
 import { colors, radii, spacing } from '../theme';
 
 export default function HomeScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState({ state: 'checking', info: null });
+  const [shuffling, setShuffling] = useState(false);
+  const [shuffleNotice, setShuffleNotice] = useState(null);
+  const [shuffleOnOpen, setShuffleOnOpenState] = useState(false);
+  const autoShuffledRef = useRef(false);
 
   const checkBackend = useCallback(async () => {
     setStatus({ state: 'checking', info: null });
     try {
       const health = await api.health();
       setStatus({ state: 'online', info: health });
+      // Auto-shuffle once per app open, if the user enabled it. Best-effort
+      // and silent - never blocks startup or shows errors on its own.
+      if (!autoShuffledRef.current) {
+        autoShuffledRef.current = true;
+        try {
+          if (await getShuffleOnOpen()) {
+            await shuffleWallpaperOnce();
+          }
+        } catch (err) {
+          // ignore
+        }
+      }
     } catch (error) {
       setStatus({ state: 'offline', info: null });
     }
@@ -33,8 +54,36 @@ export default function HomeScreen() {
     checkBackend();
   }, [checkBackend]);
 
+  useEffect(() => {
+    (async () => {
+      setShuffleOnOpenState(await getShuffleOnOpen());
+    })();
+  }, []);
+
   const online = status.state === 'online';
   const checking = status.state === 'checking';
+
+  const doShuffle = async () => {
+    setShuffling(true);
+    setShuffleNotice(null);
+    const result = await shuffleWallpaperOnce();
+    setShuffleNotice({ kind: result.ok ? 'ok' : 'error', text: result.message });
+    setShuffling(false);
+  };
+
+  const toggleShuffleOnOpen = async () => {
+    const next = !shuffleOnOpen;
+    setShuffleOnOpenState(next);
+    const saved = await setShuffleOnOpen(next);
+    setShuffleNotice({
+      kind: saved ? 'ok' : 'error',
+      text: saved
+        ? next
+          ? 'Auto-shuffle ON - a random wallpaper is set each time you open FrogPaper.'
+          : 'Auto-shuffle OFF.'
+        : 'Could not save the setting.',
+    });
+  };
 
   const actions = [
     {
@@ -49,11 +98,6 @@ export default function HomeScreen() {
           ? `${status.info.images_count} wallpapers on the server`
           : 'Your saved wallpapers',
       onPress: () => navigation.navigate('Gallery'),
-    },
-    {
-      label: 'Slideshow',
-      sub: 'Automatic wallpaper rotation',
-      onPress: () => navigation.navigate('Slideshow'),
     },
     {
       label: 'Settings',
@@ -93,7 +137,7 @@ export default function HomeScreen() {
               <Text style={styles.statusDetail}>
                 {online
                   ? `${getBaseUrl()}  |  ${status.info.images_count} images  |  v${status.info.version}`
-                  : `Cannot reach ${getBaseUrl()}. Start the backend with: cd backend, then python app.py`}
+                  : `Cannot reach ${getBaseUrl()}. Check Settings for connection options.`}
               </Text>
             </View>
           </>
@@ -113,6 +157,53 @@ export default function HomeScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      <Text style={styles.sectionLabel}>Wallpaper shuffle</Text>
+      <View style={styles.actionList}>
+        <TouchableOpacity
+          style={styles.actionCard}
+          onPress={doShuffle}
+          activeOpacity={0.8}
+          disabled={shuffling}
+        >
+          {shuffling ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : (
+            <>
+              <Text style={styles.actionLabel}>Shuffle wallpaper now</Text>
+              <Text style={styles.actionSub}>
+                Pick a random gallery image and set it as your wallpaper
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionCard, shuffleOnOpen && styles.actionCardActive]}
+          onPress={toggleShuffleOnOpen}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.actionLabel}>
+            Shuffle on app open: {shuffleOnOpen ? 'ON' : 'OFF'}
+          </Text>
+          <Text style={styles.actionSub}>
+            {shuffleOnOpen
+              ? 'A random wallpaper is set every time you open FrogPaper'
+              : 'Tap to turn on automatic wallpaper changes'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {shuffleNotice !== null && (
+        <Text
+          style={[
+            styles.shuffleNotice,
+            shuffleNotice.kind === 'error' ? styles.shuffleNoticeError : null,
+          ]}
+        >
+          {shuffleNotice.text}
+        </Text>
+      )}
 
       <Text style={styles.footer}>Pull down to re-check the backend connection.</Text>
     </ScrollView>
@@ -204,6 +295,9 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     padding: spacing.lg,
   },
+  actionCardActive: {
+    borderColor: colors.accent,
+  },
   actionLabel: {
     color: colors.text,
     fontSize: 17,
@@ -213,6 +307,25 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     marginTop: spacing.xs,
+  },
+  sectionLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginTop: spacing.xl,
+    marginBottom: spacing.md,
+    marginLeft: spacing.xs,
+  },
+  shuffleNotice: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: spacing.md,
+  },
+  shuffleNoticeError: {
+    color: colors.danger,
   },
   footer: {
     color: colors.muted,
