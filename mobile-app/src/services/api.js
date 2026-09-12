@@ -150,16 +150,41 @@ export function getByokSnapshot() {
 }
 
 export async function setCustomServerUrl(url) {
-  if (!url || url.trim() === '') {
+  // Sanitize before saving: auto-prepend https:// if missing, strip trailing
+  // slashes, strip any /api/health suffix the user might have pasted.
+  const cleaned = sanitizeCustomUrl(url);
+  if (!cleaned) {
     await AsyncStorage.removeItem(CUSTOM_SERVER_KEY);
     customServerUrl = null;
   } else {
-    const trimmed = url.trim();
-    await AsyncStorage.setItem(CUSTOM_SERVER_KEY, trimmed);
-    customServerUrl = trimmed;
+    await AsyncStorage.setItem(CUSTOM_SERVER_KEY, cleaned);
+    customServerUrl = cleaned;
   }
   // Reset baseUrl so next discovery uses the new setting
   baseUrl = null;
+}
+
+// Cleans up what the user typed in Settings:
+//   "  frogpaper-mobile.onrender.com/  "  ->  "https://frogpaper-mobile.onrender.com"
+//   "https://frogpaper-mobile.onrender.com/api/health"  ->  "https://frogpaper-mobile.onrender.com"
+//   "  http://192.168.1.20:5000/  "  ->  "http://192.168.1.20:5000"
+export function sanitizeCustomUrl(url) {
+  if (typeof url !== 'string') return '';
+  let value = url.trim();
+  if (!value) return '';
+  // Auto-prepend https:// if no scheme is present
+  if (!/^https?:\/\//i.test(value)) {
+    value = `https://${value}`;
+  }
+  // Strip stray keyboard punctuation that often tags along when pasting
+  value = value.replace(/[`'"]+$/, '');
+  // Strip any /api/* suffix the user might have copied along with the URL
+  value = value.replace(/\/api\/?(health)?\/?$/i, '');
+  // Strip trailing slashes
+  while (value.endsWith('/')) {
+    value = value.slice(0, -1);
+  }
+  return value;
 }
 
 export async function getCustomServerUrl() {
@@ -167,7 +192,10 @@ export async function getCustomServerUrl() {
     return customServerUrl;
   }
   try {
-    customServerUrl = await AsyncStorage.getItem(CUSTOM_SERVER_KEY);
+    const saved = await AsyncStorage.getItem(CUSTOM_SERVER_KEY);
+    // Sanitize on read too - in case an unsanitized URL was saved by an
+    // older build. Strips trailing slashes, fixes missing https://, etc.
+    customServerUrl = saved ? sanitizeCustomUrl(saved) : null;
     return customServerUrl;
   } catch (error) {
     return null;
@@ -215,11 +243,29 @@ async function probe(base, timeoutMs) {
 
 // Tries each candidate URL and remembers the first one that answers /api/health.
 export async function discoverBaseUrl(timeoutMs = 2500) {
+  // Make sure we have the latest custom URL loaded before picking candidates
+  if (customServerUrl === null) {
+    await getCustomServerUrl();
+  }
   const candidates = candidateBaseUrls();
   for (const candidate of candidates) {
-    const reachable = await probe(candidate, timeoutMs);
+    // the custom URL usually points at a cloud host that may be waking from
+    // sleep - give it a much more patient timeout than the LAN probes
+    const isCustom = customServerUrl && candidate === customServerUrl;
+    const timeout = isCustom ? Math.max(timeoutMs * 4, 10000) : timeoutMs;
+    const reachable = await probe(candidate, timeout);
     if (reachable) {
       baseUrl = candidate;
+      return baseUrl;
+    }
+  }
+  // Cloud servers asleep on the free tier can take up to a minute to answer.
+  // If a custom URL is configured, give it one long patient retry before
+  // declaring the backend unreachable.
+  if (customServerUrl) {
+    const reachable = await probe(customServerUrl, 30000);
+    if (reachable) {
+      baseUrl = customServerUrl;
       return baseUrl;
     }
   }
@@ -277,11 +323,20 @@ async function request(path, options = {}) {
     headers['X-Replicate-Token'] = userReplicateToken;
   }
 
-  const response = await fetch(`${base}${path}`, {
-    headers,
-    ...fetchOptions,
-    signal,
-  });
+  // 60s safety timeout so the UI can never spin forever; callers that pass
+  // their own AbortController signal (e.g. generate cancel) keep full control
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  let response;
+  try {
+    response = await fetch(`${base}${path}`, {
+      headers,
+      ...fetchOptions,
+      signal: signal || controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   return parseResponse(response);
 }
 
