@@ -22,7 +22,8 @@ import {
   listQueue,
   processQueue,
 } from '../services/generationQueue';
-import { capabilities, saveToDevice } from '../services/deviceMedia';
+import { capabilities } from '../services/deviceMedia';
+import { saveWallpaper } from '../services/saveTarget';
 import WallpaperImage from '../components/WallpaperImage';
 import { colors, radii, spacing } from '../theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -316,8 +317,9 @@ export default function GenerateScreen() {
     setSaving(true);
     setSaveNotice(null);
     try {
-      await saveToDevice(api.imageUrl(result.filename));
-      setSaveNotice({ kind: 'ok', text: 'Saved to your device gallery.' });
+      // Honours the Save location setting - gallery or the chosen SD folder.
+      const saveResult = await saveWallpaper(api.imageUrl(result.filename), result.filename);
+      setSaveNotice({ kind: saveResult.ok ? 'ok' : 'error', text: saveResult.message });
     } catch (err) {
       setSaveNotice({ kind: 'error', text: err.message || 'Could not save the image.' });
     } finally {

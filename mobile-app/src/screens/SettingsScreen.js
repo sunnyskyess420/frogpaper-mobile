@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -41,6 +42,12 @@ import {
 } from '../services/sentry';
 import { colors, radii, spacing } from '../theme';
 import { getDailyInfo, setDailyEnabled, setDailySource } from '../services/dailyWallpaper';
+import {
+  FOLDER,
+  chooseSaveFolder,
+  getSaveTarget,
+  usePhoneGallery,
+} from '../services/saveTarget';
 import { clearCache, getCacheStats } from '../services/imageCache';
 import { clearQueue, listQueue } from '../services/generationQueue';
 import ByokHelpModal from '../components/ByokHelpModal';
@@ -184,6 +191,40 @@ export default function SettingsScreen() {
   const chooseDailySource = async (source) => {
     setDailyState((prev) => ({ ...prev, source }));
     await setDailySource(source);
+  };
+
+  // ---- Save location (phone gallery or an SD-card folder) -----------------
+  // Only Android can pick a folder (Storage Access Framework); read the stored
+  // choice on every platform so the row always shows where saves land.
+  const [saveTarget, setSaveTarget] = useState({
+    target: 'gallery',
+    folderName: null,
+  });
+
+  useEffect(() => {
+    getSaveTarget()
+      .then((chosen) => setSaveTarget({ target: chosen.target, folderName: chosen.folderName }))
+      .catch(() => {}); // preference is optional - never block Settings
+  }, []);
+
+  const chooseFolder = async () => {
+    try {
+      const result = await chooseSaveFolder();
+      if (result.cancelled) {
+        return; // user backed out of the picker - keep the current target
+      }
+      setSaveTarget({ target: FOLDER, folderName: result.name });
+    } catch (err) {
+      Alert.alert(
+        'Could not use that folder',
+        err.message || 'Android did not grant access to the folder. Try again.'
+      );
+    }
+  };
+
+  const resetToGallery = async () => {
+    await usePhoneGallery();
+    setSaveTarget({ target: 'gallery', folderName: null });
   };
 
   // ---- Offline storage (cached images + queued generations) --------------
@@ -630,6 +671,53 @@ export default function SettingsScreen() {
         )}
       </View>
 
+      <Text style={styles.sectionLabel}>Save location</Text>
+      <View style={styles.card}>
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>Wallpapers are saved to</Text>
+          <Text style={[styles.aboutValue, styles.aboutValueShrink]} numberOfLines={1}>
+            {saveTarget.target === FOLDER
+              ? saveTarget.folderName || 'SD card folder'
+              : 'Phone gallery'}
+          </Text>
+        </View>
+        {Platform.OS === 'android' ? (
+          <>
+            <Text style={styles.hint}>
+              On a phone with little internal storage, point saves at a folder on the SD
+              card. Android asks once which folder FrogPaper may use - the app gets access
+              to that folder only, never to the rest of the card - and every wallpaper you
+              save goes straight there from then on.
+            </Text>
+            <View style={styles.buttonRow}>
+              <Pressable style={[styles.button, styles.buttonSecondary]} onPress={chooseFolder}>
+                <Text style={styles.buttonText}>Choose SD card folder…</Text>
+              </Pressable>
+              {saveTarget.target === FOLDER && (
+                <Pressable
+                  style={[styles.button, styles.buttonSecondary]}
+                  onPress={resetToGallery}
+                >
+                  <Text style={styles.buttonText}>Use phone gallery</Text>
+                </Pressable>
+              )}
+            </View>
+          </>
+        ) : (
+          <Text style={styles.hint}>
+            {Platform.OS === 'web'
+              ? 'The browser saves each wallpaper to your normal downloads folder.'
+              : 'Wallpapers are saved to the iOS Photos library.'}{' '}
+            Picking an SD card folder needs Android.
+          </Text>
+        )}
+        <Text style={styles.hint}>
+          This setting is only about the wallpapers you save. The offline cache is a
+          separate thing: it keeps at most 60 images inside the app (internal storage, never
+          the SD card) so the gallery still opens with no connection - see Offline below.
+        </Text>
+      </View>
+
       <Text style={styles.sectionLabel}>Offline</Text>
       <View style={styles.card}>
         <View style={styles.aboutRow}>
@@ -806,7 +894,7 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.24</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.25</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>
@@ -1116,6 +1204,13 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 14,
     fontWeight: '600',
+  },
+  // Folder names can be long - let the value truncate instead of pushing the
+  // label off the row.
+  aboutValueShrink: {
+    flexShrink: 1,
+    textAlign: 'right',
+    marginLeft: spacing.sm,
   },
   statusActive: {
     color: colors.accent,

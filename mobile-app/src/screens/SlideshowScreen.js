@@ -11,7 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import api from '../services/api';
-import { saveToDevice } from '../services/deviceMedia';
+import { saveWallpaper } from '../services/saveTarget';
 import WallpaperImage from '../components/WallpaperImage';
 import { colors, radii, spacing } from '../theme';
 
@@ -114,8 +114,12 @@ export default function SlideshowScreen() {
     setSaving(true);
     setSaveNotice(null);
     try {
-      await saveToDevice(api.imageUrl(currentImage.filename));
-      setSaveNotice({ kind: 'ok', text: 'Saved to your device gallery.' });
+      // Honours the Save location setting - gallery or the chosen SD folder.
+      const result = await saveWallpaper(
+        api.imageUrl(currentImage.filename),
+        currentImage.filename
+      );
+      setSaveNotice({ kind: result.ok ? 'ok' : 'error', text: result.message });
     } catch (err) {
       setSaveNotice({ kind: 'error', text: err.message || 'Could not save the image.' });
     } finally {

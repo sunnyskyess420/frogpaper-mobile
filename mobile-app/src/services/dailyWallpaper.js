@@ -1,8 +1,9 @@
 // Daily auto-wallpaper.
 //
 // Idea: once per local day, the first time the user opens FrogPaper while
-// the backend is reachable, quietly generate a fresh wallpaper, save it to
-// the device gallery and set it as the phone wallpaper.
+// the backend is reachable, quietly generate a fresh wallpaper, save it
+// (phone gallery, or the SD-card folder from Settings > Save location) and
+// set it as the phone wallpaper.
 //
 // Deliberately NO native background scheduler (WorkManager / background
 // fetch): those get throttled or killed by Samsung battery management and
@@ -14,7 +15,8 @@
 // the shared api layer attaches any saved BYOK keys to the request.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
-import { saveToDevice, setAsWallpaper } from './deviceMedia';
+import { saveWallpaper } from './saveTarget';
+import { setAsWallpaper } from './deviceMedia';
 import { IDEAS, FAVORITES_KEY } from './promptLibrary';
 
 const DAILY_ENABLED_KEY = '@frogpaper/daily_enabled';
@@ -140,10 +142,11 @@ export async function runDailyWallpaper({ force = false } = {}) {
     const url = api.imageUrl(image.filename);
 
     // Save into the device gallery first (a bonus, never blocks the set).
+    // Follows the Save location setting, so an SD-card folder gets the file too.
     let saved = false;
     try {
-      await saveToDevice(url);
-      saved = true;
+      const saveResult = await saveWallpaper(url, image.filename);
+      saved = !!saveResult.ok;
     } catch (saveErr) {
       // permission missing or storage hiccup - the wallpaper still gets set
     }

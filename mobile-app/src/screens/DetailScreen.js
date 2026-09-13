@@ -27,11 +27,8 @@ import * as Clipboard from 'expo-clipboard';
 import api from '../services/api';
 import { loadGalleryFilenames } from '../services/galleryCache';
 import WallpaperImage from '../components/WallpaperImage';
-import {
-  capabilities,
-  saveToDevice,
-  setAsWallpaper,
-} from '../services/deviceMedia';
+import { capabilities, setAsWallpaper } from '../services/deviceMedia';
+import { saveWallpaper } from '../services/saveTarget';
 import { colors, radii, spacing } from '../theme';
 
 function formatBytes(bytes) {
@@ -365,8 +362,12 @@ export default function DetailScreen() {
     setSaving(true);
     setNotice(null);
     try {
-      await saveToDevice(api.imageUrl(filename));
-      setNotice({ kind: 'ok', text: 'Saved to your device gallery.' });
+      // Honours the Save location setting - gallery or the chosen SD folder.
+      const result = await saveWallpaper(api.imageUrl(filename), filename);
+      setNotice({
+        kind: result.ok ? 'ok' : 'error',
+        text: result.message,
+      });
     } catch (err) {
       setNotice({ kind: 'error', text: err.message || 'Could not save the image.' });
     } finally {
