@@ -29,3 +29,6 @@ backend/slideshow_config.json
 # They live on the phone, on the server, and in C:\FrogPaperBackups on the PC.
 backend/static/images/*
 !backend/static/images/.gitkeep
+
+# Screenshots of the app on the owner's phone - personal, stay local.
+docs/screenshots/
