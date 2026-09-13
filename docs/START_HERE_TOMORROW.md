@@ -118,3 +118,19 @@ The full list with A/B/C/D/E/F IDs is the checklist AutoCoder delivered on 2026-
 - Do NOT re-add a Replicate key unless you want to pay ~2.5 cents per wallpaper
 - `docs\WHERE_WE_STAND_2026-09-13.md` was written by another session. It claims the Sept 12 APK
   definitely contains the gestures - nobody verified that. Keep or delete as you like.
+
+## Decided against - do not build these (owner decision, 2026-09-13)
+
+- **Style transfer / image filters** - never. Not wanted in this app.
+- **Text overlay on images** - never. Not wanted in this app.
+- **Google Play / App Store release** - no. The owner will not pay store fees.
+  Distribution is a direct APK (adb install or a shared file with "install unknown
+  apps" enabled). Anything that only makes sense for a store listing (privacy policy,
+  content rating, screenshots, AAB) is out of scope.
+- **Any paid service** - the owner is on income support. No paid tiers, no paid
+  storage, no paid plans. Free options only.
+
+Related consequences already in force: wallpapers are NOT committed to git (public
+repo), the cloud gallery is allowed to be ephemeral, and backups go to
+`C:\FrogPaperBackups` on the PC.
+
