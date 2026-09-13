@@ -74,7 +74,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.9.27"
+APP_VERSION = "1.9.28"
 
 # Access key for API authentication (shared secret between app and backend)
 # Set via the FROGPAPER_ACCESS_KEY environment variable (Render), or fall back

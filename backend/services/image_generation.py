@@ -285,22 +285,29 @@ _GENERIC_ANIMAL_WORDS = (
 )
 
 
-def _breed_for(prompt_text: str, seed):
-    """Pick a breed phrase for the pool named by the prompt, or None.
+def _names_known_species(prompt_text: str) -> bool:
+    """True when the prompt already names a frog/toad species.
 
-    Returns None when the prompt names no frog/toad at all (the caller then
-    falls through to the other enhancers). Random per request when `seed` is
-    None; deterministic when a seed is given, using a private RNG so the
-    module-level random state is never seeded or disturbed.
+    Such prompts must never be overridden with a different random breed.
     """
+    return any(_word_match(prompt_text, cue) for cue in _NAMED_SPECIES_CUES)
+
+
+def _breed_for(prompt_text: str, seed):
+    """Pick a breed entry for the frog/toad in `prompt_text`, or None.
+
+    Returns None when the prompt names no frog/toad at all, or when it already
+    names a species (the user's own choice is never overridden). Otherwise
+    returns the chosen pool dict (``name`` + ``phrase``). Random per request
+    when `seed` is None; deterministic when a seed is given, using a private
+    RNG so the module-level random state is never seeded or disturbed.
+    """
+    if _names_known_species(prompt_text):
+        return None
     is_frog = _word_match(prompt_text, "frog")
     is_toad = _word_match(prompt_text, "toad")
-    named = any(_word_match(prompt_text, cue) for cue in _NAMED_SPECIES_CUES)
-    if not (is_frog or is_toad or named):
+    if not (is_frog or is_toad):
         return None
-    if named:
-        # The prompt already chose a species - do not override it.
-        return _GENERIC_FROG_CUES
     if is_frog and is_toad:
         pool = _FROG_POOL + _TOAD_POOL
     elif is_frog:
@@ -308,26 +315,82 @@ def _breed_for(prompt_text: str, seed):
     else:
         pool = _TOAD_POOL
     rng = random.Random(seed) if seed is not None else random.Random()
-    return rng.choice(pool)["phrase"]
+    return rng.choice(pool)
 
 
 def _subject_enhancer(prompt: str, seed=None) -> str:
-    """Extra subject-specific phrases for prompts featuring known subjects.
+    """Extra subject-specific phrases appended after the user's prompt.
 
     Frog/toad prompts draw a different breed from the pools unless the prompt
     already names a species. The pick follows `seed` when one is supplied, so
     the app's "same seed + same prompt = same image" promise still holds.
     """
     text = _normalize_words(prompt)
+    if _names_known_species(text):
+        return f", {_GENERIC_FROG_CUES}"
     breed = _breed_for(text, seed)
     if breed is not None:
-        return f", {breed}"
+        return f", {breed['phrase']}"
     if any(_word_match(text, word) for word in _GENERIC_ANIMAL_WORDS):
         return (
             ", adorable healthy animal with expressive eyes and correct "
             "anatomy, professional wildlife photography"
         )
     return ""
+
+
+# Bare animal words a breed may stand in for. Only these exact words (never
+# 'bullfrog', 'tree frog', ... - those are species names and reach this code
+# only as protected prompts anyway).
+_BARE_ANIMAL_RE = re.compile(r"\b(frog|frogs|toad|toads)\b", re.IGNORECASE)
+
+
+def _substitute_breed_name(prompt: str, breed_name: str) -> str:
+    """Swap the FIRST bare frog/toad word in `prompt` for `breed_name`.
+
+        'a cute frog sitting on a lilypad'
+            -> 'a cute tomato frog sitting on a lilypad'
+
+    The plural form and the original capitalisation are preserved ('Frogs' ->
+    'Tomato frogs'); later occurrences are left alone, so a prompt that
+    contrasts two frogs keeps its meaning. Callers reach this only for
+    prompts that name no species (see _breed_for), so a species the user
+    typed is never rewritten.
+    """
+    def replace(match):
+        word = match.group(0)
+        name = breed_name + ("s" if word.lower().endswith("s") else "")
+        if word[0].isupper():
+            name = name[0].upper() + name[1:]
+        return name
+
+    return _BARE_ANIMAL_RE.sub(replace, prompt, count=1)
+
+
+def _compose_prompt(prompt: str, seed) -> str:
+    """The exact text handed to an image provider for `prompt`.
+
+    Normally ``<prompt><subject enhancer><quality suffix>``. When a frog/toad
+    breed was picked the breed's descriptive phrase LEADS the prompt and the
+    breed's short name replaces the first bare animal word in the user's own
+    sentence, because the model weights the opening words far more strongly
+    than a clause buried before the long quality suffix:
+
+        'a cute frog sitting on a lilypad'
+            -> 'a tomato frog with a plump round bright orange-red body ...,
+                a cute tomato frog sitting on a lilypad. Breathtaking ...'
+
+    Prompts without a breed (no frog/toad, a named species, a different
+    subject) compose exactly as before.
+    """
+    breed = _breed_for(_normalize_words(prompt), seed)
+    if breed is not None:
+        subject = _substitute_breed_name(prompt, breed["name"])
+        return f"{breed['phrase']}, {subject}{POLLINATIONS_QUALITY_SUFFIX}"
+    return (
+        f"{prompt}{_subject_enhancer(prompt, seed=seed)}"
+        f"{POLLINATIONS_QUALITY_SUFFIX}"
+    )
 
 # --- Google Gemini ("nano banana" image model) -----------------------------
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -758,7 +821,7 @@ def generate_image(
     # The seed is chosen first so the subject pick is deterministic for a
     # given seed (same seed + same prompt -> same frog breed).
     seed = seed or random.randint(1, 999_999_999)
-    effective_prompt = f"{prompt}{_subject_enhancer(prompt, seed=seed)}{POLLINATIONS_QUALITY_SUFFIX}"
+    effective_prompt = _compose_prompt(prompt, seed)
     if negative_prompt:
         effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
 
@@ -1361,9 +1424,7 @@ def generate_image_huggingface(
     images_dir.mkdir(parents=True, exist_ok=True)
 
     seed = seed or random.randint(1, 999_999_999)
-    effective_prompt = (
-        f"{prompt}{_subject_enhancer(prompt, seed=seed)}{POLLINATIONS_QUALITY_SUFFIX}"
-    )
+    effective_prompt = _compose_prompt(prompt, seed)
     if negative_prompt:
         effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
 
@@ -1676,9 +1737,7 @@ def generate_image_replicate(
     images_dir.mkdir(parents=True, exist_ok=True)
 
     seed = seed or random.randint(1, 999_999_999)
-    effective_prompt = (
-        f"{prompt}{_subject_enhancer(prompt, seed=seed)}{POLLINATIONS_QUALITY_SUFFIX}"
-    )
+    effective_prompt = _compose_prompt(prompt, seed)
     if negative_prompt:
         effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
 

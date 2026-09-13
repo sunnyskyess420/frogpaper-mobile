@@ -1,8 +1,14 @@
-"""v1.9.27 tests: random frog/toad breeds in the subject enhancer.
+"""Tests for the frog/toad subject enhancer and prompt composition.
 
 The enhancer used to append ONE fixed phrase for "frog" and one for "toad",
 so every frog wallpaper was the same green tree frog. It now draws a breed
 from a pool - random per request, deterministic per seed.
+
+A live check then showed the breed was ignored: a breed clause buried before
+the long quality suffix loses to the user's own wording, so three generations
+of the same prompt all came back green. The composed prompt therefore now
+LEADS with the breed's descriptive phrase and substitutes the breed's short
+name into the user's own sentence.
 
 Repo-portable, no network, no access key needed:
     python backend/tests/test_subject_enhancer.py
@@ -127,6 +133,7 @@ def fake_get(url, params=None, timeout=None, headers=None):
 ig.requests.get = fake_get
 try:
     with tempfile.TemporaryDirectory(prefix="frogpaper_enh_") as tmp:
+        sent_by_seed = {}
         for s in (123, 123, 124):
             captured.clear()
             try:
@@ -134,13 +141,85 @@ try:
             except ig.GenerationError:
                 pass
             sent = unquote(captured["url"].split("/prompt/", 1)[1])
+            breed = ig._breed_for(ig._normalize_words("a frog"), s)
             expected = (
-                f"a frog{ig._subject_enhancer('a frog', seed=s)}"
+                f"{breed['phrase']}, a {breed['name']}"
                 f"{ig.POLLINATIONS_QUALITY_SUFFIX}"
             )
-            check(f"generate_image seed={s} embeds the seeded breed", sent == expected)
+            check(f"generate_image seed={s} composes breed-first", sent == expected)
+            sent_by_seed[s] = sent
+        check("generate_image same seed -> byte-identical prompt",
+              sent_by_seed[123] == ig._compose_prompt("a frog", 123))
 finally:
     ig.requests.get = real_get
+
+print("[8] breed name substituted into the user's own sentence")
+check("first bare word swapped",
+      ig._substitute_breed_name("a cute frog sitting on a lilypad", "tomato frog")
+      == "a cute tomato frog sitting on a lilypad")
+check("only the first occurrence changes",
+      ig._substitute_breed_name("a frog next to another frog", "tomato frog")
+      == "a tomato frog next to another frog")
+check("'frogs' stays plural",
+      ig._substitute_breed_name("frogs everywhere", "tomato frog")
+      == "tomato frogs everywhere")
+check("'toads' stays plural",
+      ig._substitute_breed_name("toads in the garden", "cane toad")
+      == "cane toads in the garden")
+check("capitalised bare word keeps its capital",
+      ig._substitute_breed_name("Frogs on a log", "glass frog")
+      == "Glass frogs on a log")
+check("surrounding text untouched",
+      ig._substitute_breed_name("A cute frog, misty pond at dawn!", "spring peeper")
+      == "A cute spring peeper, misty pond at dawn!")
+check("'bullfrog' is not a bare frog word",
+      ig._substitute_breed_name("an american bullfrog", "tomato frog")
+      == "an american bullfrog")
+
+print("[9] composed prompt: breed phrase leads, suffix trails")
+SAMPLE = "a cute frog sitting on a lilypad, misty pond at dawn"
+composed = {}
+for s in seeds:
+    breed = ig._breed_for(ig._normalize_words(SAMPLE), s)
+    subject = ig._substitute_breed_name(SAMPLE, breed["name"])
+    expected = f"{breed['phrase']}, {subject}{ig.POLLINATIONS_QUALITY_SUFFIX}"
+    composed[s] = ig._compose_prompt(SAMPLE, s)
+    check(f"seed={s} follows the composition rule", composed[s] == expected,
+          f"({breed['name']})")
+check("breed phrase leads every composed frog prompt",
+      all(c.startswith(ig._breed_for(ig._normalize_words(SAMPLE), s)["phrase"])
+          for s, c in composed.items()))
+check("quality suffix still trails every composed prompt",
+      all(c.endswith(ig.POLLINATIONS_QUALITY_SUFFIX) for c in composed.values()))
+check("user prompt with the breed name appears in full",
+      all(f"a cute {ig._breed_for(ig._normalize_words(SAMPLE), s)['name']}"
+          f" sitting on a lilypad, misty pond at dawn" in c
+          for s, c in composed.items()))
+check("no seed/named-species leakage: composed variety over 40 seeds (>= 8)",
+      len(set(composed.values())) >= 8, f"({len(set(composed.values()))})")
+check("same seed composes byte-identically",
+      ig._compose_prompt(SAMPLE, 42) == ig._compose_prompt(SAMPLE, 42))
+check("different seeds mostly compose differently",
+      len({ig._compose_prompt(SAMPLE, s) for s in seeds}) >= 8)
+
+print("[10] non-breed prompts compose exactly as before")
+NAMED_SAMPLE = "a red-eyed tree frog perched on a leaf"
+expected_named = (
+    f"{NAMED_SAMPLE}, {ig._GENERIC_FROG_CUES}{ig.POLLINATIONS_QUALITY_SUFFIX}"
+)
+check("named species untouched",
+      ig._compose_prompt(NAMED_SAMPLE, 5) == expected_named)
+check("named species untouched for every seed",
+      {ig._compose_prompt(NAMED_SAMPLE, s) for s in seeds} == {expected_named})
+OTHER = "misty mountains at dawn"
+check("non-animal prompt unchanged",
+      ig._compose_prompt(OTHER, 5) == f"{OTHER}{ig.POLLINATIONS_QUALITY_SUFFIX}")
+CAT = "a sleeping cat"
+check("generic-animal prompt unchanged",
+      ig._compose_prompt(CAT, 5)
+      == f"{CAT}{GENERIC_ANIMAL}{ig.POLLINATIONS_QUALITY_SUFFIX}")
+check("named-species prompt is not rewritten",
+      "red-eyed tree frog" in ig._compose_prompt(NAMED_SAMPLE, 5))
 
 print()
 print(f"RESULT: {len(PASS)} passed, {len(FAIL)} failed")
