@@ -63,6 +63,10 @@ export default function GenerateScreen() {
   const [styleId, setStyleId] = useState(null);
   const [providerId, setProviderId] = useState(null);
   const [providers, setProviders] = useState([]);
+  // null until a providers request fails: { offline }. Kept next to the list so
+  // the AI Engine section can explain an empty list instead of just being blank.
+  const [providersError, setProvidersError] = useState(null);
+  const [providersBusy, setProvidersBusy] = useState(false);
   const [byok, setByok] = useState({ gemini: false, huggingface: false, replicate: false });
   const [recent, setRecent] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -75,6 +79,8 @@ export default function GenerateScreen() {
   const [lastSeed, setLastSeed] = useState(null);
   const [seedInput, setSeedInput] = useState('');
   const [favorites, setFavorites] = useState([]);
+  // Local-only: the idea list starts collapsed on every mount.
+  const [ideasOpen, setIdeasOpen] = useState(false);
   // Requests parked for a later attempt (backend unreachable at the time).
   const [queue, setQueue] = useState([]);
   const [queueOffer, setQueueOffer] = useState(null);
@@ -99,6 +105,7 @@ export default function GenerateScreen() {
   }, []);
 
   const loadProviders = useCallback(async () => {
+    setProvidersBusy(true);
     try {
       const response = await api.providers();
       const activeProviders = response.providers || [];
@@ -115,9 +122,15 @@ export default function GenerateScreen() {
           activeProviders[0];
         if (defaultProvider) setProviderId(defaultProvider.id);
       }
+      setProvidersError(null);
     } catch (err) {
       console.error('Failed to load providers:', err);
       setProviders([]);
+      // An empty section reads as "the feature is gone" - record why it is
+      // empty so the section can say it out loud (offline vs server verdict).
+      setProvidersError({ offline: isOfflineError(err) });
+    } finally {
+      setProvidersBusy(false);
     }
   }, [providerId]);
 
@@ -420,30 +433,54 @@ export default function GenerateScreen() {
         </View>
 
         <Text style={styles.sectionLabel}>AI Engine</Text>
-        <View style={styles.presets}>
-          {providers.map((provider) => (
-            <Pressable
-              key={provider.id}
-              onPress={() => isUsable(provider) && setProviderId(provider.id)}
-              style={[
-                styles.presetChip,
-                providerId === provider.id && styles.presetChipActive,
-                !isUsable(provider) && styles.presetChipDisabled,
-              ]}
-              disabled={!isUsable(provider)}
-            >
-              <Text
+        {providers.length > 0 ? (
+          <View style={styles.presets}>
+            {providers.map((provider) => (
+              <Pressable
+                key={provider.id}
+                onPress={() => isUsable(provider) && setProviderId(provider.id)}
                 style={[
-                  styles.presetText,
-                  providerId === provider.id && styles.presetTextActive,
-                  !isUsable(provider) && styles.presetTextDisabled,
+                  styles.presetChip,
+                  providerId === provider.id && styles.presetChipActive,
+                  !isUsable(provider) && styles.presetChipDisabled,
                 ]}
+                disabled={!isUsable(provider)}
               >
-                {provider.name}
-              </Text>
+                <Text
+                  style={[
+                    styles.presetText,
+                    providerId === provider.id && styles.presetTextActive,
+                    !isUsable(provider) && styles.presetTextDisabled,
+                  ]}
+                >
+                  {provider.name}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : providersError ? (
+          <View style={styles.engineErrorCard}>
+            <Text style={styles.engineErrorTitle}>
+              {providersError.offline ? 'No internet connection' : 'Could not load the engines'}
+            </Text>
+            <Text style={styles.engineErrorText}>
+              {providersError.offline
+                ? 'Check your Wi-Fi or turn off airplane mode.'
+                : 'The server had a problem - try again in a moment.'}
+            </Text>
+            <Pressable
+              style={[styles.engineRetryButton, providersBusy && styles.saveButtonBusy]}
+              onPress={loadProviders}
+              disabled={providersBusy}
+            >
+              {providersBusy ? (
+                <ActivityIndicator color={colors.bg} />
+              ) : (
+                <Text style={styles.engineRetryText}>Retry</Text>
+              )}
             </Pressable>
-          ))}
-        </View>
+          </View>
+        ) : null}
         {selectedProvider && (
           <Text style={styles.providerHint}>
             {selectedProvider.description}
@@ -473,56 +510,6 @@ export default function GenerateScreen() {
         <Text style={styles.seedHint}>
           Same seed + same prompt = same image. Leave empty for random.
         </Text>
-
-        {favorites.length > 0 && (
-          <View style={styles.ideasBlock}>
-            <Text style={styles.sectionLabel}>★ Favorite prompts</Text>
-            {favorites.map((text) => (
-              <View key={text} style={styles.favChip}>
-                <Pressable style={styles.favChipMain} onPress={() => setPrompt(text)}>
-                  <Text style={styles.ideaText} numberOfLines={1}>
-                    {text}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  hitSlop={8}
-                  style={styles.favChipDelete}
-                  onPress={() => removeFavorite(text)}
-                >
-                  <Text style={styles.favChipDeleteText}>✕</Text>
-                </Pressable>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {recent.length > 0 ? (
-          <View style={styles.ideasBlock}>
-            <Text style={styles.sectionLabel}>Recent prompts</Text>
-            {recent.map((item) => (
-              <Pressable
-                key={`${item.used_at}-${item.prompt.slice(0, 12)}`}
-                onPress={() => reusePrompt(item)}
-                style={styles.ideaChip}
-              >
-                <Text style={styles.ideaText} numberOfLines={1}>
-                  {item.prompt}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        ) : (
-          prompt.trim().length === 0 && (
-            <View style={styles.ideasBlock}>
-              <Text style={styles.sectionLabel}>Need inspiration?</Text>
-              {IDEAS.map((idea) => (
-                <Pressable key={idea} onPress={() => setPrompt(idea)} style={styles.ideaChip}>
-                  <Text style={styles.ideaText}>{idea}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )
-        )}
 
         <Pressable
           style={[styles.generateButton, loading && styles.generateButtonDisabled]}
@@ -654,6 +641,68 @@ export default function GenerateScreen() {
             </View>
           </View>
         )}
+
+        {/* Prompt browsing lives below the generate button and the result:
+            the inputs and the action must be reachable without scrolling
+            past any list. */}
+        {favorites.length > 0 && (
+          <View style={styles.ideasBlock}>
+            <Text style={styles.sectionLabel}>★ Favorite prompts</Text>
+            {favorites.map((text) => (
+              <View key={text} style={styles.favChip}>
+                <Pressable style={styles.favChipMain} onPress={() => setPrompt(text)}>
+                  <Text style={styles.ideaText} numberOfLines={1}>
+                    {text}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  hitSlop={8}
+                  style={styles.favChipDelete}
+                  onPress={() => removeFavorite(text)}
+                >
+                  <Text style={styles.favChipDeleteText}>✕</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {recent.length > 0 && (
+          <View style={styles.ideasBlock}>
+            <Text style={styles.sectionLabel}>Recent prompts</Text>
+            {recent.map((item) => (
+              <Pressable
+                key={`${item.used_at}-${item.prompt.slice(0, 12)}`}
+                onPress={() => reusePrompt(item)}
+                style={styles.ideaChip}
+              >
+                <Text style={styles.ideaText} numberOfLines={1}>
+                  {item.prompt}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        {/* Collapsed by default: 20 full-width chips are a lot of scrolling,
+            and they sit below the action, so they only cost a tap to open. */}
+        <View style={styles.ideasBlock}>
+          <Pressable
+            style={styles.ideasToggle}
+            onPress={() => setIdeasOpen((open) => !open)}
+          >
+            <Text style={styles.ideasToggleText}>
+              Need inspiration? · {IDEAS.length} ideas
+            </Text>
+            <Text style={styles.ideasChevron}>{ideasOpen ? '▾' : '▸'}</Text>
+          </Pressable>
+          {ideasOpen &&
+            IDEAS.map((idea) => (
+              <Pressable key={idea} onPress={() => setPrompt(idea)} style={styles.ideaChip}>
+                <Text style={styles.ideaText}>{idea}</Text>
+              </Pressable>
+            ))}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -772,9 +821,61 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
     lineHeight: 18,
   },
+  engineErrorCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.warn,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  engineErrorTitle: {
+    color: colors.warn,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  engineErrorText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: spacing.xs,
+  },
+  engineRetryButton: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.sm,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+  engineRetryText: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '800',
+  },
   ideasBlock: {
     marginTop: spacing.sm,
     marginBottom: spacing.lg,
+  },
+  ideasToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    padding: spacing.md,
+  },
+  ideasToggleText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  ideasChevron: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '700',
+    marginLeft: spacing.sm,
   },
   ideaChip: {
     backgroundColor: colors.cardAlt,

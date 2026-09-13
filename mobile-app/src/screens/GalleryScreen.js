@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../services/api';
+import { isOfflineError } from '../services/api';
 import { loadGallery } from '../services/galleryCache';
 import WallpaperImage from '../components/WallpaperImage';
 import { colors, radii, spacing } from '../theme';
@@ -37,6 +38,9 @@ export default function GalleryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // { text, offline } or null. `offline` is true only when nothing answered at
+  // all, so the screen can say "No internet connection" instead of showing a
+  // raw fetch error (or worse, an empty grid that looks like "no wallpapers").
   const [error, setError] = useState(null);
   // Non-null while the grid shows the copy saved on this phone instead of a
   // live server list: { savedAt, offline }.
@@ -56,7 +60,12 @@ export default function GalleryScreen() {
         result.offline ? { savedAt: result.savedAt, offline: !result.error?.status } : null
       );
     } catch (err) {
-      setError(err.message || 'Could not load the gallery.');
+      // loadGallery only throws when it could not reach the server AND has no
+      // cached list to fall back on.
+      setError({
+        text: err.message || 'Could not load the gallery.',
+        offline: isOfflineError(err),
+      });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -93,7 +102,7 @@ export default function GalleryScreen() {
               setImages((prev) => prev.filter((img) => img.filename !== item.filename));
               setTotal((prev) => Math.max(0, prev - 1));
             } catch (err) {
-              setError(err.message || 'Delete failed.');
+              setError({ text: err.message || 'Delete failed.', offline: false });
             }
           },
         },
@@ -105,7 +114,7 @@ export default function GalleryScreen() {
     // Permission is required on native; on web it resolves immediately.
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (permission && permission.granted === false) {
-      setError('Photo library permission is required to upload.');
+      setError({ text: 'Photo library permission is required to upload.', offline: false });
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -126,7 +135,7 @@ export default function GalleryScreen() {
       });
       await load(false);
     } catch (err) {
-      setError(err.message || 'Upload failed.');
+      setError({ text: err.message || 'Upload failed.', offline: false });
     } finally {
       setUploading(false);
     }
@@ -159,6 +168,10 @@ export default function GalleryScreen() {
     );
   }
 
+  // Offline with nothing cached: the grid is empty, but "No wallpapers yet"
+  // would be a lie - the phone simply cannot reach the server.
+  const offlineNoList = error !== null && error.offline && images.length === 0;
+
   return (
     <View style={styles.screen}>
       <FlatList
@@ -176,6 +189,18 @@ export default function GalleryScreen() {
         }
         ListHeaderComponent={
           <View style={styles.headerBlock}>
+            {offlineNoList && (
+              <View style={styles.offlineCard}>
+                <Text style={styles.offlineTitle}>No internet connection</Text>
+                <Text style={styles.offlineText}>
+                  Check your Wi-Fi or turn off airplane mode. Nothing is saved on this
+                  phone yet, so there is no list to show offline.
+                </Text>
+                <Pressable style={styles.retryButton} onPress={() => load(true)}>
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </Pressable>
+              </View>
+            )}
             {staleList !== null && (
               <View style={styles.offlineCard}>
                 <Text style={styles.offlineTitle}>
@@ -189,10 +214,12 @@ export default function GalleryScreen() {
                 </Text>
               </View>
             )}
-            <Text style={styles.header}>
-              {total} wallpaper{total === 1 ? '' : 's'}{' '}
-              {staleList !== null ? 'saved on this phone' : 'on the server'}
-            </Text>
+            {!offlineNoList && (
+              <Text style={styles.header}>
+                {total} wallpaper{total === 1 ? '' : 's'}{' '}
+                {staleList !== null ? 'saved on this phone' : 'on the server'}
+              </Text>
+            )}
             <Pressable
               style={[styles.uploadButton, uploading && styles.uploadButtonBusy]}
               onPress={pickAndUpload}
@@ -207,19 +234,21 @@ export default function GalleryScreen() {
           </View>
         }
         ListEmptyComponent={
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>No wallpapers yet</Text>
-            <Text style={styles.emptyText}>
-              Generate your first one in the Generate tab, or upload an image from this
-              device.
-            </Text>
-          </View>
+          offlineNoList ? null : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No wallpapers yet</Text>
+              <Text style={styles.emptyText}>
+                Generate your first one in the Generate tab, or upload an image from this
+                device.
+              </Text>
+            </View>
+          )
         }
       />
 
-      {error !== null && (
+      {error !== null && !offlineNoList && (
         <View style={[styles.errorCard, { marginBottom: insets.bottom + spacing.md }]}>
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{error.text}</Text>
         </View>
       )}
     </View>
@@ -266,6 +295,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: spacing.xs,
+  },
+  retryButton: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.sm,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+  retryButtonText: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '800',
   },
   header: {
     color: colors.muted,
