@@ -71,15 +71,17 @@ export default function ByokHelpModal({ visible, onClose }) {
           <Text style={styles.body}>
             You do not have to add any keys. If you skip this, the app falls back
             to the free Pollinations engine — it works fine, just a little less
-            sharp than the others. Adding at least the free Google Gemini key
-            gives you much better wallpapers, no cost, and about 1,500 per day.
+            sharp than the others. Adding a free Google Gemini key gives you much
+            better wallpapers at no cost, though its free image quota is small and
+            can change.
           </Text>
 
           {/* Gemini */}
           <Text style={styles.sectionTitle}>1. Google Gemini (free)</Text>
           <Text style={styles.body}>
-            Google's image AI. Free with a generous daily limit (around 1,500
-            images). The key looks like a long string that starts with{' '}
+            Google's image AI. Free to use, but its free tier only allows a small
+            number of image generations per day (the exact limit varies and can
+            change). The key looks like a long string that starts with{' '}
             <Text style={styles.mono}>AQ</Text> (newer keys) or{' '}
             <Text style={styles.mono}>AIza</Text> (older keys). Both work.
           </Text>

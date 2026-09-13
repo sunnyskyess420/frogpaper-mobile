@@ -308,7 +308,7 @@ async function parseResponse(response) {
 
 async function request(path, options = {}) {
   const base = getBaseUrl();
-  const { signal, ...fetchOptions } = options;
+  const { signal, timeoutMs, ...fetchOptions } = options;
   const headers = { 'Content-Type': 'application/json' };
 
   // Add access key to headers if configured
@@ -331,9 +331,11 @@ async function request(path, options = {}) {
   }
 
   // 60s safety timeout so the UI can never spin forever; callers that pass
-  // their own AbortController signal (e.g. generate cancel) keep full control
+  // their own AbortController signal (e.g. generate cancel) keep full control.
+  // A caller-supplied timeoutMs (generate uses 180s for peak-hour queues)
+  // overrides the default.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs || 60000);
   let response;
   try {
     response = await fetch(`${base}${path}`, {
@@ -355,7 +357,7 @@ export const api = {
     return request('/api/health');
   },
   providers: () => request('/api/providers'),
-  generate: ({ prompt, negativePrompt, width = 1080, height = 1920, seed, provider, signal }) =>
+  generate: ({ prompt, negativePrompt, width = 1080, height = 1920, seed, provider, timeoutMs, signal }) =>
     request('/api/generate', {
       method: 'POST',
       body: JSON.stringify({
@@ -366,6 +368,7 @@ export const api = {
         ...(seed !== undefined && seed !== null ? { seed } : {}),
         ...(provider ? { provider } : {}),
       }),
+      timeoutMs,
       signal,
     }),
   recentPrompts: (limit = 8) =>

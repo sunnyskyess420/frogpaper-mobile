@@ -18,6 +18,8 @@ import api from '../services/api';
 import { getByokSnapshot, getByokSnapshotAsync } from '../services/api';
 import { capabilities, saveToDevice } from '../services/deviceMedia';
 import { colors, radii, spacing } from '../theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { IDEAS, FAVORITES_KEY } from '../services/promptLibrary';
 
 const SIZE_PRESETS = [
   { id: 'phone', label: 'Phone portrait', width: 1080, height: 1920 },
@@ -36,11 +38,13 @@ const STYLE_PRESETS = [
   { id: 'anime', label: 'Anime', suffix: 'anime style illustration, vibrant colors, clean line art' },
 ];
 
-const IDEAS = [
-  'Neon frog on a lily pad in a cyberpunk city, rain, wallpaper',
-  'Pastel sunset over misty mountains, minimalist, vertical',
-  'Bioluminescent forest at night, magical atmosphere',
-];
+// Friendly names for the "engine unavailable, used free fallback" notice.
+// The backend reports the original provider as an id (e.g. "huggingface").
+const PROVIDER_LABELS = {
+  replicate: 'Replicate',
+  gemini: 'Gemini',
+  huggingface: 'Hugging Face',
+};
 
 export default function GenerateScreen() {
   const navigation = useNavigation();
@@ -62,6 +66,7 @@ export default function GenerateScreen() {
   const [elapsed, setElapsed] = useState(0);
   const [lastSeed, setLastSeed] = useState(null);
   const [seedInput, setSeedInput] = useState('');
+  const [favorites, setFavorites] = useState([]);
 
   const preset = SIZE_PRESETS.find((item) => item.id === presetId);
   const style = STYLE_PRESETS.find((item) => item.id === styleId) || null;
@@ -105,6 +110,47 @@ export default function GenerateScreen() {
     loadProviders();
   }, [loadRecent, loadProviders]);
 
+  // Favorites (starred prompts) live only on the device. Cap is 12.
+  useEffect(() => {
+    AsyncStorage.getItem(FAVORITES_KEY)
+      .then((raw) => {
+        const list = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(list)) setFavorites(list.filter((x) => typeof x === 'string'));
+      })
+      .catch(() => {}); // favorites are optional - never block the screen on them
+  }, []);
+
+  const persistFavorites = async (list) => {
+    setFavorites(list);
+    try {
+      await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
+    } catch (err) {
+      // storage full or unavailable - keep the in-memory list for this session
+    }
+  };
+
+  const surpriseMe = () => {
+    const pool = IDEAS.filter((idea) => idea !== prompt.trim());
+    const idea = pool[Math.floor(Math.random() * pool.length)] || IDEAS[0];
+    setPrompt(idea);
+  };
+
+  const toggleFavorite = () => {
+    const text = prompt.trim();
+    if (text.length < 3) {
+      return;
+    }
+    if (favorites.includes(text)) {
+      persistFavorites(favorites.filter((item) => item !== text));
+    } else {
+      persistFavorites([text, ...favorites].slice(0, 12));
+    }
+  };
+
+  const removeFavorite = (text) => {
+    persistFavorites(favorites.filter((item) => item !== text));
+  };
+
   const reusePrompt = (item) => {
     setPrompt(item.prompt || '');
     setNegative(item.negative_prompt || '');
@@ -140,6 +186,7 @@ export default function GenerateScreen() {
         height: preset.height,
         seed: seedToUse,
         provider: providerId,
+        timeoutMs: 180000, // peak-hour cloud queues can outlast the 60s default
         signal: controller.signal,
       });
       setResult(response.image);
@@ -201,6 +248,30 @@ export default function GenerateScreen() {
           placeholderTextColor={colors.muted}
         />
         <Text style={styles.charCount}>{prompt.length}/600</Text>
+
+        <View style={styles.promptActions}>
+          <Pressable style={styles.pillButton} onPress={surpriseMe}>
+            <Text style={styles.pillButtonText}>🎲 Surprise me</Text>
+          </Pressable>
+          {prompt.trim().length >= 3 && (
+            <Pressable
+              style={[
+                styles.pillButton,
+                favorites.includes(prompt.trim()) && styles.pillButtonSaved,
+              ]}
+              onPress={toggleFavorite}
+            >
+              <Text
+                style={[
+                  styles.pillButtonText,
+                  favorites.includes(prompt.trim()) && styles.pillButtonTextSaved,
+                ]}
+              >
+                {favorites.includes(prompt.trim()) ? '★ Saved' : '☆ Save prompt'}
+              </Text>
+            </Pressable>
+          )}
+        </View>
 
         <Text style={styles.sectionLabel}>Style (optional)</Text>
         <View style={styles.presets}>
@@ -304,6 +375,28 @@ export default function GenerateScreen() {
           Same seed + same prompt = same image. Leave empty for random.
         </Text>
 
+        {favorites.length > 0 && (
+          <View style={styles.ideasBlock}>
+            <Text style={styles.sectionLabel}>★ Favorite prompts</Text>
+            {favorites.map((text) => (
+              <View key={text} style={styles.favChip}>
+                <Pressable style={styles.favChipMain} onPress={() => setPrompt(text)}>
+                  <Text style={styles.ideaText} numberOfLines={1}>
+                    {text}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  hitSlop={8}
+                  style={styles.favChipDelete}
+                  onPress={() => removeFavorite(text)}
+                >
+                  <Text style={styles.favChipDeleteText}>✕</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+
         {recent.length > 0 ? (
           <View style={styles.ideasBlock}>
             <Text style={styles.sectionLabel}>Recent prompts</Text>
@@ -371,6 +464,15 @@ export default function GenerateScreen() {
             <Text style={styles.resultMeta}>
               {result.filename}  |  {result.width}x{result.height}
             </Text>
+            {result.provider_fallback_from && (
+              <View style={styles.fallbackCard}>
+                <Text style={styles.fallbackText}>
+                  {(PROVIDER_LABELS[result.provider_fallback_from] ||
+                    result.provider_fallback_from)}{' '}
+                  was unavailable — used the free Pollinations engine.
+                </Text>
+              </View>
+            )}
             {saveNotice !== null && (
               <Text
                 style={[
@@ -443,6 +545,32 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginTop: spacing.xs,
   },
+  promptActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  pillButton: {
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    backgroundColor: colors.cardAlt,
+  },
+  pillButtonSaved: {
+    backgroundColor: colors.accentDim,
+  },
+  pillButtonText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  pillButtonTextSaved: {
+    color: colors.bg,
+  },
   negativeInput: {
     backgroundColor: colors.card,
     borderColor: colors.border,
@@ -512,6 +640,28 @@ const styles = StyleSheet.create({
   ideaText: {
     color: colors.muted,
     fontSize: 14,
+  },
+  favChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    marginTop: spacing.sm,
+  },
+  favChipMain: {
+    flex: 1,
+    padding: spacing.md,
+  },
+  favChipDelete: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  favChipDeleteText: {
+    color: colors.danger,
+    fontSize: 16,
+    fontWeight: '700',
   },
   seedRow: {
     flexDirection: 'row',
@@ -615,6 +765,20 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     marginTop: spacing.sm,
+  },
+  fallbackCard: {
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.warn,
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  fallbackText: {
+    color: colors.warn,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
   },
   saveNotice: {
     color: colors.accent,
