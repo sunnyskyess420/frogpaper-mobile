@@ -18,6 +18,13 @@ POST /api/slideshow/config -> save slideshow configuration (interval, enabled)
 GET  /api/slideshow/config -> get current slideshow configuration
 GET  /api/slideshow/next   -> get next wallpaper for slideshow
 
+Access key
+----------
+When FROGPAPER_ACCESS_KEY is set (or backend/access_key.txt exists), every
+/api/* request needs it in the "X-Access-Key" header; /api/health stays open
+and /api/images/* also accepts it as "?key=..." for clients that cannot send
+headers (see require_access_key). With no key configured nothing is enforced.
+
 Run (Windows)
 -------------
 cd E:\\FROGPAPER\\FrogPaperMobile\\backend
@@ -61,7 +68,8 @@ APP_NAME = "FrogPaper Mobile"
 APP_VERSION = "1.9.17"
 
 # Access key for API authentication (shared secret between app and backend)
-# Set via RENDER_ACCESS_KEY environment variable on Render, or fallback to local file
+# Set via the FROGPAPER_ACCESS_KEY environment variable (Render), or fall back
+# to the local file below (git-ignored).
 ACCESS_KEY_FILE = BASE_DIR / "access_key.txt"
 
 app = Flask(__name__)
@@ -84,7 +92,12 @@ log = logging.getLogger("frogpaper")
 
 @app.before_request
 def check_access_key():
-    """Require access key for all /api/* routes."""
+    """Require the access key for all /api/* routes.
+
+    The key travels in the X-Access-Key header. Image URLs may additionally
+    carry it as ?key=... (see require_access_key) because the clients that
+    load them cannot set headers.
+    """
     # Only check API routes
     if not request.path.startswith("/api/"):
         return
@@ -118,13 +131,27 @@ def read_access_key():
 
 
 def require_access_key():
-    """Check if the request has a valid access key in headers."""
+    """Check if the request carries a valid access key.
+
+    Two accepted forms:
+      - Header "X-Access-Key" - used by every JSON API call.
+      - Query "?key=..."      - accepted ONLY on /api/images/*, because those
+        URLs are handed to clients that cannot attach headers: React Native's
+        <Image source={{ uri }}> and expo-file-system downloadFileAsync (used
+        by save-to-device, set-as-wallpaper and the daily auto-wallpaper).
+        Keeping the query form off every other route stops the key from
+        turning up in arbitrary URLs and referrers. Server access logs still
+        record the image URL verbatim - that is inherent to a client that
+        cannot send headers.
+    """
     expected_key = read_access_key()
     # If no key is configured, allow requests (for local development)
     if not expected_key:
         return True
     
     provided_key = request.headers.get("X-Access-Key", "").strip()
+    if not provided_key and request.path.startswith("/api/images/"):
+        provided_key = request.args.get("key", "").strip()
     if not provided_key:
         return False
     

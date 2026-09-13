@@ -81,8 +81,9 @@ export async function getAccessKey() {
   }
 }
 
-// Load access key on startup
-getAccessKey().catch(() => {});
+// Load access key on startup. Kept as a named promise so the first request of
+// the session can wait for the AsyncStorage read instead of racing it.
+const accessKeyPreloadPromise = getAccessKey().catch(() => {});
 
 // --- BYOK (Bring Your Own Key) helpers -------------------------------------
 // These functions store the user's personal API keys on this device only.
@@ -308,6 +309,11 @@ async function parseResponse(response) {
 
 async function request(path, options = {}) {
   const base = getBaseUrl();
+  // A cold start can reach the first screen before the startup AsyncStorage
+  // read has cached the access key. Wait for it here so those requests (and
+  // the image URLs built from the same cached key afterwards) still carry
+  // the key on a server where it is armed.
+  await accessKeyPreloadPromise;
   const { signal, timeoutMs, ...fetchOptions } = options;
   const headers = { 'Content-Type': 'application/json' };
 
@@ -417,7 +423,13 @@ export const api = {
     });
     return parseResponse(response);
   },
-  imageUrl: (filename) => `${getBaseUrl()}/api/images/${encodeURIComponent(filename)}`,
+  // <Image source={{ uri }}> and File.downloadFileAsync (save, set-as-wallpaper,
+  // daily wallpaper) cannot send headers, so the backend also accepts the key
+  // as ?key=... on /api/images/* only. With no key set the URL is unchanged.
+  imageUrl: (filename) => {
+    const url = `${getBaseUrl()}/api/images/${encodeURIComponent(filename)}`;
+    return accessKey ? `${url}?key=${encodeURIComponent(accessKey)}` : url;
+  },
   slideshowConfig: () => request('/api/slideshow/config'),
   setSlideshowConfig: (config) =>
     request('/api/slideshow/config', {
