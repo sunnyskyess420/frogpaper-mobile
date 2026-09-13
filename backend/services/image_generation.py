@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import random
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,17 +47,237 @@ POLLINATIONS_QUALITY_SUFFIX = (
 # Subject-aware boosters. Flux renders animals inconsistently from bare
 # prompts ("frog" alone is a coin flip), so popular subjects get anatomy
 # and photography cues that measurably raise the hit rate.
-_SUBJECT_ENHANCERS = {
-    "frog": (
-        "cute tree frog with big glossy eyes, smooth vivid green skin, "
-        "perched on a wet leaf, professional wildlife macro photography, "
-        "correct anatomy"
-    ),
-    "toad": (
-        "cute toad with big golden eyes and detailed skin, professional "
-        "wildlife macro photography, correct anatomy"
-    ),
-}
+#
+# Frogs and toads used to get ONE fixed phrase each, so every frog wallpaper
+# came out as the same green tree frog. Each subject now owns a pool of
+# distinct breeds; the enhancer picks one per generation (deterministically
+# when the request carries a seed) so the same prompt yields different frogs.
+_FROG_POOL = (
+    {
+        "name": "red-eyed tree frog",
+        "phrase": (
+            "a red-eyed tree frog with vivid lime-green skin, orange toes, "
+            "cobalt-blue flanks striped with cream and huge crimson eyes, "
+            "clinging to a rain-wet leaf, professional wildlife macro "
+            "photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "blue poison dart frog",
+        "phrase": (
+            "a blue poison dart frog with electric-blue skin speckled with "
+            "black, tiny glossy body, perched on a mossy stone, professional "
+            "wildlife macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "yellow-banded poison dart frog",
+        "phrase": (
+            "a yellow-banded poison dart frog with bright lemon-yellow skin "
+            "crossed by bold black bands, small glossy body, resting on a "
+            "dark jungle leaf, professional wildlife macro photography, "
+            "correct anatomy"
+        ),
+    },
+    {
+        "name": "strawberry poison dart frog",
+        "phrase": (
+            "a strawberry poison dart frog with a tomato-red back, blue "
+            "speckled legs and a tiny round body, climbing a wet bromeliad, "
+            "professional wildlife macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "American bullfrog",
+        "phrase": (
+            "an American bullfrog with a massive olive-green body, smooth wet "
+            "skin, a heavy fold behind each eye and a large round tympanum, "
+            "half-submerged in a pond, professional wildlife macro "
+            "photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "African bullfrog",
+        "phrase": (
+            "an African bullfrog with a huge stout olive-brown body, pale "
+            "cream belly and thick muscular limbs, sitting heavily on damp "
+            "soil, professional wildlife macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "glass frog",
+        "phrase": (
+            "a glass frog with translucent lime-green skin showing its tiny "
+            "heart and organs, delicate slender limbs, perched on a "
+            "dew-covered fern, professional wildlife macro photography, "
+            "correct anatomy"
+        ),
+    },
+    {
+        "name": "tomato frog",
+        "phrase": (
+            "a tomato frog with a plump round bright orange-red body and "
+            "short stubby limbs, sitting on a rain-soaked forest-floor leaf, "
+            "professional wildlife macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "White's tree frog",
+        "phrase": (
+            "a White's tree frog with plump powder-blue to pale-green skin, a "
+            "wide friendly mouth and large golden eyes, resting on a broad "
+            "leaf, professional wildlife macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "Vietnamese mossy frog",
+        "phrase": (
+            "a Vietnamese mossy frog with warty moss-green skin covered in "
+            "dark spikes and ridges, camouflaged like a clump of moss, "
+            "gripping a wet branch, professional wildlife macro photography, "
+            "correct anatomy"
+        ),
+    },
+    {
+        "name": "Amazon milk frog",
+        "phrase": (
+            "an Amazon milk frog with blue-grey skin and bold white banding, "
+            "large round eyes and a plump body, on a jungle branch, "
+            "professional wildlife macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "ornate horned frog",
+        "phrase": (
+            "an ornate horned frog with a wide gaping mouth, lime-green body "
+            "patterned with orange and dark markings and fleshy horn-like eye "
+            "ridges, sitting in leaf litter, professional wildlife macro "
+            "photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "Malayan leaf frog",
+        "phrase": (
+            "a Malayan leaf frog with a sharply pointed snout and a "
+            "leaf-shaped brown-green camouflage body, pressed flat against a "
+            "dead leaf, professional wildlife macro photography, correct "
+            "anatomy"
+        ),
+    },
+    {
+        "name": "Wallace's flying frog",
+        "phrase": (
+            "Wallace's flying frog with emerald-green skin, black webbed "
+            "feet, an orange belly and huge gold-rimmed eyes, gliding between "
+            "rainforest branches, professional wildlife macro photography, "
+            "correct anatomy"
+        ),
+    },
+    {
+        "name": "spring peeper",
+        "phrase": (
+            "a spring peeper with a tiny tan-and-pink body and a dark X "
+            "marking on its back, perched on a reed, professional wildlife "
+            "macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "golden toad",
+        "phrase": (
+            "a golden toad with glossy brilliant orange-gold skin and slender "
+            "limbs, sitting on damp moss, professional wildlife macro "
+            "photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "goliath frog",
+        "phrase": (
+            "a goliath frog, the world's largest, with dark green-brown warty "
+            "skin and enormous muscular hind legs, crouched beside a "
+            "rainforest stream, professional wildlife macro photography, "
+            "correct anatomy"
+        ),
+    },
+)
+_TOAD_POOL = (
+    {
+        "name": "cane toad",
+        "phrase": (
+            "a cane toad with dry warty brown-grey skin, prominent poison "
+            "glands behind the head and a stout body, sitting on damp ground, "
+            "professional wildlife macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "fire-bellied toad",
+        "phrase": (
+            "a fire-bellied toad with a warty green-and-black mottled back "
+            "and a vivid orange-red belly, small nimble body, on a wet stone, "
+            "professional wildlife macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "spadefoot toad",
+        "phrase": (
+            "a spadefoot toad with smooth olive-green skin, big golden eyes "
+            "and a small spade-shaped digging foot, half-buried in sandy "
+            "soil, professional wildlife macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "natterjack toad",
+        "phrase": (
+            "a natterjack toad with olive-brown warty skin, a thin yellow "
+            "dorsal stripe and short limbs, on sandy heathland, professional "
+            "wildlife macro photography, correct anatomy"
+        ),
+    },
+    {
+        "name": "desert rain frog",
+        "phrase": (
+            "a desert rain frog with a plump round body, short stubby legs, "
+            "pale sandy-ochre skin and a wide squeaky expression, sitting on "
+            "coastal sand, professional wildlife macro photography, correct "
+            "anatomy"
+        ),
+    },
+)
+
+# Species-neutral cues for prompts that already name a species: correct
+# anatomy + photography guidance without forcing a different breed.
+_GENERIC_FROG_CUES = (
+    "correct amphibian anatomy and natural skin texture, professional "
+    "wildlife macro photography, generous fine detail, correct anatomy"
+)
+
+
+def _normalize_words(text: str) -> str:
+    """Lowercase and flatten hyphens/underscores so 'red-eyed' == 'red eyed'."""
+    return re.sub(r"[\s\-_]+", " ", text.lower()).strip()
+
+
+def _word_match(text: str, word: str) -> bool:
+    """Whole-word match, plural-tolerant ('frog', 'frogs'), never substring
+    ('cat' must not fire inside 'cathedral' or 'category')."""
+    return re.search(rf"\b{re.escape(word)}s?\b", text) is not None
+
+
+# Once a prompt names a breed or a recognizable frog/toad category, the
+# enhancer must not swap in a different random species. Pool names are
+# registered automatically (normalized) so this list cannot drift from the
+# pools. Some cues ("bullfrog", "peeper", "natterjack") do not contain the
+# standalone word frog/toad, so a hit here also counts as the subject.
+_NAMED_SPECIES_CUES = tuple(
+    _normalize_words(breed["name"]) for breed in _FROG_POOL + _TOAD_POOL
+) + (
+    "tree frog", "treefrog", "dart frog", "poison frog", "poison dart frog",
+    "arrow frog", "bullfrog", "bull frog", "horned frog", "pacman frog",
+    "leaf frog", "flying frog", "mossy frog", "milk frog", "glass frog",
+    "tomato frog", "goliath frog", "spring peeper", "peeper", "golden toad",
+    "cane toad", "fire bellied toad", "spadefoot", "spadefoot toad",
+    "spade foot toad", "natterjack", "natterjack toad", "desert rain frog",
+)
+
 _GENERIC_ANIMAL_WORDS = (
     "cat", "kitten", "dog", "puppy", "fox", "owl", "wolf", "deer",
     "horse", "bird", "tiger", "lion", "panda", "rabbit", "bunny",
@@ -64,13 +285,44 @@ _GENERIC_ANIMAL_WORDS = (
 )
 
 
-def _subject_enhancer(prompt: str) -> str:
-    """Extra subject-specific phrases for prompts featuring known subjects."""
-    text = f" {prompt.lower()} "
-    for word, phrase in _SUBJECT_ENHANCERS.items():
-        if f" {word}" in text or f"{word}s " in text:
-            return f", {phrase}"
-    if any(f" {word}" in text or f"{word}s " in text for word in _GENERIC_ANIMAL_WORDS):
+def _breed_for(prompt_text: str, seed):
+    """Pick a breed phrase for the pool named by the prompt, or None.
+
+    Returns None when the prompt names no frog/toad at all (the caller then
+    falls through to the other enhancers). Random per request when `seed` is
+    None; deterministic when a seed is given, using a private RNG so the
+    module-level random state is never seeded or disturbed.
+    """
+    is_frog = _word_match(prompt_text, "frog")
+    is_toad = _word_match(prompt_text, "toad")
+    named = any(_word_match(prompt_text, cue) for cue in _NAMED_SPECIES_CUES)
+    if not (is_frog or is_toad or named):
+        return None
+    if named:
+        # The prompt already chose a species - do not override it.
+        return _GENERIC_FROG_CUES
+    if is_frog and is_toad:
+        pool = _FROG_POOL + _TOAD_POOL
+    elif is_frog:
+        pool = _FROG_POOL
+    else:
+        pool = _TOAD_POOL
+    rng = random.Random(seed) if seed is not None else random.Random()
+    return rng.choice(pool)["phrase"]
+
+
+def _subject_enhancer(prompt: str, seed=None) -> str:
+    """Extra subject-specific phrases for prompts featuring known subjects.
+
+    Frog/toad prompts draw a different breed from the pools unless the prompt
+    already names a species. The pick follows `seed` when one is supplied, so
+    the app's "same seed + same prompt = same image" promise still holds.
+    """
+    text = _normalize_words(prompt)
+    breed = _breed_for(text, seed)
+    if breed is not None:
+        return f", {breed}"
+    if any(_word_match(text, word) for word in _GENERIC_ANIMAL_WORDS):
         return (
             ", adorable healthy animal with expressive eyes and correct "
             "anatomy, professional wildlife photography"
@@ -503,11 +755,13 @@ def generate_image(
     # Flux has no true negative-prompt parameter; we append it as soft
     # guidance text and document that limitation in the API docs.
     # Quality suffix tunes every request toward wallpaper-grade output.
-    effective_prompt = f"{prompt}{_subject_enhancer(prompt)}{POLLINATIONS_QUALITY_SUFFIX}"
+    # The seed is chosen first so the subject pick is deterministic for a
+    # given seed (same seed + same prompt -> same frog breed).
+    seed = seed or random.randint(1, 999_999_999)
+    effective_prompt = f"{prompt}{_subject_enhancer(prompt, seed=seed)}{POLLINATIONS_QUALITY_SUFFIX}"
     if negative_prompt:
         effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
 
-    seed = seed or random.randint(1, 999_999_999)
     url = POLLINATIONS_ENDPOINT.format(prompt=quote(effective_prompt, safe=""))
     params = {
         "width": width,
@@ -1106,13 +1360,13 @@ def generate_image_huggingface(
     images_dir = Path(images_dir)
     images_dir.mkdir(parents=True, exist_ok=True)
 
+    seed = seed or random.randint(1, 999_999_999)
     effective_prompt = (
-        f"{prompt}{_subject_enhancer(prompt)}{POLLINATIONS_QUALITY_SUFFIX}"
+        f"{prompt}{_subject_enhancer(prompt, seed=seed)}{POLLINATIONS_QUALITY_SUFFIX}"
     )
     if negative_prompt:
         effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
 
-    seed = seed or random.randint(1, 999_999_999)
     render_w, render_h = _hf_dimensions_for(width, height)
 
     model_list = list(HF_IMAGE_MODELS)
@@ -1421,13 +1675,13 @@ def generate_image_replicate(
     images_dir = Path(images_dir)
     images_dir.mkdir(parents=True, exist_ok=True)
 
+    seed = seed or random.randint(1, 999_999_999)
     effective_prompt = (
-        f"{prompt}{_subject_enhancer(prompt)}{POLLINATIONS_QUALITY_SUFFIX}"
+        f"{prompt}{_subject_enhancer(prompt, seed=seed)}{POLLINATIONS_QUALITY_SUFFIX}"
     )
     if negative_prompt:
         effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
 
-    seed = seed or random.randint(1, 999_999_999)
     aspect_ratio = _replicate_aspect_ratio(width, height)
     auth = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
 
