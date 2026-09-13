@@ -41,7 +41,13 @@ import {
 } from '../services/sentry';
 import { colors, radii, spacing } from '../theme';
 import { getDailyInfo, setDailyEnabled, setDailySource } from '../services/dailyWallpaper';
+import { clearCache, getCacheStats } from '../services/imageCache';
+import { clearQueue, listQueue } from '../services/generationQueue';
 import ByokHelpModal from '../components/ByokHelpModal';
+
+function formatMegabytes(bytes) {
+  return `${((bytes || 0) / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -178,6 +184,58 @@ export default function SettingsScreen() {
   const chooseDailySource = async (source) => {
     setDailyState((prev) => ({ ...prev, source }));
     await setDailySource(source);
+  };
+
+  // ---- Offline storage (cached images + queued generations) --------------
+  const [offlineState, setOfflineState] = useState({ stats: { count: 0, bytes: 0 }, queue: 0 });
+
+  const refreshOfflineState = useCallback(async () => {
+    try {
+      const [stats, queue] = await Promise.all([getCacheStats(), listQueue()]);
+      setOfflineState({ stats, queue: queue.length });
+    } catch (err) {
+      // the numbers are informational - never block Settings on them
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshOfflineState();
+  }, [refreshOfflineState]);
+
+  const confirmClearImages = () => {
+    Alert.alert(
+      'Clear cached images?',
+      'Wallpapers saved on this phone for offline viewing are removed. They stay on the server and come back the next time the gallery loads.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await clearCache();
+            await refreshOfflineState();
+          },
+        },
+      ]
+    );
+  };
+
+  const confirmClearQueue = () => {
+    Alert.alert(
+      'Clear the generation queue?',
+      `${offlineState.queue} prompt(s) waiting to be generated will be removed. This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await clearQueue();
+            await refreshOfflineState();
+          },
+        },
+      ]
+    );
   };
 
   const online = state.health !== null;
@@ -572,6 +630,42 @@ export default function SettingsScreen() {
         )}
       </View>
 
+      <Text style={styles.sectionLabel}>Offline</Text>
+      <View style={styles.card}>
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>Cached images</Text>
+          <Text style={styles.aboutValue}>
+            {offlineState.stats.count} file{offlineState.stats.count === 1 ? '' : 's'} |{' '}
+            {formatMegabytes(offlineState.stats.bytes)}
+          </Text>
+        </View>
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>Queued generations</Text>
+          <Text style={styles.aboutValue}>{offlineState.queue}</Text>
+        </View>
+        <Text style={styles.hint}>
+          The newest wallpapers are kept on this phone, so the gallery still opens with no
+          connection. Prompts you queue while the backend is unreachable are generated the
+          next time the app is open and the backend answers - the queue runs only while the
+          app is open, never in the background. Up to 10 prompts are kept (the oldest is
+          dropped), and the cache holds at most 60 images.
+        </Text>
+        <View style={styles.buttonRow}>
+          <Pressable
+            style={[styles.button, styles.buttonSecondary]}
+            onPress={confirmClearImages}
+          >
+            <Text style={styles.buttonText}>Clear cached images</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.button, styles.buttonSecondary]}
+            onPress={confirmClearQueue}
+          >
+            <Text style={styles.buttonText}>Clear queue</Text>
+          </Pressable>
+        </View>
+      </View>
+
       <Text style={styles.sectionLabel}>Access key</Text>
       <View style={styles.card}>
         <Text style={styles.hint}>
@@ -712,7 +806,7 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.18</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.19</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>

@@ -2,7 +2,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import api from '../services/api';
 import { saveToDevice } from '../services/deviceMedia';
+import WallpaperImage from '../components/WallpaperImage';
 import { colors, radii, spacing } from '../theme';
 
 const INTERVAL_PRESETS = [
@@ -207,8 +207,8 @@ export default function SlideshowScreen() {
         <>
           <Text style={styles.sectionLabel}>Current Wallpaper</Text>
           <View style={styles.resultCard}>
-            <Image
-              source={{ uri: api.imageUrl(currentImage.filename) }}
+            <WallpaperImage
+              filename={currentImage.filename}
               style={styles.resultImage}
               resizeMode="cover"
             />

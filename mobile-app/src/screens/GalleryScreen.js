@@ -4,7 +4,6 @@ import {
   Alert,
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -15,7 +14,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../services/api';
+import { loadGallery } from '../services/galleryCache';
+import WallpaperImage from '../components/WallpaperImage';
 import { colors, radii, spacing } from '../theme';
+
+function formatSavedAt(ms) {
+  if (!ms) {
+    return 'unknown';
+  }
+  const date = new Date(ms);
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
 
 export default function GalleryScreen() {
   const navigation = useNavigation();
@@ -26,6 +38,9 @@ export default function GalleryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
+  // Non-null while the grid shows the copy saved on this phone instead of a
+  // live server list: { savedAt, offline }.
+  const [staleList, setStaleList] = useState(null);
   const hasLoadedRef = useRef(false);
 
   const load = useCallback(async (showSpinner = true) => {
@@ -34,9 +49,12 @@ export default function GalleryScreen() {
     }
     setError(null);
     try {
-      const response = await api.gallery(200);
-      setImages(response.images || []);
-      setTotal(response.total || 0);
+      const result = await loadGallery({ limit: 200 });
+      setImages(result.images || []);
+      setTotal(result.total || 0);
+      setStaleList(
+        result.offline ? { savedAt: result.savedAt, offline: !result.error?.status } : null
+      );
     } catch (err) {
       setError(err.message || 'Could not load the gallery.');
     } finally {
@@ -120,10 +138,11 @@ export default function GalleryScreen() {
       onPress={() => navigation.navigate('Detail', { filename: item.filename })}
       onLongPress={() => confirmDelete(item)}
     >
-      <Image
-        source={{ uri: api.imageUrl(item.filename) }}
+      <WallpaperImage
+        filename={item.filename}
         style={styles.thumb}
         resizeMode="cover"
+        preferCache={staleList !== null}
       />
       <Text style={styles.cellCaption} numberOfLines={1}>
         {item.filename}
@@ -157,8 +176,22 @@ export default function GalleryScreen() {
         }
         ListHeaderComponent={
           <View style={styles.headerBlock}>
+            {staleList !== null && (
+              <View style={styles.offlineCard}>
+                <Text style={styles.offlineTitle}>
+                  {staleList.offline
+                    ? 'Offline - showing wallpapers saved on this phone'
+                    : 'Server problem - showing wallpapers saved on this phone'}
+                </Text>
+                <Text style={styles.offlineText}>
+                  List saved {formatSavedAt(staleList.savedAt)}. New wallpapers need the
+                  backend, but saved copies open and can be set as wallpaper.
+                </Text>
+              </View>
+            )}
             <Text style={styles.header}>
-              {total} wallpaper{total === 1 ? '' : 's'} on the server
+              {total} wallpaper{total === 1 ? '' : 's'}{' '}
+              {staleList !== null ? 'saved on this phone' : 'on the server'}
             </Text>
             <Pressable
               style={[styles.uploadButton, uploading && styles.uploadButtonBusy]}
@@ -214,6 +247,25 @@ const styles = StyleSheet.create({
   },
   headerBlock: {
     marginBottom: spacing.md,
+  },
+  offlineCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.warn,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  offlineTitle: {
+    color: colors.warn,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  offlineText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: spacing.xs,
   },
   header: {
     color: colors.muted,

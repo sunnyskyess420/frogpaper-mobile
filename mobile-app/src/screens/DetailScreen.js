@@ -13,7 +13,6 @@ import React, {
 import {
   ActivityIndicator,
   Animated,
-  Image,
   Modal,
   PanResponder,
   Pressable,
@@ -26,6 +25,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import api from '../services/api';
+import { loadGalleryFilenames } from '../services/galleryCache';
+import WallpaperImage from '../components/WallpaperImage';
 import {
   capabilities,
   saveToDevice,
@@ -86,8 +87,9 @@ export default function DetailScreen() {
     let alive = true;
     (async () => {
       try {
-        const response = await api.gallery(200);
-        const list = (response.images || []).map((img) => img.filename);
+        // Same list the gallery shows, so swiping also works offline (it falls
+        // back to the copy saved on this phone).
+        const list = await loadGalleryFilenames({ limit: 200 });
         if (!alive || list.length === 0) return;
         const idx = list.indexOf(startFilename);
         if (idx >= 0) {
@@ -440,8 +442,8 @@ export default function DetailScreen() {
         <>
           <View style={styles.imageWrap}>
             <View style={styles.imageStage} {...inlineResponder.panHandlers}>
-              <Image
-                source={{ uri: api.imageUrl(filename) }}
+              <WallpaperImage
+                filename={filename}
                 style={styles.image}
                 resizeMode="contain"
               />
@@ -596,8 +598,8 @@ export default function DetailScreen() {
       >
         <View style={styles.viewerBackdrop}>
           <View style={styles.viewerStage} {...viewerResponder.panHandlers}>
-            <Animated.Image
-              source={{ uri: api.imageUrl(filename) }}
+            <WallpaperImage
+              filename={filename}
               style={[
                 styles.viewerImage,
                 {

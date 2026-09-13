@@ -18,6 +18,7 @@ import {
   setShuffleOnOpen,
 } from '../services/shuffle';
 import { dailyPhase, runDailyWallpaper } from '../services/dailyWallpaper';
+import { describeQueueRun, listQueue, processQueue } from '../services/generationQueue';
 import { colors, radii, spacing } from '../theme';
 
 export default function HomeScreen() {
@@ -29,12 +30,63 @@ export default function HomeScreen() {
   const [shuffleOnOpen, setShuffleOnOpenState] = useState(false);
   const autoShuffledRef = useRef(false);
 
+  // ---- Queued generations (saved while the backend was unreachable) -------
+  const [queueCount, setQueueCount] = useState(0);
+  const [queueNotice, setQueueNotice] = useState(null);
+  const queueRunRef = useRef(false);
+  const queueRunningRef = useRef(false);
+
   // ---- Daily auto-wallpaper (opt-in, off by default) --------------------
   // Phases: 'hidden' (off) | 'running' | 'done' | 'already-run' |
   //         'cooldown' | 'failed'
   const [daily, setDaily] = useState({ phase: 'hidden' });
   const dailyBusyRef = useRef(false);
   const onlineRef = useRef(false);
+
+  const refreshQueueCount = useCallback(async () => {
+    try {
+      setQueueCount((await listQueue()).length);
+    } catch (err) {
+      // the count is informational - never break Home over it
+    }
+  }, []);
+
+  // Runs the queue once per app open, best-effort and quiet like the
+  // shuffle-on-open above. Entries the server already refused are skipped:
+  // only the explicit "Run queued" button on Generate retries those.
+  const runQueueOnce = useCallback(async () => {
+    if (queueRunRef.current || queueRunningRef.current) {
+      return;
+    }
+    let pending = [];
+    try {
+      pending = await listQueue();
+    } catch (err) {
+      return;
+    }
+    if (pending.length === 0) {
+      setQueueCount(0);
+      return;
+    }
+    queueRunRef.current = true;
+    queueRunningRef.current = true;
+    setQueueNotice({ kind: 'ok', text: `Generating ${pending.length} queued wallpaper(s)...` });
+    try {
+      const summary = await processQueue({ includeFailed: false });
+      setQueueNotice({
+        kind: summary.succeeded.length > 0 ? 'ok' : 'error',
+        text: describeQueueRun(summary),
+      });
+    } catch (err) {
+      setQueueNotice({
+        kind: 'error',
+        text: (err && err.message) || 'Could not run the queued requests.',
+      });
+    } finally {
+      queueRunningRef.current = false;
+      await refreshQueueCount();
+    }
+  }, [refreshQueueCount]);
 
   const checkBackend = useCallback(async () => {
     setStatus({ state: 'checking', info: null });
@@ -52,15 +104,19 @@ export default function HomeScreen() {
         } catch (err) {
           // ignore
         }
+        // Wallpapers queued while offline are owed to the user - run them
+        // now that the backend answers (not awaited: this can take minutes).
+        runQueueOnce();
       }
     } catch (error) {
       setStatus({ state: 'offline', info: null });
     }
-  }, []);
+  }, [runQueueOnce]);
 
   useEffect(() => {
     checkBackend();
-  }, [checkBackend]);
+    refreshQueueCount();
+  }, [checkBackend, refreshQueueCount]);
 
   useEffect(() => {
     (async () => {
@@ -112,8 +168,9 @@ export default function HomeScreen() {
       // Re-check when the user returns to Home (e.g. after enabling the
       // feature in Settings) - the status effect only fires on state change.
       refreshDaily();
+      refreshQueueCount(); // the user may have queued a prompt on Generate
       return () => {};
-    }, [refreshDaily])
+    }, [refreshDaily, refreshQueueCount])
   );
 
   const makeDailyNow = async () => {
@@ -214,6 +271,29 @@ export default function HomeScreen() {
           </>
         )}
       </View>
+
+      {queueCount > 0 && (
+        <View style={styles.queueCard}>
+          <Text style={styles.queueCountText}>
+            {queueCount} waiting to generate
+          </Text>
+          <Text style={styles.queueSubText}>
+            Saved on this phone from an offline session. They run while the app is open -
+            tap "Run queued" on the Generate screen to retry now.
+          </Text>
+        </View>
+      )}
+
+      {queueNotice !== null && (
+        <Text
+          style={[
+            styles.shuffleNotice,
+            queueNotice.kind === 'error' ? styles.shuffleNoticeError : null,
+          ]}
+        >
+          {queueNotice.text}
+        </Text>
+      )}
 
       {daily.phase !== 'hidden' && (
         <View style={[styles.dailyCard, daily.phase === 'failed' && styles.dailyCardFailed]}>
@@ -409,6 +489,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   statusDetail: {
+    color: colors.muted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  queueCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.warn,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  queueCountText: {
+    color: colors.warn,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  queueSubText: {
     color: colors.muted,
     fontSize: 13,
     marginTop: 2,

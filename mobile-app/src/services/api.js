@@ -307,6 +307,17 @@ async function parseResponse(response) {
   return payload;
 }
 
+// Distinguishes the two ways a request can fail:
+//   - "offline": nothing came back at all (DNS failure, refused connection,
+//     our own timeout). No HTTP status - the request may well work later.
+//   - "server error": the backend answered with 4xx/5xx, which parseResponse
+//     carries on error.status. That is a verdict about THIS request, so
+//     retrying it blindly only burns provider quota.
+// The generation queue holds only the offline kind.
+export function isOfflineError(error) {
+  return !error || error.status === undefined || error.status === null;
+}
+
 async function request(path, options = {}) {
   const base = getBaseUrl();
   // A cold start can reach the first screen before the startup AsyncStorage

@@ -1,8 +1,7 @@
 // Generate - create a wallpaper from a text prompt.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,10 +12,18 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import api from '../services/api';
-import { getByokSnapshot, getByokSnapshotAsync } from '../services/api';
+import { getByokSnapshot, getByokSnapshotAsync, isOfflineError } from '../services/api';
+import {
+  MAX_QUEUE,
+  describeQueueRun,
+  enqueue,
+  listQueue,
+  processQueue,
+} from '../services/generationQueue';
 import { capabilities, saveToDevice } from '../services/deviceMedia';
+import WallpaperImage from '../components/WallpaperImage';
 import { colors, radii, spacing } from '../theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { IDEAS, FAVORITES_KEY } from '../services/promptLibrary';
@@ -67,6 +74,14 @@ export default function GenerateScreen() {
   const [lastSeed, setLastSeed] = useState(null);
   const [seedInput, setSeedInput] = useState('');
   const [favorites, setFavorites] = useState([]);
+  // Requests parked for a later attempt (backend unreachable at the time).
+  const [queue, setQueue] = useState([]);
+  const [queueOffer, setQueueOffer] = useState(null);
+  const [queueBusy, setQueueBusy] = useState(false);
+  const [queueNotice, setQueueNotice] = useState(null);
+  // The AbortError from the Cancel button looks exactly like our own request
+  // timeout, so track the intent instead of guessing from the error.
+  const cancelledRef = useRef(false);
 
   const preset = SIZE_PRESETS.find((item) => item.id === presetId);
   const style = STYLE_PRESETS.find((item) => item.id === styleId) || null;
@@ -156,18 +171,88 @@ export default function GenerateScreen() {
     setNegative(item.negative_prompt || '');
   };
 
+  // ---- Offline queue -----------------------------------------------------
+  // The count is refreshed on focus so it stays honest after Home silently
+  // ran the queue in the background.
+  const refreshQueue = useCallback(async () => {
+    try {
+      setQueue(await listQueue());
+    } catch (err) {
+      // the count is informational only - never break the screen over it
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshQueue();
+    }, [refreshQueue])
+  );
+
+  const keepQueued = async () => {
+    if (!queueOffer) {
+      return;
+    }
+    const { dropped } = await enqueue(queueOffer);
+    setQueue(await listQueue());
+    setQueueOffer(null);
+    setError(null);
+    setQueueNotice({
+      kind: 'ok',
+      text: dropped
+        ? 'Queue was full - the oldest request was dropped and this one was kept.'
+        : 'Kept. It will generate as soon as the backend answers.',
+    });
+  };
+
+  const runQueued = async () => {
+    if (queueBusy) {
+      return;
+    }
+    setQueueBusy(true);
+    setQueueNotice({ kind: 'ok', text: 'Running queued requests...' });
+    try {
+      const summary = await processQueue({
+        includeFailed: true, // an explicit tap is a manual retry
+        onProgress: ({ attempted, total }) =>
+          setQueueNotice({
+            kind: 'ok',
+            text: `Generating queued request ${attempted} of ${total}...`,
+          }),
+      });
+      setQueue(await listQueue());
+      setQueueNotice({
+        kind: summary.stoppedOffline || summary.failed.length > 0 ? 'error' : 'ok',
+        text: describeQueueRun(summary),
+      });
+      if (summary.succeeded.length > 0) {
+        loadRecent();
+      }
+    } catch (err) {
+      setQueueNotice({ kind: 'error', text: err.message || 'Could not run the queue.' });
+    } finally {
+      setQueueBusy(false);
+    }
+  };
+
   const generate = async () => {
     const trimmed = prompt.trim();
     if (trimmed.length < 3) {
       setError('Describe your wallpaper in at least 3 characters.');
       return;
     }
+    // Built once here so an offline failure can queue exactly what would have
+    // been sent (style suffix, size, engine and seed included).
+    const fullPrompt = style ? `${trimmed}, ${style.suffix}` : trimmed;
+    const seedToUse = seedInput.trim() ? parseInt(seedInput.trim(), 10) : undefined;
     setLoading(true);
     setError(null);
     setResult(null);
     setSaveNotice(null);
+    setQueueOffer(null);
+    setQueueNotice(null);
     setElapsed(0);
-    
+    cancelledRef.current = false;
+
     const controller = new AbortController();
     setAbortController(controller);
     
@@ -178,9 +263,8 @@ export default function GenerateScreen() {
     }, 1000);
     
     try {
-      const seedToUse = seedInput.trim() ? parseInt(seedInput.trim(), 10) : undefined;
       const response = await api.generate({
-        prompt: style ? `${trimmed}, ${style.suffix}` : trimmed,
+        prompt: fullPrompt,
         negativePrompt: negative.trim() || null,
         width: preset.width,
         height: preset.height,
@@ -194,10 +278,22 @@ export default function GenerateScreen() {
       setSeedInput(''); // Clear seed input after successful generation
       loadRecent(); // the new prompt should appear in history right away
     } catch (err) {
-      if (err.name === 'AbortError' || err.message?.includes('abort')) {
+      if (cancelledRef.current || err.name === 'AbortError' || err.message?.includes('abort')) {
         setError('Generation cancelled.');
       } else {
         setError(err.message || 'Generation failed. Is the backend running?');
+        // Nothing answered, so nothing was generated: offer to keep the
+        // request instead of losing what the user just typed.
+        if (isOfflineError(err)) {
+          setQueueOffer({
+            prompt: fullPrompt,
+            negativePrompt: negative.trim() || null,
+            width: preset.width,
+            height: preset.height,
+            provider: providerId,
+            seed: seedToUse === undefined ? null : seedToUse,
+          });
+        }
       }
     } finally {
       setLoading(false);
@@ -207,6 +303,7 @@ export default function GenerateScreen() {
   };
 
   const cancelGeneration = () => {
+    cancelledRef.current = true;
     if (abortController) {
       abortController.abort();
     }
@@ -454,10 +551,58 @@ export default function GenerateScreen() {
           </View>
         )}
 
+        {queueOffer !== null && (
+          <View style={styles.queueOfferCard}>
+            <Text style={styles.queueOfferTitle}>This request was not sent</Text>
+            <Text style={styles.queueOfferText}>
+              The backend is unreachable, so nothing was generated. Keep the prompt
+              queued and FrogPaper will generate it the next time the backend answers -
+              it stays on this phone, no account needed.
+            </Text>
+            <Pressable style={styles.queueOfferButton} onPress={keepQueued}>
+              <Text style={styles.queueOfferButtonText}>Keep it queued</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {queue.length > 0 && (
+          <View style={styles.queueCard}>
+            <Text style={styles.queueCardTitle}>
+              {queue.length} waiting to generate
+            </Text>
+            <Text style={styles.queueCardText}>
+              Saved on this phone. Queued prompts only run while the app is open, one at a
+              time. The oldest is dropped when the queue is full ({MAX_QUEUE}).
+            </Text>
+            <Pressable
+              style={[styles.queueButton, queueBusy && styles.saveButtonBusy]}
+              onPress={runQueued}
+              disabled={queueBusy}
+            >
+              {queueBusy ? (
+                <ActivityIndicator color={colors.bg} />
+              ) : (
+                <Text style={styles.queueButtonText}>Run queued</Text>
+              )}
+            </Pressable>
+          </View>
+        )}
+
+        {queueNotice !== null && (
+          <Text
+            style={[
+              styles.saveNotice,
+              queueNotice.kind === 'error' && styles.saveNoticeError,
+            ]}
+          >
+            {queueNotice.text}
+          </Text>
+        )}
+
         {result && (
           <View style={styles.resultCard}>
-            <Image
-              source={{ uri: api.imageUrl(result.filename) }}
+            <WallpaperImage
+              filename={result.filename}
               style={styles.resultImage}
               resizeMode="cover"
             />
@@ -746,6 +891,68 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.danger,
     fontSize: 14,
+  },
+  queueOfferCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.warn,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginTop: spacing.lg,
+  },
+  queueOfferTitle: {
+    color: colors.warn,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  queueOfferText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: spacing.xs,
+  },
+  queueOfferButton: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.sm,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+  queueOfferButtonText: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  queueCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.accentDim,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginTop: spacing.lg,
+  },
+  queueCardTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  queueCardText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: spacing.xs,
+  },
+  queueButton: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.sm,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+  queueButtonText: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '800',
   },
   resultCard: {
     backgroundColor: colors.card,
