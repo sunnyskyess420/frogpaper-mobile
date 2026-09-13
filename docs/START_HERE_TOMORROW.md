@@ -1,5 +1,29 @@
 # START HERE NEXT TIME
 
+> **UPDATE 2026-09-13 (afternoon) - offline support shipped (v1.9.19 / versionCode 10)**
+>
+> The app no longer dies without the backend.
+>
+> - **Offline gallery**: the newest wallpapers are cached on the phone and the last gallery
+>   list is stored, so with no connection the grid still opens and says "Offline - showing
+>   wallpapers saved on this phone". New modules: `services/imageCache.js`,
+>   `services/galleryCache.js`, `components/WallpaperImage.js` (remote URL first, cached file
+>   as fallback, neutral placeholder last).
+> - **Offline generation queue**: a generation that fails because the backend is unreachable
+>   can be kept ("Keep it queued", cap 10) and runs the next time the app opens with the
+>   backend reachable. Server-side refusals are NOT retried forever - they are marked failed
+>   and only retried by the manual "Run queued". `services/generationQueue.js`.
+> - **Settings -> Offline** shows cached file count + MB, queued count, and clear buttons.
+> - **Verified on the S9 today**: Settings showed `12 files | 2.3 MB` cached, and with Wi-Fi
+>   and mobile data both switched off the gallery still listed all 12 wallpapers with no
+>   placeholders. 29 headless checks pass (`npm run check:offline`).
+> - Not yet tested on the device: the queue itself (queueing a failed generation, then
+>   running it when the backend answers).
+> - Cache limit is 60 images / queue limit is 10 prompts; both are in the Settings text.
+
+
+
+
 > **UPDATE 2026-09-13 (end of day)**
 >
 > - **The access key is armed and working.** `FROGPAPER_ACCESS_KEY` is set on Render and the
