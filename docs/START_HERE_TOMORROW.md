@@ -1,5 +1,24 @@
 # START HERE NEXT TIME
 
+> **UPDATE 2026-09-13 (end of day)**
+>
+> - **The access key is armed and working.** `FROGPAPER_ACCESS_KEY` is set on Render and the
+>   key is entered in app Settings on the S9. Verified from the PC: `/api/gallery` returns 401
+>   without the key and 200 with it; the app loads all 12 wallpapers again.
+> - `/api/images/*` also accepts `?key=***` (commit `fb056c0`) because `<Image>` and
+>   `File.downloadFileAsync` cannot send headers. Without that, arming the key would have
+>   broken every thumbnail, save-to-device and set-as-wallpaper action.
+> - The masked key box **cannot** be filled over USB: Android blocks synthetic typing into
+>   password fields. It has to be typed on the phone (or pasted by the user).
+> - Phone test results for 1.9.18 (installed, versionCode 9): Surprise Me dice works, the Daily
+>   wallpaper section is present, and the fallback notice appeared for real ("Gemini was
+>   unavailable - used the free Pollinations engine"). Still untested on the phone: favorites
+>   across restarts, save-to-device, set-as-wallpaper, the daily run itself.
+> - Commits today: `fe8b7f0` (restore + fixes), `a0cec63` (docs), `fb056c0` (key fix).
+
+---
+
+
 ## Where we left off (Sept 13, 2026)
 
 Restored the features that commit `3965c0a` had silently deleted, plus two small fixes and a
