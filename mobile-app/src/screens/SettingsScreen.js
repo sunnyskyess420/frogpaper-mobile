@@ -597,11 +597,11 @@ export default function SettingsScreen() {
         />
         <View style={styles.buttonRow}>
           <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveCustomUrl}>
-            <Text style={styles.buttonText}>Save URL</Text>
+            <Text style={styles.buttonSecondaryText}>Save URL</Text>
           </Pressable>
           {state.customUrl && (
             <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearCustomUrl}>
-              <Text style={styles.buttonText}>Clear</Text>
+              <Text style={styles.buttonSecondaryText}>Clear</Text>
             </Pressable>
           )}
         </View>
@@ -691,14 +691,14 @@ export default function SettingsScreen() {
             </Text>
             <View style={styles.buttonRow}>
               <Pressable style={[styles.button, styles.buttonSecondary]} onPress={chooseFolder}>
-                <Text style={styles.buttonText}>Choose SD card folder…</Text>
+                <Text style={styles.buttonSecondaryText}>Choose SD card folder…</Text>
               </Pressable>
               {saveTarget.target === FOLDER && (
                 <Pressable
                   style={[styles.button, styles.buttonSecondary]}
                   onPress={resetToGallery}
                 >
-                  <Text style={styles.buttonText}>Use phone gallery</Text>
+                  <Text style={styles.buttonSecondaryText}>Use phone gallery</Text>
                 </Pressable>
               )}
             </View>
@@ -743,13 +743,13 @@ export default function SettingsScreen() {
             style={[styles.button, styles.buttonSecondary]}
             onPress={confirmClearImages}
           >
-            <Text style={styles.buttonText}>Clear cached images</Text>
+            <Text style={styles.buttonSecondaryText}>Clear cached images</Text>
           </Pressable>
           <Pressable
             style={[styles.button, styles.buttonSecondary]}
             onPress={confirmClearQueue}
           >
-            <Text style={styles.buttonText}>Clear queue</Text>
+            <Text style={styles.buttonSecondaryText}>Clear queue</Text>
           </Pressable>
         </View>
       </View>
@@ -772,11 +772,11 @@ export default function SettingsScreen() {
         />
         <View style={styles.buttonRow}>
           <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveAccessKey}>
-            <Text style={styles.buttonText}>Save key</Text>
+            <Text style={styles.buttonSecondaryText}>Save key</Text>
           </Pressable>
           {state.accessKey && (
             <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearAccessKey}>
-              <Text style={styles.buttonText}>Clear</Text>
+              <Text style={styles.buttonSecondaryText}>Clear</Text>
             </Pressable>
           )}
         </View>
@@ -807,11 +807,11 @@ export default function SettingsScreen() {
         />
         <View style={styles.buttonRow}>
           <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveGeminiKey}>
-            <Text style={styles.buttonText}>Save</Text>
+            <Text style={styles.buttonSecondaryText}>Save</Text>
           </Pressable>
           {state.byokStatus.gemini && (
             <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearGeminiKey}>
-              <Text style={styles.buttonText}>Clear</Text>
+              <Text style={styles.buttonSecondaryText}>Clear</Text>
             </Pressable>
           )}
         </View>
@@ -829,11 +829,11 @@ export default function SettingsScreen() {
         />
         <View style={styles.buttonRow}>
           <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveHfToken}>
-            <Text style={styles.buttonText}>Save</Text>
+            <Text style={styles.buttonSecondaryText}>Save</Text>
           </Pressable>
           {state.byokStatus.huggingface && (
             <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearHfToken}>
-              <Text style={styles.buttonText}>Clear</Text>
+              <Text style={styles.buttonSecondaryText}>Clear</Text>
             </Pressable>
           )}
         </View>
@@ -851,11 +851,11 @@ export default function SettingsScreen() {
         />
         <View style={styles.buttonRow}>
           <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveReplicateToken}>
-            <Text style={styles.buttonText}>Save</Text>
+            <Text style={styles.buttonSecondaryText}>Save</Text>
           </Pressable>
           {state.byokStatus.replicate && (
             <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearReplicateToken}>
-              <Text style={styles.buttonText}>Clear</Text>
+              <Text style={styles.buttonSecondaryText}>Clear</Text>
             </Pressable>
           )}
         </View>
@@ -894,7 +894,7 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.25</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.26</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>
@@ -956,13 +956,13 @@ export default function SettingsScreen() {
             />
             <View style={styles.buttonRow}>
               <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveSentryConfig}>
-                <Text style={styles.buttonText}>Save</Text>
+                <Text style={styles.buttonSecondaryText}>Save</Text>
               </Pressable>
               <Pressable
                 style={[styles.button, styles.buttonSecondary]}
                 onPress={clearSentryConfig}
               >
-                <Text style={styles.buttonText}>Clear</Text>
+                <Text style={styles.buttonSecondaryText}>Clear</Text>
               </Pressable>
             </View>
             <View style={styles.statusRow}>
@@ -987,7 +987,7 @@ export default function SettingsScreen() {
               style={[styles.button, styles.buttonSecondary]}
               onPress={sendTestEventNow}
             >
-              <Text style={styles.buttonText}>Send test event</Text>
+              <Text style={styles.buttonSecondaryText}>Send test event</Text>
             </Pressable>
             {state.testEventFeedback ? (
               <View style={styles.feedbackCard}>
@@ -1133,8 +1133,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.md,
   },
+  // Deliberately lighter than colors.card and outlined: the old fill was
+  // cardAlt (#0F1828) on a #121D30 card, so the button shape was invisible.
   buttonSecondary: {
-    backgroundColor: colors.cardAlt,
+    backgroundColor: colors.control,
+    borderWidth: 1,
+    borderColor: colors.controlBorder,
     flex: 1,
     marginHorizontal: spacing.xs,
   },

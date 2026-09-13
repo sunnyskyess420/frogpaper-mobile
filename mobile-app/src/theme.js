@@ -10,6 +10,10 @@ export const colors = {
   accentDim: '#10B981',
   danger: '#F87171',
   warn: '#FBBF24',
+  // Interactive controls sitting on dark cards: a fill + border pair that stays
+  // visible against colors.card, and high-contrast text on top of it.
+  control: '#1C2B45',
+  controlBorder: '#35507A',
 };
 
 export const spacing = {
