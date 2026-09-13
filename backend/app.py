@@ -25,6 +25,15 @@ When FROGPAPER_ACCESS_KEY is set (or backend/access_key.txt exists), every
 and /api/images/* also accepts it as "?key=..." for clients that cannot send
 headers (see require_access_key). With no key configured nothing is enforced.
 
+Image storage
+-------------
+Gallery images are read and written through services.storage, which picks a
+backend from the environment: the local filesystem by default (honouring
+FROGPAPER_IMAGES_DIR so a Render persistent disk can be mounted), or any
+S3-compatible bucket (Cloudflare R2 / AWS S3) once the FROGPAPER_S3_* vars
+are set. Images are always served through /api/images/<name> - the bucket is
+never public. See docs/STORAGE.md.
+
 Run (Windows)
 -------------
 cd E:\\FROGPAPER\\FrogPaperMobile\\backend
@@ -38,7 +47,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 
@@ -47,20 +56,20 @@ from services.image_generation import (
     PROVIDERS,
     GenerationError,
     default_provider_id,
-    delete_sidecar,
-    find_gallery_image,
     fit_device_wallpaper,
     generate_image,
     generate_image_gemini,
     generate_image_huggingface,
     generate_image_replicate,
-    list_gallery_images,
-    recent_prompts,
     refresh_provider_statuses,
     save_uploaded_image,
 )
+from services.storage import create_storage
 
 BASE_DIR = Path(__file__).resolve().parent
+# Default local gallery directory. FROGPAPER_IMAGES_DIR overrides it (that is
+# how a Render persistent disk gets mounted) and S3/R2 wins over both - see
+# services/storage.create_storage and docs/STORAGE.md.
 IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -84,6 +93,17 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 log = logging.getLogger("frogpaper")
+
+# Gallery storage: local disk by default, an S3-compatible bucket when the
+# FROGPAPER_S3_* environment variables are present. Every route below goes
+# through this object, so the mobile app cannot tell the two apart.
+IMAGE_STORAGE = create_storage(IMAGES_DIR)
+try:
+    # One line in the deploy log that says which backend is live and that it
+    # is actually usable - the first thing to check on Render.
+    log.info("Image storage ready: %s", IMAGE_STORAGE.verify())
+except Exception as exc:  # noqa: BLE001 - never block startup on this
+    log.error("Image storage check failed (%s) - gallery access may fail.", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +213,24 @@ def _error_response(message, status, details=None):
     return jsonify(body), status
 
 
+def _run_provider(generator, **kwargs):
+    """Run a provider and publish what it produced into the gallery storage.
+
+    The provider functions are unchanged: they write an image plus its
+    sidecar into a plain local directory. With local storage that directory
+    *is* the gallery (nothing to move, exactly as before); with S3/R2 it is a
+    temporary folder whose contents are uploaded and then thrown away.
+    """
+    with IMAGE_STORAGE.staging() as staging:
+        image = generator(images_dir=staging, **kwargs)
+        stored_name = IMAGE_STORAGE.publish_from(staging, image["filename"])
+    if stored_name != image["filename"]:
+        # Remote storage had to rename it (timestamped name already taken).
+        image["filename"] = stored_name
+        image["url"] = f"/api/images/{stored_name}"
+    return image
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -201,7 +239,7 @@ def _error_response(message, status, details=None):
 def health():
     """Health check used by the mobile app to detect the backend."""
     refresh_provider_statuses()
-    images = list_gallery_images(IMAGES_DIR)
+    images = IMAGE_STORAGE.list_images()
     return jsonify(
         {
             "success": True,
@@ -210,6 +248,7 @@ def health():
             "version": APP_VERSION,
             "server_time": datetime.now(timezone.utc).isoformat(),
             "images_count": len(images),
+            "storage": IMAGE_STORAGE.describe(),
             "providers_active": [p["id"] for p in PROVIDERS if p["status"] == "active"],
         }
     )
@@ -285,12 +324,12 @@ def generate():
     try:
         if provider_id == "replicate":
             try:
-                image = generate_image_replicate(
+                image = _run_provider(
+                    generate_image_replicate,
                     prompt=prompt,
                     width=width,
                     height=height,
                     seed=seed,
-                    images_dir=IMAGES_DIR,
                     negative_prompt=negative_prompt or None,
                     user_api_token=user_replicate_token,
                 )
@@ -306,26 +345,26 @@ def generate():
                     "Replicate failed (%s); falling back to Pollinations",
                     rep_exc,
                 )
-                image = generate_image(
+                image = _run_provider(
+                    generate_image,
                     prompt=prompt,
                     width=width,
                     height=height,
                     seed=seed,
                     model=fallback.get("model", "flux"),
-                    images_dir=IMAGES_DIR,
                     negative_prompt=negative_prompt or None,
                 )
                 image["provider_fallback_from"] = "replicate"
                 image["fallback_reason"] = str(rep_exc)
         elif provider_id == "gemini":
             try:
-                image = generate_image_gemini(
+                image = _run_provider(
+                    generate_image_gemini,
                     prompt=prompt,
                     width=width,
                     height=height,
                     seed=seed,
                     model=provider.get("model", "gemini-2.5-flash-image"),
-                    images_dir=IMAGES_DIR,
                     negative_prompt=negative_prompt or None,
                     user_api_key=user_gemini_key,
                 )
@@ -340,25 +379,25 @@ def generate():
                 log.warning(
                     "Gemini failed (%s); falling back to Pollinations", gem_exc
                 )
-                image = generate_image(
+                image = _run_provider(
+                    generate_image,
                     prompt=prompt,
                     width=width,
                     height=height,
                     seed=seed,
                     model=fallback.get("model", "flux"),
-                    images_dir=IMAGES_DIR,
                     negative_prompt=negative_prompt or None,
                 )
                 image["provider_fallback_from"] = "gemini"
                 image["fallback_reason"] = str(gem_exc)
         elif provider_id == "huggingface":
             try:
-                image = generate_image_huggingface(
+                image = _run_provider(
+                    generate_image_huggingface,
                     prompt=prompt,
                     width=width,
                     height=height,
                     seed=seed,
-                    images_dir=IMAGES_DIR,
                     negative_prompt=negative_prompt or None,
                     user_api_token=user_hf_token,
                 )
@@ -374,25 +413,25 @@ def generate():
                     "Hugging Face failed (%s); falling back to Pollinations",
                     hf_exc,
                 )
-                image = generate_image(
+                image = _run_provider(
+                    generate_image,
                     prompt=prompt,
                     width=width,
                     height=height,
                     seed=seed,
                     model=fallback.get("model", "flux"),
-                    images_dir=IMAGES_DIR,
                     negative_prompt=negative_prompt or None,
                 )
                 image["provider_fallback_from"] = "huggingface"
                 image["fallback_reason"] = str(hf_exc)
         else:
-            image = generate_image(
+            image = _run_provider(
+                generate_image,
                 prompt=prompt,
                 width=width,
                 height=height,
                 seed=seed,
                 model=provider.get("model", "flux"),
-                images_dir=IMAGES_DIR,
                 negative_prompt=negative_prompt or None,
             )
     except GenerationError as exc:
@@ -413,7 +452,7 @@ def gallery():
     limit = _parse_int(request.args.get("limit"), 200, 1, 500)
     offset = _parse_int(request.args.get("offset"), 0, 0, 100000)
 
-    images = list_gallery_images(IMAGES_DIR)
+    images = IMAGE_STORAGE.list_images()
     total = len(images)
     page = images[offset : offset + limit]
     return jsonify(
@@ -430,7 +469,7 @@ def gallery():
 @app.get("/api/gallery/<path:filename>")
 def gallery_detail(filename):
     """Metadata for a single gallery image."""
-    entry = find_gallery_image(IMAGES_DIR, filename)
+    entry = IMAGE_STORAGE.find_image(filename)
     if entry is None:
         return _error_response(f"Image '{Path(filename).name}' not found.", 404)
     return jsonify({"success": True, "image": entry})
@@ -438,23 +477,21 @@ def gallery_detail(filename):
 
 @app.delete("/api/gallery/<path:filename>")
 def gallery_delete(filename):
-    """Delete an image from the gallery directory."""
+    """Delete an image (and its sidecar) from the gallery."""
     safe_name = Path(filename).name
-    target = IMAGES_DIR / safe_name
-    if not target.is_file():
-        return _error_response(f"Image '{safe_name}' not found.", 404)
     try:
-        target.unlink()
-        delete_sidecar(IMAGES_DIR, safe_name)
-    except OSError as exc:
+        deleted = IMAGE_STORAGE.delete_image(safe_name)
+    except Exception as exc:  # noqa: BLE001 - storage backends raise various types
         log.error("Delete failed for %s: %s", safe_name, exc)
         return _error_response("Could not delete the image file.", 500)
+    if not deleted:
+        return _error_response(f"Image '{safe_name}' not found.", 404)
     log.info("Deleted %s", safe_name)
     return jsonify(
         {
             "success": True,
             "deleted": safe_name,
-            "images_count": len(list_gallery_images(IMAGES_DIR)),
+            "images_count": len(IMAGE_STORAGE.list_images()),
         }
     )
 
@@ -469,9 +506,14 @@ def gallery_upload():
         )
     data = file.read()
     try:
-        image = save_uploaded_image(data, file.filename, IMAGES_DIR)
+        with IMAGE_STORAGE.staging() as staging:
+            image = save_uploaded_image(data, file.filename, staging)
+            stored_name = IMAGE_STORAGE.publish_from(staging, image["filename"])
     except ValueError as exc:
         return _error_response(str(exc), 400)
+    if stored_name != image["filename"]:
+        image["filename"] = stored_name
+        image["url"] = f"/api/images/{stored_name}"
     log.info("Uploaded %s", image["filename"])
     return jsonify({"success": True, "image": image}), 201
 
@@ -480,18 +522,43 @@ def gallery_upload():
 def prompts_recent():
     """Distinct recently-used prompts, newest first (for quick-reuse chips)."""
     limit = _parse_int(request.args.get("limit"), 12, 1, 50)
-    prompts = recent_prompts(IMAGES_DIR, limit=limit)
+    prompts = IMAGE_STORAGE.recent_prompts(limit=limit)
     return jsonify({"success": True, "count": len(prompts), "prompts": prompts})
 
 
 @app.get("/api/images/<path:filename>")
 def serve_image(filename):
-    """Serve a single image file from the gallery directory."""
+    """Serve a single image file from the gallery.
+
+    Local storage keeps using send_from_directory (ETag, 304 and byte ranges
+    for free, exactly as before); remote storage streams the object through
+    the backend so the bucket stays private and the access-key gate applies.
+    """
     safe_name = Path(filename).name  # neutralise any path traversal
-    target = IMAGES_DIR / safe_name
-    if not target.is_file():
-        return _error_response(f"Image '{safe_name}' not found.", 404)
-    response = send_from_directory(IMAGES_DIR, safe_name, conditional=True)
+    local_root = IMAGE_STORAGE.local_root
+    if local_root is not None:
+        if not IMAGE_STORAGE.exists(safe_name):
+            return _error_response(f"Image '{safe_name}' not found.", 404)
+        response = send_from_directory(local_root, safe_name, conditional=True)
+    else:
+        try:
+            stored = IMAGE_STORAGE.open_stream(safe_name)
+        except FileNotFoundError:
+            return _error_response(f"Image '{safe_name}' not found.", 404)
+        response = send_file(
+            stored.stream,
+            mimetype=stored.mimetype,
+            download_name=safe_name,
+            conditional=True,
+            etag=stored.etag,
+            last_modified=stored.last_modified,
+        )
+        # A bucket stream has no fileno, so werkzeug cannot work the length
+        # out for itself and would send the body chunked. We already know it
+        # from the GET, and clients (including the app's save-to-device
+        # download) use it for progress.
+        if stored.size_bytes:
+            response.content_length = stored.size_bytes
     response.headers["Cache-Control"] = "public, max-age=86400"
     return response
 
@@ -567,7 +634,7 @@ def slideshow_next():
     if not config["enabled"]:
         return _error_response("Slideshow is not enabled.", 400)
     
-    images = list_gallery_images(IMAGES_DIR)
+    images = IMAGE_STORAGE.list_images()
     if not images:
         return _error_response("No images available for slideshow.", 404)
     

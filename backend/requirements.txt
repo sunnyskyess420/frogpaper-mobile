@@ -6,3 +6,7 @@ requests>=2.31
 Pillow>=10.0
 gunicorn>=21.0
 waitress>=3.0
+# S3-compatible gallery storage (Cloudflare R2 / AWS S3 / MinIO).
+# Only used when the FROGPAPER_S3_* environment variables are set -
+# without them the gallery stays on the local filesystem. See docs/STORAGE.md.
+boto3>=1.34

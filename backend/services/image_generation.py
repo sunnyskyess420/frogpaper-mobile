@@ -19,6 +19,8 @@ from urllib.parse import quote
 
 import requests
 
+from services.storage import VALID_EXTENSIONS, LocalFileStorage
+
 try:
     from PIL import Image, ImageFilter  # optional: metadata + enhancement
 except ImportError:  # pragma: no cover
@@ -361,7 +363,6 @@ PROVIDERS = [
 REQUEST_TIMEOUT = (10, 120)
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2.0
-VALID_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 USER_AGENT = "FrogPaper/1.7 (mobile app backend)"
 MAX_NEGATIVE_PROMPT_LENGTH = 300
 
@@ -392,19 +393,6 @@ def _write_sidecar(image_path: Path, extra: dict):
         )
     except OSError as exc:  # noqa: BLE001 - metadata must never break saving
         log.warning("Could not write sidecar for %s: %s", image_path.name, exc)
-
-
-def _read_sidecar(image_path: Path) -> dict:
-    """Load sidecar metadata for an image, or {} when absent/corrupt."""
-    sidecar = _sidecar_path(image_path)
-    if not sidecar.is_file():
-        return {}
-    try:
-        data = json.loads(sidecar.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError) as exc:  # noqa: BLE001
-        log.warning("Could not read sidecar for %s: %s", image_path.name, exc)
-        return {}
 
 
 def delete_sidecar(images_dir, filename):
@@ -439,17 +427,6 @@ def _read_dimensions(data: bytes):
             return {"width": img.width, "height": img.height}
     except Exception:  # noqa: BLE001 - metadata is best-effort only
         return None
-
-
-def _dimensions_from_path(path: Path):
-    """Header-only dimension read - cheap even for large galleries."""
-    if Image is None:
-        return {}
-    try:
-        with Image.open(path) as img:
-            return {"width": img.width, "height": img.height}
-    except Exception:  # noqa: BLE001
-        return {}
 
 
 def _enhance_resolution(data: bytes, width: int, height: int):
@@ -505,9 +482,6 @@ def _enhance_resolution(data: bytes, width: int, height: int):
     except Exception as exc:  # noqa: BLE001 - metadata-grade best effort
         log.warning("Resolution enhancement skipped: %s", exc)
         return None
-
-
-_dimension_cache = {}
 
 
 def generate_image(
@@ -1524,78 +1498,29 @@ def generate_image_replicate(
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 
-def _entry_for(path: Path):
-    """Build gallery metadata for one file (dimension result is cached)."""
-    stat = path.stat()
-    cache_key = (path.name, stat.st_mtime_ns, stat.st_size)
-    dimensions = _dimension_cache.get(cache_key)
-    if dimensions is None:
-        dimensions = _dimensions_from_path(path)
-        _dimension_cache[cache_key] = dimensions
-    if path.name.startswith(("pollinations_", "gemini_", "huggingface_", "replicate_")):
-        source = "generated"
-    elif path.name.startswith("uploaded_"):
-        source = "uploaded"
-    else:
-        source = "imported"
-    entry = {
-        "filename": path.name,
-        "url": f"/api/images/{path.name}",
-        "source": source,
-        "width": dimensions.get("width"),
-        "height": dimensions.get("height"),
-        "size_bytes": stat.st_size,
-        "created_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
-    }
-    # Merge persisted sidecar metadata (prompt, seed, ...) when present.
-    entry.update({k: v for k, v in _read_sidecar(path).items() if v is not None})
-    return entry
-
+# ---------------------------------------------------------------------------
+# Gallery (local directory)
+#
+# The Flask app reads the gallery through services.storage, so the same code
+# works for a local disk, a Render disk and an S3/R2 bucket. These three
+# helpers stay for scripts that hand them a plain directory
+# (backend/test_generation.py) and are thin wrappers over LocalFileStorage -
+# there is only one implementation of the entry shape.
+# ---------------------------------------------------------------------------
 
 def find_gallery_image(images_dir, filename):
     """Metadata for one gallery image, or None if it does not exist."""
-    safe_name = Path(filename).name
-    target = Path(images_dir) / safe_name
-    if not target.is_file() or target.suffix.lower() not in VALID_EXTENSIONS:
-        return None
-    return _entry_for(target)
+    return LocalFileStorage(images_dir).find_image(filename)
 
 
 def list_gallery_images(images_dir):
     """List images in the gallery dir, newest first, with metadata."""
-    images_dir = Path(images_dir)
-    if not images_dir.exists():
-        return []
-
-    entries = []
-    for path in images_dir.iterdir():
-        if not path.is_file() or path.suffix.lower() not in VALID_EXTENSIONS:
-            continue
-        entries.append(_entry_for(path))
-
-    entries.sort(key=lambda item: item["created_at"], reverse=True)
-    return entries
+    return LocalFileStorage(images_dir).list_images()
 
 
 def recent_prompts(images_dir, limit=12):
     """Distinct recently-used prompts, newest first (from sidecar files)."""
-    seen = set()
-    prompts = []
-    for entry in list_gallery_images(images_dir):
-        text = (entry.get("prompt") or "").strip()
-        if len(text) < 3 or text in seen:
-            continue
-        seen.add(text)
-        prompts.append(
-            {
-                "prompt": text,
-                "negative_prompt": entry.get("negative_prompt"),
-                "used_at": entry.get("created_at"),
-            }
-        )
-        if len(prompts) >= limit:
-            break
-    return prompts
+    return LocalFileStorage(images_dir).recent_prompts(limit=limit)
 
 
 def save_uploaded_image(data, original_filename, images_dir):
