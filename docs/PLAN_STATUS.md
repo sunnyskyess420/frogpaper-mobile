@@ -7,7 +7,10 @@ Updated 2026-09-10 after cloud independence and generation UX hardening tasks.
 
 ## Current status - 2026-09-13 - THIS SECTION SUPERSEDES THE SNAPSHOT BELOW
 
-Repo `C:\FrogPaperMobile` @ `5822bcb`. Based on reading the current source, a live call to the
+Repo `C:\FrogPaperMobile` @ `b2e337f` (app 1.9.27 / versionCode 18, backend 1.9.28).
+Since this section was first written the app also gained offline support (cached gallery +
+generation queue), SD-card saving, a new icon/launch screen, clear offline messaging and
+backend-side frog-breed variety. Based on reading the current source, a live call to the
 deployed backend, and a release build of the app - not on the older notes.
 
 | Phase | Scope | Status |

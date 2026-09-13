@@ -1,136 +1,104 @@
 # START HERE NEXT TIME
 
-> **UPDATE 2026-09-13 (afternoon) - offline support shipped (v1.9.19 / versionCode 10)**
->
-> The app no longer dies without the backend.
->
-> - **Offline gallery**: the newest wallpapers are cached on the phone and the last gallery
->   list is stored, so with no connection the grid still opens and says "Offline - showing
->   wallpapers saved on this phone". New modules: `services/imageCache.js`,
->   `services/galleryCache.js`, `components/WallpaperImage.js` (remote URL first, cached file
->   as fallback, neutral placeholder last).
-> - **Offline generation queue**: a generation that fails because the backend is unreachable
->   can be kept ("Keep it queued", cap 10) and runs the next time the app opens with the
->   backend reachable. Server-side refusals are NOT retried forever - they are marked failed
->   and only retried by the manual "Run queued". `services/generationQueue.js`.
-> - **Settings -> Offline** shows cached file count + MB, queued count, and clear buttons.
-> - **Verified on the S9 today**: Settings showed `12 files | 2.3 MB` cached, and with Wi-Fi
->   and mobile data both switched off the gallery still listed all 12 wallpapers with no
->   placeholders. 29 headless checks pass (`npm run check:offline`).
-> - Not yet tested on the device: the queue itself (queueing a failed generation, then
->   running it when the backend answers).
-> - Cache limit is 60 images / queue limit is 10 prompts; both are in the Settings text.
+Last updated: **2026-09-13, end of day** (this file replaces the stacked updates
+from earlier sessions; older notes are in the git history).
 
+## Where things stand
 
+- **App 1.9.27** (versionCode 18) is installed on the Galaxy S9.
+- **Backend 1.9.28** is live at `https://frogpaper-mobile.onrender.com` (auto-deploys
+  on push to `main`).
+- Everything is committed and pushed. The server's gallery is intentionally empty
+  right now - wallpapers are personal images and are no longer committed to git
+  (this repository is public).
 
+## What shipped on 2026-09-13
 
-> **UPDATE 2026-09-13 (end of day)**
->
-> - **The access key is armed and working.** `FROGPAPER_ACCESS_KEY` is set on Render and the
->   key is entered in app Settings on the S9. Verified from the PC: `/api/gallery` returns 401
->   without the key and 200 with it; the app loads all 12 wallpapers again.
-> - `/api/images/*` also accepts `?key=***` (commit `fb056c0`) because `<Image>` and
->   `File.downloadFileAsync` cannot send headers. Without that, arming the key would have
->   broken every thumbnail, save-to-device and set-as-wallpaper action.
-> - The masked key box **cannot** be filled over USB: Android blocks synthetic typing into
->   password fields. It has to be typed on the phone (or pasted by the user).
-> - Phone test results for 1.9.18 (installed, versionCode 9): Surprise Me dice works, the Daily
->   wallpaper section is present, and the fallback notice appeared for real ("Gemini was
->   unavailable - used the free Pollinations engine"). Still untested on the phone: favorites
->   across restarts, save-to-device, set-as-wallpaper, the daily run itself.
-> - Commits today: `fe8b7f0` (restore + fixes), `a0cec63` (docs), `fb056c0` (key fix).
+1. **Restored three features** that commit `3965c0a` had wiped: Surprise-me dice +
+   20 curated prompts, prompt favourites, and the daily auto-wallpaper.
+2. **Honest fallback notice** on the result card when a paid engine fails and the
+   free one is used.
+3. **Access key armed** on Render (and in app Settings). `/api/images/*` also accepts
+   `?key=...`, because image tags and file downloads cannot send headers.
+4. **Offline support**: cached gallery list + cached images, and a queue for
+   generations that fail while the backend is unreachable.
+5. **Pluggable storage** in the backend: local disk, a custom directory, or any
+   S3-compatible bucket (Cloudflare R2 / AWS S3). Not configured - everything is free.
+6. **New look**: the frog mascot is the app icon and the launch screen (no more
+   stretched pale square), Home shows the mascot instead of the "FP" tile, and the
+   Settings buttons were fixed (they were near-black on near-black).
+7. **Save to SD card** via Android's folder picker (Settings -> Save location).
+8. **Generate screen rebuilt** so the button sits right after the inputs and the
+   long "Need inspiration?" list is collapsed below it.
+9. **Clear "No internet connection" + Retry** instead of an empty engine list.
+10. **Frog variety in the backend**: 17 frog + 5 toad breeds, picked per generation
+    (deterministic when a seed is given), instead of one fixed tree-frog phrase.
+11. **Git history purged** of the wallpapers and old screenshots (the repo is public).
 
----
+## Verified on the device
 
+- App installs and runs (1.9.27), no launch crash, new icon + launch screen
+- Gallery loads with the access key; offline it shows the saved copies
+- Airplane mode: the offline gallery works and the engine area explains the problem
+- Generation queue: a generation made offline ran when the connection returned
+- Saving to the SD card works
+- Button contrast measured on screen: 12.9:1 (was ~1.1:1)
 
-## Where we left off (Sept 13, 2026)
+## Open / not finished
 
-Restored the features that commit `3965c0a` had silently deleted, plus two small fixes and a
-version bump. Latest commit `5822bcb` (local only - not pushed yet). A fresh release APK is
-built and build-verified, but NOT yet installed or tested on the phone.
-
-## What changed today
-
-1. Surprise Me dice + the 20 curated prompts are back (Generate screen).
-2. Prompt favorites are back (star to save, tap a chip to reuse, X to delete, max 12).
-3. Daily auto-wallpaper is back - opt-in and default OFF: first open of the day generates,
-   saves and sets a wallpaper. Switch + source (Surprise / Favorites) live in Settings.
-4. The result card now says when a paid engine fell back to the free Pollinations engine.
-5. The in-app help no longer claims Gemini gives ~1,500 images/day (that is the text limit).
-6. `api.js` now honours a per-call `timeoutMs`, so generation really gets 180s on slow queues.
-7. Version 1.9.18 / versionCode 9 (app.json + the generated android/app/build.gradle).
-
-Deliberately NOT restored: the 5 extra art engines (watercolor / pixel / 3D / synthwave /
-low-poly). You said no. The 7 style presets are unchanged.
+- **Crash reporting**: the standard tool (Sentry) cannot be enabled - its Android
+  plugin is incompatible with the Gradle version this project builds with. Plan:
+  a small built-in error log shown in Settings -> Diagnostics. Not built yet.
+- **Settings screen tidy-up**: the owner finds it unfriendly. Waiting on what
+  specifically bothers them before changing it.
+- **Frog pool rebalance** (optional): the free model occasionally mangles the more
+  obscure breeds (golden toad, glass frog, flying frog); the pool could be trimmed
+  toward reliably-rendered frogs.
+- **Gemini key**: was quota-blocked; Hugging Face is the daily driver.
 
 ## Where everything lives
 
-- Project folder: C:\FrogPaperMobile\
-- APK: C:\FrogPaperMobile\mobile-app\android\app\build\outputs\apk\release\app-release.apk
-  (78.4 MB, built 2026-09-13 11:59)
-- Backend: https://frogpaper-mobile.onrender.com (live, auto-deploys on push)
-- App version: 1.9.18 / versionCode 9
-- API keys: stored ONLY on the phone.
+- Project: `C:\FrogPaperMobile`
+- APK: `C:\FrogPaperMobile\mobile-app\android\app\build\outputs\apk\release\app-release.apk`
+- Backups on this PC: `C:\FrogPaperBackups` (wallpapers + a pre-purge repo bundle)
+- Keys: on the phone only. The server's access key is `backend\access_key.txt` (gitignored).
 
-## Install on the phone
+## Build + install cheat sheet
 
-1. Plug the phone in with USB debugging on.
-2. `%ANDROID_HOME%\platform-tools\adb.exe install -r C:\FrogPaperMobile\mobile-app\android\app\build\outputs\apk\release\app-release.apk`
-3. No uninstall needed (same package, higher versionCode).
+```powershell
+$env:ANDROID_HOME = 'C:\Users\alive\AppData\Local\Android\Sdk'   # required for Gradle
+cd C:\FrogPaperMobile\mobile-app\android
+.\gradlew.bat assembleRelease          # ~1-2 min for JS-only changes
+adb install -r app\build\outputs\apk\release\app-release.apk
+```
 
-## Build cheat sheet (updated)
-
-- Set the SDK path first in a new terminal, or Gradle fails with "SDK location not found":
-  `$env:ANDROID_HOME = 'C:\Users\alive\AppData\Local\Android\Sdk'`
-- JS-only change (screens, api.js, services): `cd mobile-app\android` then `.\gradlew.bat assembleRelease` (~2 min)
-- app.json changed: mirror versionCode/versionName in `mobile-app\android\app\build.gradle`
-  (fast, what we did) or delete android\ and `npx expo prebuild --platform android` (~12 min)
-- Web bundle check: `cd mobile-app` then `npx expo export --platform web`
-- package.json changed: run `npm install` in mobile-app first
-
-## Verified today
-
-- Web bundle: `npx expo export --platform web` exit 0 (re-run independently by AutoCoder)
-- Release build: `gradlew assembleRelease` exit 0; `aapt dump badging` reports
-  versionCode 9 / versionName 1.9.18
-- NOT verified: the new UI on a real device (Surprise Me, favorites, fallback banner,
-  daily wallpaper).
+- `app.json` changed → mirror `versionCode` / `versionName` in
+  `mobile-app\android\app\build.gradle` (fast), or re-run `npx expo prebuild` (~12 min,
+  and re-apply the icon/splash scripts in `mobile-app/scripts/` if you do).
+- Bundle check: `cd mobile-app` then `npx expo export --platform web`.
+- Backend-only changes need no APK: push and Render redeploys.
+- Icons changed but the phone still shows the old one? Remove and re-add the
+  home-screen shortcut.
 
 ## To-do (priority order)
 
-1. Install the new APK and test: Surprise Me dice, favorites, daily-wallpaper switch,
-   the fallback banner.
-2. Arm the access key: Render -> Environment -> add `FROGPAPER_ACCESS_KEY` (use the value in
-   `backend\access_key.txt`), then paste the same value into app Settings -> Access key.
-   Right now the API answers anyone who knows the URL.
-3. Gemini: retry after the daily quota reset (Hugging Face stays the daily driver).
-4. Cloud images live on ephemeral storage - the 12 images vanish on the next redeploy.
-   Needs S3/R2 or a Render disk.
-5. Offline cache + queued generations.
+1. Crash reporting (built-in error log) - planned, not built.
+2. Settings tidy-up - needs one sentence from the owner about what is unfriendly.
+3. Optional: rebalance the frog pool toward reliably-rendered breeds.
+4. Gemini: retry after the daily quota resets.
 
-The full list with A/B/C/D/E/F IDs is the checklist AutoCoder delivered on 2026-09-13.
+## Decided against - do not build these
 
-## Reminders
+- **Style transfer / image filters** - never.
+- **Text overlay on images** - never.
+- **Store release (Play / App Store)** - no store fees. Distribution is a direct APK.
+- **Paid services of any kind** - free options only.
+- **The app syncing anything to the PC** - the phone and the server only.
 
-- Memory trouble from age 7 is OK - ask "where are we?" any time
-- SHORT questions work best; say "too much" if overwhelmed
-- Never paste keys/tokens in chat - first 4 characters only
-- Do NOT re-add a Replicate key unless you want to pay ~2.5 cents per wallpaper
-- `docs\WHERE_WE_STAND_2026-09-13.md` was written by another session. It claims the Sept 12 APK
-  definitely contains the gestures - nobody verified that. Keep or delete as you like.
+## Working with me (the owner)
 
-## Decided against - do not build these (owner decision, 2026-09-13)
-
-- **Style transfer / image filters** - never. Not wanted in this app.
-- **Text overlay on images** - never. Not wanted in this app.
-- **Google Play / App Store release** - no. The owner will not pay store fees.
-  Distribution is a direct APK (adb install or a shared file with "install unknown
-  apps" enabled). Anything that only makes sense for a store listing (privacy policy,
-  content rating, screenshots, AAB) is out of scope.
-- **Any paid service** - the owner is on income support. No paid tiers, no paid
-  storage, no paid plans. Free options only.
-
-Related consequences already in force: wallpapers are NOT committed to git (public
-repo), the cloud gallery is allowed to be ephemeral, and backups go to
-`C:\FrogPaperBackups` on the PC.
-
+- Short questions work best; say "too much" if it gets overwhelming.
+- Never paste keys or tokens here - first four characters only.
+- Replicate is the only paid engine (~2.5c per wallpaper): the key is saved on the
+  phone, so just don't pick that chip unless you mean to pay.
+- The owner does the phone-side taps; I do the code, the builds and the verification.
