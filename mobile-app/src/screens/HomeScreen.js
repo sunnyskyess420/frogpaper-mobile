@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -247,9 +248,11 @@ export default function HomeScreen() {
       }
     >
       <View style={styles.hero}>
-        <View style={styles.heroBadge}>
-          <Text style={styles.heroBadgeText}>FP</Text>
-        </View>
+        <Image
+          source={require('../../assets/mascot.png')}
+          style={styles.heroMascot}
+          resizeMode="contain"
+        />
         <Text style={styles.heroTitle}>FrogPaper</Text>
         <Text style={styles.heroTagline}>AI wallpaper studio for your phone</Text>
       </View>
@@ -431,19 +434,12 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     marginBottom: spacing.xl,
   },
-  heroBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
+  // The frog mascot replaces the old "FP" tile. Fixed box + contain so the
+  // tall artwork never distorts.
+  heroMascot: {
+    width: 76,
+    height: 120,
     marginBottom: spacing.md,
-  },
-  heroBadgeText: {
-    color: colors.bg,
-    fontSize: 24,
-    fontWeight: '800',
   },
   heroTitle: {
     color: colors.text,
