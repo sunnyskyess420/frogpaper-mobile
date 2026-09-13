@@ -24,3 +24,8 @@ mobile-app/sentry.properties
 
 # Runtime state
 backend/slideshow_config.json
+
+# Generated wallpapers are personal and this repo is public - never commit them.
+# They live on the phone, on the server, and in C:\FrogPaperBackups on the PC.
+backend/static/images/*
+!backend/static/images/.gitkeep
