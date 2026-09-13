@@ -5,7 +5,33 @@ the sandbox rebuild and live verification session, then again after the
 standalone APK build sessions (commits 7545e15 -> 44edaed -> 1ecfc78).
 Updated 2026-09-10 after cloud independence and generation UX hardening tasks.
 
-## Snapshot
+## Current status - 2026-09-13 - THIS SECTION SUPERSEDES THE SNAPSHOT BELOW
+
+Repo `C:\FrogPaperMobile` @ `5822bcb`. Based on reading the current source, a live call to the
+deployed backend, and a release build of the app - not on the older notes.
+
+| Phase | Scope | Status |
+|-------|-------|--------|
+| 1 | Architecture & planning | Done - stack chosen and proven by shipping code (Expo SDK 57 / RN 0.86 + Flask) |
+| 2 | Backend API | Core done: generate with 4 providers + fallback, gallery list/detail/upload/delete, prompts, slideshow, opt-in access key, Docker/Render. Missing: style transfer, text overlay, tags, rate limiting |
+| 3 | Mobile app | 6 screens, prompt builder + favorites + Surprise Me, BYOK engine picker, gestures, fallback notice. Missing: batch generation, history screen, style transfer, text overlay |
+| 4 | Mobile-specific | Save-to-device, Android set-as-wallpaper (verified on a Galaxy S9), shuffle, opt-in daily auto-wallpaper. Missing: background service, notifications, offline cache/queue, lock-screen choice |
+| 5 | Cloud | Live on Render, custom server URL + access key in Settings. Missing: persistent media storage, Drive/OneDrive/Dropbox sync |
+| 6 | Testing & QA | Two backend test scripts in repo (no CI), manual device testing. Missing: automated suite, device matrix, beta track; crash reporting disabled (Gradle 9) |
+| 7 | Deployment | GitHub + EAS + Render + local release APK 1.9.18. Missing: store submission, privacy policy, content rating, AAB, iOS |
+
+Notes:
+
+- The v1.9.14 / v1.9.15 features (Surprise Me, prompt favorites, daily auto-wallpaper, 5 extra art
+  engines) were deleted by commit `3965c0a` on 2026-09-11. On 2026-09-13 commit `5822bcb` restored
+  all of them except the 5 art engines, which were dropped on purpose.
+- The access key is built on both sides but is NOT armed on the deployed backend: `/api/gallery`
+  still answers HTTP 200 without a key.
+- Version is now 1.9.18 / versionCode 9.
+
+---
+
+## Old snapshot (2026-09-10, kept as history)
 
 | Phase | Scope | Status | Progress |
 |-------|-------|--------|----------|

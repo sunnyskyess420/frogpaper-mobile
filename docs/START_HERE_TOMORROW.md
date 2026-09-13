@@ -1,61 +1,77 @@
 # START HERE NEXT TIME
 
-## Where we left off (Sept 12, 2026)
-The app WORKS. Crash dead, BYOK works, first own-key wallpaper generated + set (Hugging Face FLUX). Engine picker done. Latest commit 60fbef5, pushed to GitHub origin/main.
+## Where we left off (Sept 13, 2026)
+
+Restored the features that commit `3965c0a` had silently deleted, plus two small fixes and a
+version bump. Latest commit `5822bcb` (local only - not pushed yet). A fresh release APK is
+built and build-verified, but NOT yet installed or tested on the phone.
+
+## What changed today
+
+1. Surprise Me dice + the 20 curated prompts are back (Generate screen).
+2. Prompt favorites are back (star to save, tap a chip to reuse, X to delete, max 12).
+3. Daily auto-wallpaper is back - opt-in and default OFF: first open of the day generates,
+   saves and sets a wallpaper. Switch + source (Surprise / Favorites) live in Settings.
+4. The result card now says when a paid engine fell back to the free Pollinations engine.
+5. The in-app help no longer claims Gemini gives ~1,500 images/day (that is the text limit).
+6. `api.js` now honours a per-call `timeoutMs`, so generation really gets 180s on slow queues.
+7. Version 1.9.18 / versionCode 9 (app.json + the generated android/app/build.gradle).
+
+Deliberately NOT restored: the 5 extra art engines (watercolor / pixel / 3D / synthwave /
+low-poly). You said no. The 7 style presets are unchanged.
 
 ## Where everything lives
+
 - Project folder: C:\FrogPaperMobile\
 - APK: C:\FrogPaperMobile\mobile-app\android\app\build\outputs\apk\release\app-release.apk
+  (78.4 MB, built 2026-09-13 11:59)
 - Backend: https://frogpaper-mobile.onrender.com (live, auto-deploys on push)
-- App version: 1.9.17 / versionCode 8 (bump to 1.9.18 / 9 at next feature release)
-- Keys: stored ONLY on phone. HF key = working. Gemini key = saved but quota-blocked.
+- App version: 1.9.18 / versionCode 9
+- API keys: stored ONLY on the phone.
 
-## Quick install (phone via USB)
-%ANDROID_HOME%\platform-tools\adb.exe install -r C:\FrogPaperMobile\mobile-app\android\app\build\outputs\apk\release\app-release.apk
+## Install on the phone
 
-## Fixed today (all committed + pushed)
-1. Launch crash (AnyTypeProvider): tilde version let npm install broken expo-clipboard 57.0.2 -> pinned exact 57.0.1
-2. BYOK popup on every Settings refresh: refresh() reset state without byokHelpVisible -> Modal read undefined as true -> added it to all 3 state resets
-3. Surprise Replicate charges: server REPLICATE_API_TOKEN auto-picked paid engine -> deleted from Render Environment
-4. Grey engine chips despite saved keys: 3-layer fix - backend reads user keys BEFORE rejecting; app isUsable() lets own keys unlock chips; getByokSnapshotAsync fixes key-load race
+1. Plug the phone in with USB debugging on.
+2. `%ANDROID_HOME%\platform-tools\adb.exe install -r C:\FrogPaperMobile\mobile-app\android\app\build\outputs\apk\release\app-release.apk`
+3. No uninstall needed (same package, higher versionCode).
 
-## Discoveries
-- Engine picker already existed (old notes were stale): "AI Engine" chips on Generate screen
-- Backend silently falls back to Pollinations if chosen engine fails (make it visible later, to-do 3)
-- Gemini free IMAGE quota is small; help modal "1,500/day" is the TEXT limit - wrong, fix text (to-do 4)
-- New Gemini key also hit "daily limit used up" - retry after midnight Pacific; HF is the daily driver
-- git pager freeze: press Q
-- Notepad Ctrl+H truncates long pastes - use the script pattern instead
-- uBlock "ClickFix" warning on pasted powershell: ours are safe (local edits only). Real red flags: iwr/iex/irm, -enc blobs, pressure
+## Build cheat sheet (updated)
 
-## Working now
-- App opens, no crash; Settings connects to Render
-- BYOK: HF key -> chip unlocks -> generates -> sets wallpaper (TESTED)
-- Pollinations default (free); Replicate greyed (no key anywhere)
-- GitHub and Expo tokens revoked
+- Set the SDK path first in a new terminal, or Gradle fails with "SDK location not found":
+  `$env:ANDROID_HOME = 'C:\Users\alive\AppData\Local\Android\Sdk'`
+- JS-only change (screens, api.js, services): `cd mobile-app\android` then `.\gradlew.bat assembleRelease` (~2 min)
+- app.json changed: mirror versionCode/versionName in `mobile-app\android\app\build.gradle`
+  (fast, what we did) or delete android\ and `npx expo prebuild --platform android` (~12 min)
+- Web bundle check: `cd mobile-app` then `npx expo export --platform web`
+- package.json changed: run `npm install` in mobile-app first
+
+## Verified today
+
+- Web bundle: `npx expo export --platform web` exit 0 (re-run independently by AutoCoder)
+- Release build: `gradlew assembleRelease` exit 0; `aapt dump badging` reports
+  versionCode 9 / versionName 1.9.18
+- NOT verified: the new UI on a real device (Surprise Me, favorites, fallback banner,
+  daily wallpaper).
 
 ## To-do (priority order)
-1. Gallery gestures - START HERE: pinch-to-zoom, swipe between images, long-press delete
-2. Offline queueing: cache recent images, queue failed generations
-3. Fallback notice on result ("Gemini limit reached - used Pollinations")
-4. Fix help modal false "1,500/day" Gemini claim
-5. Security: FROGPAPER_ACCESS_KEY on Render + same key in app Settings -> Access key
-6. Housekeeping: delete fix-engines*.ps1 and test-gemini.ps1, bump version next build
-7. Gemini: retry after quota reset
 
-## Build cheat sheet
-- JS-only changes (screens, api.js, app.py): cd mobile-app\android then gradlew assembleRelease (30s-2min)
-- package.json changed: npm install in mobile-app first
-- app.json changed: rmdir /s /q android, then npx expo prebuild --platform android, then gradlew (~12min)
-- Then the adb install command above (no uninstall needed)
+1. Install the new APK and test: Surprise Me dice, favorites, daily-wallpaper switch,
+   the fallback banner.
+2. Arm the access key: Render -> Environment -> add `FROGPAPER_ACCESS_KEY` (use the value in
+   `backend\access_key.txt`), then paste the same value into app Settings -> Access key.
+   Right now the API answers anyone who knows the URL.
+3. Gemini: retry after the daily quota reset (Hugging Face stays the daily driver).
+4. Cloud images live on ephemeral storage - the 12 images vanish on the next redeploy.
+   Needs S3/R2 or a Render disk.
+5. Offline cache + queued generations.
+
+The full list with A/B/C/D/E/F IDs is the checklist AutoCoder delivered on 2026-09-13.
 
 ## Reminders
+
 - Memory trouble from age 7 is OK - ask "where are we?" any time
 - SHORT questions work best; say "too much" if overwhelmed
 - Never paste keys/tokens in chat - first 4 characters only
-- Do NOT re-add Replicate key unless you want to pay ~2.5 cents per wallpaper
-
-## Next session plan
-1. Gallery gestures (see the gallery screen file first)
-2. Offline queueing
-3. Small fixes 3 and 4 if time allows
+- Do NOT re-add a Replicate key unless you want to pay ~2.5 cents per wallpaper
+- `docs\WHERE_WE_STAND_2026-09-13.md` was written by another session. It claims the Sept 12 APK
+  definitely contains the gestures - nobody verified that. Keep or delete as you like.
