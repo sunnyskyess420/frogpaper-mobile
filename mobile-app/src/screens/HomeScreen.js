@@ -13,11 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import api, { getBaseUrl } from '../services/api';
-import {
-  shuffleWallpaperOnce,
-  getShuffleOnOpen,
-  setShuffleOnOpen,
-} from '../services/shuffle';
+import { shuffleWallpaperOnce, getShuffleOnOpen } from '../services/shuffle';
 import { dailyPhase, runDailyWallpaper } from '../services/dailyWallpaper';
 import { describeQueueRun, listQueue, processQueue } from '../services/generationQueue';
 import { colors, radii, spacing } from '../theme';
@@ -26,9 +22,6 @@ export default function HomeScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState({ state: 'checking', info: null });
-  const [shuffling, setShuffling] = useState(false);
-  const [shuffleNotice, setShuffleNotice] = useState(null);
-  const [shuffleOnOpen, setShuffleOnOpenState] = useState(false);
   const autoShuffledRef = useRef(false);
 
   // ---- Queued generations (saved while the backend was unreachable) -------
@@ -53,8 +46,8 @@ export default function HomeScreen() {
   }, []);
 
   // Runs the queue once per app open, best-effort and quiet like the
-  // shuffle-on-open above. Entries the server already refused are skipped:
-  // only the explicit "Run queued" button on Generate retries those.
+  // shuffle-on-open in checkBackend below. Entries the server already refused
+  // are skipped: only the explicit "Run queued" button on Generate retries those.
   const runQueueOnce = useCallback(async () => {
     if (queueRunRef.current || queueRunningRef.current) {
       return;
@@ -118,12 +111,6 @@ export default function HomeScreen() {
     checkBackend();
     refreshQueueCount();
   }, [checkBackend, refreshQueueCount]);
-
-  useEffect(() => {
-    (async () => {
-      setShuffleOnOpenState(await getShuffleOnOpen());
-    })();
-  }, []);
 
   // Daily auto-wallpaper: only ever generates when the user turned it on in
   // Settings. Runs on the first open of the day while the backend is online.
@@ -191,28 +178,6 @@ export default function HomeScreen() {
 
   const online = status.state === 'online';
   const checking = status.state === 'checking';
-
-  const doShuffle = async () => {
-    setShuffling(true);
-    setShuffleNotice(null);
-    const result = await shuffleWallpaperOnce();
-    setShuffleNotice({ kind: result.ok ? 'ok' : 'error', text: result.message });
-    setShuffling(false);
-  };
-
-  const toggleShuffleOnOpen = async () => {
-    const next = !shuffleOnOpen;
-    setShuffleOnOpenState(next);
-    const saved = await setShuffleOnOpen(next);
-    setShuffleNotice({
-      kind: saved ? 'ok' : 'error',
-      text: saved
-        ? next
-          ? 'Auto-shuffle ON - a random wallpaper is set each time you open FrogPaper.'
-          : 'Auto-shuffle OFF.'
-        : 'Could not save the setting.',
-    });
-  };
 
   const actions = [
     {
@@ -290,8 +255,8 @@ export default function HomeScreen() {
       {queueNotice !== null && (
         <Text
           style={[
-            styles.shuffleNotice,
-            queueNotice.kind === 'error' ? styles.shuffleNoticeError : null,
+            styles.notice,
+            queueNotice.kind === 'error' ? styles.noticeError : null,
           ]}
         >
           {queueNotice.text}
@@ -368,53 +333,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
         ))}
       </View>
-
-      <Text style={styles.sectionLabel}>Wallpaper shuffle</Text>
-      <View style={styles.actionList}>
-        <TouchableOpacity
-          style={styles.actionCard}
-          onPress={doShuffle}
-          activeOpacity={0.8}
-          disabled={shuffling}
-        >
-          {shuffling ? (
-            <ActivityIndicator color={colors.accent} />
-          ) : (
-            <>
-              <Text style={styles.actionLabel}>Shuffle wallpaper now</Text>
-              <Text style={styles.actionSub}>
-                Pick a random gallery image and set it as your wallpaper
-              </Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.actionCard, shuffleOnOpen && styles.actionCardActive]}
-          onPress={toggleShuffleOnOpen}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.actionLabel}>
-            Shuffle on app open: {shuffleOnOpen ? 'ON' : 'OFF'}
-          </Text>
-          <Text style={styles.actionSub}>
-            {shuffleOnOpen
-              ? 'A random wallpaper is set every time you open FrogPaper'
-              : 'Tap to turn on automatic wallpaper changes'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {shuffleNotice !== null && (
-        <Text
-          style={[
-            styles.shuffleNotice,
-            shuffleNotice.kind === 'error' ? styles.shuffleNoticeError : null,
-          ]}
-        >
-          {shuffleNotice.text}
-        </Text>
-      )}
 
       <Text style={styles.footer}>Pull down to re-check the backend connection.</Text>
     </ScrollView>
@@ -555,9 +473,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     padding: spacing.lg,
   },
-  actionCardActive: {
-    borderColor: colors.accent,
-  },
   actionLabel: {
     color: colors.text,
     fontSize: 17,
@@ -568,23 +483,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: spacing.xs,
   },
-  sectionLabel: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginTop: spacing.xl,
-    marginBottom: spacing.md,
-    marginLeft: spacing.xs,
-  },
-  shuffleNotice: {
+  notice: {
     color: colors.accent,
     fontSize: 14,
     fontWeight: '600',
     marginTop: spacing.md,
   },
-  shuffleNoticeError: {
+  noticeError: {
     color: colors.danger,
   },
   footer: {

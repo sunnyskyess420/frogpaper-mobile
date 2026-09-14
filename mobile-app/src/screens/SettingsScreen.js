@@ -48,6 +48,7 @@ import {
   getSaveTarget,
   usePhoneGallery,
 } from '../services/saveTarget';
+import { getShuffleOnOpen, setShuffleOnOpen, shuffleWallpaperOnce } from '../services/shuffle';
 import { clearCache, getCacheStats } from '../services/imageCache';
 import { clearQueue, listQueue } from '../services/generationQueue';
 import ByokHelpModal from '../components/ByokHelpModal';
@@ -221,6 +222,39 @@ export default function SettingsScreen() {
   const chooseDailySource = async (source) => {
     setDailyState((prev) => ({ ...prev, source }));
     await setDailySource(source);
+  };
+
+  // ---- Shuffle (on app open + shuffle-now) -------------------------------
+  // Moved here from Home together with the daily wallpaper controls.
+  const [shuffleOnOpen, setShuffleOnOpenState] = useState(false);
+  const [shuffling, setShuffling] = useState(false);
+  const [shuffleNotice, setShuffleNotice] = useState(null);
+
+  useEffect(() => {
+    getShuffleOnOpen()
+      .then((on) => setShuffleOnOpenState(on))
+      .catch(() => {}); // preference is optional - never block Settings
+  }, []);
+
+  const toggleShuffleOnOpen = async (value) => {
+    setShuffleOnOpenState(value);
+    const saved = await setShuffleOnOpen(value);
+    setShuffleNotice({
+      kind: saved ? 'ok' : 'error',
+      text: saved
+        ? value
+          ? 'Auto-shuffle ON - a random wallpaper is set each time you open FrogPaper.'
+          : 'Auto-shuffle OFF.'
+        : 'Could not save the setting.',
+    });
+  };
+
+  const shuffleNow = async () => {
+    setShuffling(true);
+    setShuffleNotice(null);
+    const result = await shuffleWallpaperOnce();
+    setShuffleNotice({ kind: result.ok ? 'ok' : 'error', text: result.message });
+    setShuffling(false);
   };
 
   // ---- Save location (phone gallery or an SD-card folder) -----------------
@@ -633,9 +667,9 @@ export default function SettingsScreen() {
 
       <SettingsCard
         title="Wallpaper"
-        summary={`${dailyState.enabled ? 'Daily on' : 'Daily off'} · saves to ${
-          saveTarget.target === FOLDER ? 'SD card' : 'phone gallery'
-        }`}
+        summary={`${dailyState.enabled ? 'Daily on' : 'Daily off'} · shuffle ${
+          shuffleOnOpen ? 'on open' : 'off'
+        } · saves to ${saveTarget.target === FOLDER ? 'SD card' : 'phone gallery'}`}
         open={openCards.wallpaper}
         onPress={() => toggleCard('wallpaper')}
       >
@@ -697,6 +731,49 @@ export default function SettingsScreen() {
               back to surprise ideas if you have none yet.
             </Text>
           </>
+        )}
+
+        <View style={styles.separator} />
+
+        <View style={styles.row}>
+          <Text style={styles.rowValue}>Shuffle on app open</Text>
+          <Switch
+            value={shuffleOnOpen}
+            onValueChange={toggleShuffleOnOpen}
+            trackColor={{ false: colors.cardAlt, true: colors.accentDim }}
+            thumbColor={shuffleOnOpen ? colors.accent : colors.muted}
+            ios_backgroundColor={colors.cardAlt}
+          />
+        </View>
+        <Text style={styles.hint}>
+          When ON, opening FrogPaper sets a random wallpaper from your gallery - only while
+          the app is open, never in the background.
+        </Text>
+        <View style={styles.buttonRow}>
+          <Pressable
+            style={[styles.button, styles.buttonSecondary]}
+            onPress={shuffleNow}
+            disabled={shuffling}
+          >
+            {shuffling ? (
+              <View style={styles.busyRow}>
+                <ActivityIndicator color={colors.text} />
+                <Text style={styles.buttonSecondaryText}>Shuffling…</Text>
+              </View>
+            ) : (
+              <Text style={styles.buttonSecondaryText}>Shuffle wallpaper now</Text>
+            )}
+          </Pressable>
+        </View>
+        {shuffleNotice !== null && (
+          <Text
+            style={[
+              styles.shuffleNotice,
+              shuffleNotice.kind === 'error' ? styles.shuffleNoticeError : null,
+            ]}
+          >
+            {shuffleNotice.text}
+          </Text>
         )}
 
         <View style={styles.separator} />
@@ -942,7 +1019,7 @@ export default function SettingsScreen() {
 
       <SettingsCard
         title="About & diagnostics"
-        summary="FrogPaper 1.9.31"
+        summary="FrogPaper 1.9.32"
         open={openCards.about}
         onPress={() => {
           // Keep the hidden 5-tap gesture from the old About heading: a run of
@@ -953,7 +1030,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.31</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.32</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>
@@ -1300,6 +1377,22 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: 'row',
     marginTop: spacing.md,
+  },
+  // ActivityIndicator + label shown inside a secondary button while it works.
+  busyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  // Inline result of a shuffle action (accent on success, danger on failure).
+  shuffleNotice: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: spacing.md,
+  },
+  shuffleNoticeError: {
+    color: colors.danger,
   },
   buttonText: {
     color: colors.bg,
