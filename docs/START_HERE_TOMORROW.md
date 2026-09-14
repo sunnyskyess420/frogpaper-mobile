@@ -54,13 +54,14 @@ versions are in the git history).
 
 ## Open - not built
 
-1. **Crash log** (JS-only error history in Settings -> Diagnostics). Approved, small
+1. **Release prep + first GitHub Release** - see *Sharing the app* below.
+2. **Crash log** (JS-only error history in Settings -> Diagnostics). Approved, small
    (~20 min), not started. Catches JS errors, not native crashes.
-2. **Keyword bank** from the desktop (`keywords.json`: 49 subjects, 27 styles,
+3. **Keyword bank** from the desktop (`keywords.json`: 49 subjects, 27 styles,
    26 moods, 27 atmospheres...) - bigger subsystem, deliberately deferred.
-3. **Gallery organisation** (tags/favourites).
-4. **Gemini key**: retry after the quota resets; Hugging Face is the daily engine.
-5. Docs: the README/plans are current as of tonight; the desktop's own docs are not
+4. **Gallery organisation** (tags/favourites).
+5. **Gemini key**: retry after the quota resets; Hugging Face is the daily engine.
+6. Docs: the README/plans are current as of tonight; the desktop's own docs are not
    this project's concern.
 
 ## Decided against - do not build
@@ -70,6 +71,44 @@ versions are in the git history).
 - Store release (Play / App Store) - no store fees; distribution is a direct APK.
 - Paid services of any kind - free options only.
 - The app syncing anything to the PC - phone and server only.
+
+## Sharing the app - the plan (agreed 2026-09-13)
+
+Distribution is **GitHub Releases**, not a store (no fees, no listing). The repo
+already has zero tags and zero releases, so the first one starts clean.
+
+When the owner says "cut a release":
+
+1. Bump the version in `mobile-app/app.json`, `mobile-app/android/app/build.gradle`
+   and the Settings About string; run every `check:*` suite; build the release APK.
+2. Tag the commit (`v<version>`) and push the tag.
+3. GitHub -> repo -> **Releases -> Draft a new release**: pick the tag, title
+   `FrogPaper Mobile <version>`, attach `app-release.apk`, publish.
+   Stable link afterwards: `https://github.com/sunnyskyess420/frogpaper-mobile/releases/latest`
+4. Release notes should carry: what's new, **Android 7.0+**, the
+   allow-unknown-apps install steps, the file checksum, and the honest backend
+   caveat (generation needs a backend).
+
+**Settled already:** the APK can be offered on the owner's website by linking to
+the release; friends can install it directly. `C:\FrogPaperBackups\SEND-TO-A-FRIEND.txt`
+already contains hand-off instructions (and `FrogPaper-1.9.39.apk` sits next to it).
+
+**To decide / do before strangers install it:**
+
+- **Signing** - the APK is signed with this PC's *debug* keystore. Fine for friends
+  and for updates built here, but a proper release keystore is safer for public
+  distribution, and it must be backed up: lose it and nobody can update over an
+  existing install (they would have to uninstall first).
+- **Backend for other people** - everyone needs one to generate. Pointing them all
+  at the current Render server means free-tier rate limits and handing out the
+  access key as a shared secret. The cleaner model is bring-your-own-keys (already
+  supported) or each user running their own backend.
+- **In-app update check** - the app can read
+  `https://api.github.com/repos/sunnyskyess420/frogpaper-mobile/releases/latest`
+  (public, no auth) and offer "version X is out - tap to download". That restores
+  the auto-update a store would have given.
+- **Download page** - optional: a small page on the owner's site with the version,
+  install steps and a Download button pointing at the release link.
 
 ## Where everything lives
 
