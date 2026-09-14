@@ -1101,7 +1101,7 @@ export default function SettingsScreen() {
 
       <SettingsCard
         title="About & diagnostics"
-        summary="FrogPaper 1.9.33"
+        summary="FrogPaper 1.9.34"
         open={openCards.about}
         onPress={() => {
           // Keep the hidden 5-tap gesture from the old About heading: a run of
@@ -1112,7 +1112,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.33</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.34</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>

@@ -27,6 +27,7 @@ import * as Clipboard from 'expo-clipboard';
 import api from '../services/api';
 import { loadGalleryFilenames } from '../services/galleryCache';
 import WallpaperImage from '../components/WallpaperImage';
+import ProviderFallbackNotice from '../components/ProviderFallbackNotice';
 import { capabilities, setAsWallpaper } from '../services/deviceMedia';
 import { saveWallpaper } from '../services/saveTarget';
 import { colors, radii, spacing } from '../theme';
@@ -72,6 +73,12 @@ export default function DetailScreen() {
   const route = useRoute();
   const insets = useSafeAreaInsets();
   const startFilename = route.params?.filename;
+  // The Generate screen pushes straight here after a successful generation. It
+  // hands over the fallback reason the result card would have shown, plus a
+  // nonce so repeat generations still hand off cleanly.
+  const fromGeneration = route.params?.fromGeneration === true;
+  const generatedFilename = fromGeneration ? route.params?.filename || null : null;
+  const generatedFallbackFrom = fromGeneration ? route.params?.fallbackFrom || null : null;
 
   // --- Gallery neighbors (for swiping between images) ----------------------
   const [filenames, setFilenames] = useState(startFilename ? [startFilename] : []);
@@ -358,6 +365,13 @@ export default function DetailScreen() {
     load();
   }, [load]);
 
+  // A fresh generation handoff (new nonce) starts this screen clean: a save
+  // notice left over from a previous image must not read as belonging to this
+  // one.
+  useEffect(() => {
+    setNotice(null);
+  }, [route.params?.generationNonce]);
+
   const doSave = async () => {
     setSaving(true);
     setNotice(null);
@@ -390,6 +404,29 @@ export default function DetailScreen() {
     } finally {
       setWallpaperBusy(false);
     }
+  };
+
+  // "Generate again": hand the prompt this image was made from back to the
+  // Generate screen, which fires it once (autoGenerate). The prompt lives in
+  // the image's stored metadata; without it nothing is fired - the prompt field
+  // is left as it was and the Generate screen says why.
+  const generateAgain = () => {
+    const savedPrompt = (detail?.prompt || '').trim();
+    if (savedPrompt.length < 3) {
+      navigation.navigate('Generate', {
+        handoffNotice:
+          'This image has no saved prompt, so there is nothing to generate again from. The prompt field was left untouched - type a prompt to generate.',
+        handoffNoticeNonce: Date.now(),
+      });
+      return;
+    }
+    const nonce = Date.now();
+    navigation.navigate('Generate', {
+      builtPrompt: savedPrompt,
+      builtPromptNonce: nonce,
+      autoGenerate: true,
+      autoGenerateNonce: nonce,
+    });
   };
 
   const doDelete = async () => {
@@ -460,6 +497,13 @@ export default function DetailScreen() {
           <Text style={styles.gestureHint}>
             Swipe to flip  |  Pinch with two fingers to zoom
           </Text>
+
+          {/* The result card's "engine fell back to free Pollinations" notice,
+              same wording, carried over from Generate. Only for the image it
+              belongs to - swiping to a neighbour hides it. */}
+          {filename === generatedFilename && (
+            <ProviderFallbackNotice providerId={generatedFallbackFrom} />
+          )}
 
           <View style={styles.infoCard}>
             <View style={styles.infoRow}>
@@ -556,6 +600,14 @@ export default function DetailScreen() {
               ) : (
                 <Text style={styles.wallpaperButtonText}>Set as wallpaper</Text>
               )}
+            </Pressable>
+          )}
+
+          {/* Only offered for an image the owner just generated: it returns to
+              Generate and re-runs the prompt stored with this image. */}
+          {fromGeneration && (
+            <Pressable style={styles.generateAgainButton} onPress={generateAgain}>
+              <Text style={styles.generateAgainButtonText}>Generate again</Text>
             </Pressable>
           )}
 
@@ -821,6 +873,23 @@ const styles = StyleSheet.create({
   },
   wallpaperButtonText: {
     color: colors.accent,
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  // Same control fill + border pair as the other secondary controls, with a
+  // light centred label.
+  generateAgainButton: {
+    backgroundColor: colors.control,
+    borderColor: colors.controlBorder,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  generateAgainButtonText: {
+    color: '#EAF7F1',
     fontSize: 15,
     fontWeight: '700',
     textAlign: 'center',
