@@ -2,6 +2,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
 import { setAsWallpaper } from './deviceMedia';
+import { PHONE, getGallerySource } from './gallerySource';
+import { listLocalImages } from './localGallery';
 
 const SHUFFLE_ON_OPEN_KEY = '@frogpaper_shuffle_on_open';
 
@@ -30,6 +32,24 @@ export async function setShuffleOnOpen(enabled) {
 // Returns { ok, message } - never throws.
 export async function shuffleWallpaperOnce() {
   try {
+    const source = await getGallerySource();
+    if (source === PHONE) {
+      // The phone's own gallery is what the owner is looking at, so draw from
+      // it first. Only when it is empty does the server list stand in, so an
+      // automatic change never goes dead on a fresh phone.
+      const locals = await listLocalImages();
+      if (locals.length > 0) {
+        const pick = locals[Math.floor(Math.random() * locals.length)];
+        const result = await setAsWallpaper(pick.uri);
+        if (result && result.ok) {
+          return { ok: true, message: 'Wallpaper set: ' + pick.filename };
+        }
+        return {
+          ok: false,
+          message: (result && result.message) || 'Could not set the wallpaper.',
+        };
+      }
+    }
     const response = await api.gallery(200);
     const images = response.images || [];
     if (images.length === 0) {

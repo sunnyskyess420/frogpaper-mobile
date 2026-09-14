@@ -24,6 +24,7 @@ const STAGE_DEAD = 'dead';
 export default function WallpaperImage({
   filename,
   preferCache = false,
+  localUri = null,
   style,
   resizeMode = 'cover',
   ...imageProps
@@ -36,6 +37,13 @@ export default function WallpaperImage({
   useEffect(() => {
     stageRef.current = STAGE_REMOTE;
     setDead(false);
+    // A phone-gallery image is already a local file: show it straight away and
+    // never bother the server (there is no server copy to prefer).
+    if (localUri) {
+      stageRef.current = STAGE_LOCAL;
+      setUri(localUri);
+      return;
+    }
     if (!filename) {
       setUri(null);
       setDead(true);
@@ -52,13 +60,18 @@ export default function WallpaperImage({
       }
     }
     setUri(remoteUri);
-  }, [filename, preferCache, remoteUri]);
+  }, [filename, preferCache, remoteUri, localUri]);
 
   const handleError = useCallback(async () => {
-    if (!filename || stageRef.current === STAGE_DEAD || stageRef.current === STAGE_FETCHING) {
+    if (stageRef.current === STAGE_DEAD || stageRef.current === STAGE_FETCHING) {
       return;
     }
     if (stageRef.current === STAGE_REMOTE) {
+      if (!filename) {
+        stageRef.current = STAGE_DEAD;
+        setDead(true);
+        return;
+      }
       const local = getCachedUri(filename);
       if (local) {
         stageRef.current = STAGE_LOCAL;

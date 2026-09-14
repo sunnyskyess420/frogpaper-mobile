@@ -24,8 +24,26 @@ export async function ensureMediaPermission() {
   }
 }
 
-export async function downloadToCache(remoteUrl) {
-  const file = await File.downloadFileAsync(remoteUrl, Paths.cache);
+const LOCAL_URI = /^file:\/\//i;
+
+// Produces a local file ready to hand to the media library / wallpaper setter.
+// Server images are downloaded into the cache; an image that is already a file
+// on this phone (phone-gallery mode keeps its own copies) is copied instead of
+// downloaded, so Save and Set-as-wallpaper work for a local-only image too.
+export async function downloadToCache(sourceUrl) {
+  if (LOCAL_URI.test(String(sourceUrl || ''))) {
+    const source = new File(sourceUrl);
+    if (!source.exists) {
+      throw new Error('Could not read the image for saving.');
+    }
+    const dest = new File(Paths.cache, source.name);
+    if (dest.exists) {
+      dest.delete();
+    }
+    await source.copy(dest);
+    return dest;
+  }
+  const file = await File.downloadFileAsync(sourceUrl, Paths.cache);
   if (!file || !file.uri) {
     throw new Error('Could not download the image for saving.');
   }

@@ -26,6 +26,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import api from '../services/api';
 import { loadGalleryFilenames } from '../services/galleryCache';
+import { deleteLocalImage, listLocalImages } from '../services/localGallery';
 import WallpaperImage from '../components/WallpaperImage';
 import ProviderFallbackNotice from '../components/ProviderFallbackNotice';
 import { capabilities, setAsWallpaper } from '../services/deviceMedia';
@@ -49,6 +50,7 @@ const SOURCE_LABELS = {
   generated: 'Generated with AI',
   uploaded: 'Uploaded by you',
   imported: 'Added to gallery',
+  phone: 'Kept on this phone',
 };
 
 const MAX_SCALE = 5;
@@ -79,10 +81,17 @@ export default function DetailScreen() {
   const fromGeneration = route.params?.fromGeneration === true;
   const generatedFilename = fromGeneration ? route.params?.filename || null : null;
   const generatedFallbackFrom = fromGeneration ? route.params?.fallbackFrom || null : null;
+  // Opened from the phone's own gallery: every detail comes from the local file
+  // and its sidecar, and the server is never asked about it.
+  const isLocal = route.params?.local === true;
 
   // --- Gallery neighbors (for swiping between images) ----------------------
   const [filenames, setFilenames] = useState(startFilename ? [startFilename] : []);
   const [index, setIndex] = useState(0);
+  // Phone-gallery mode: descriptors for the local store; null until the first
+  // scan finishes. Bumping reloadKey re-scans after a delete.
+  const [localFiles, setLocalFiles] = useState(isLocal ? null : []);
+  const [reloadKey, setReloadKey] = useState(0);
   const filename = filenames[index] || startFilename;
   const filenamesRef = useRef(filenames);
   filenamesRef.current = filenames;
@@ -90,6 +99,17 @@ export default function DetailScreen() {
   useEffect(() => {
     let alive = true;
     (async () => {
+      if (isLocal) {
+        const files = await listLocalImages();
+        if (!alive) return;
+        setLocalFiles(files);
+        const names = files.map((file) => file.filename);
+        const list = names.length > 0 ? names : startFilename ? [startFilename] : [];
+        setFilenames(list);
+        const localIndex = list.indexOf(startFilename);
+        setIndex(localIndex >= 0 ? localIndex : 0);
+        return;
+      }
       try {
         // Same list the gallery shows, so swiping also works offline (it falls
         // back to the copy saved on this phone).
@@ -107,7 +127,7 @@ export default function DetailScreen() {
     return () => {
       alive = false;
     };
-  }, [startFilename]);
+  }, [startFilename, isLocal, reloadKey]);
 
   const canSwipe = filenames.length > 1;
   const canSwipeRef = useRef(canSwipe);
@@ -121,9 +141,13 @@ export default function DetailScreen() {
   }, []);
 
   // --- Detail data -----------------------------------------------------------
-  const [detail, setDetail] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  // The remote path keeps its own state; in phone-gallery mode `detail` below is
+  // derived from the local file instead and the server is never contacted.
+  const [remoteDetail, setRemoteDetail] = useState(null);
+  const [remoteLoading, setRemoteLoading] = useState(true);
+  const [remoteError, setRemoteError] = useState(null);
+  // A failed delete, shown the same way whichever source is in play.
+  const [actionError, setActionError] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -349,21 +373,74 @@ export default function DetailScreen() {
   );
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setRemoteLoading(true);
+    setRemoteError(null);
     try {
       const response = await api.imageDetail(filename);
-      setDetail(response.image);
+      setRemoteDetail(response.image);
     } catch (err) {
-      setError(err.message || 'Could not load image details.');
+      setRemoteError(err.message || 'Could not load image details.');
     } finally {
-      setLoading(false);
+      setRemoteLoading(false);
     }
   }, [filename]);
 
   useEffect(() => {
+    if (isLocal) {
+      return; // a phone-gallery image has no server metadata to fetch
+    }
     load();
-  }, [load]);
+  }, [isLocal, load]);
+
+  // Everything the render below reads, from whichever source is in play.
+  const localEntry = useMemo(
+    () =>
+      isLocal && localFiles
+        ? localFiles.find((file) => file.filename === filename) || null
+        : null,
+    [isLocal, localFiles, filename]
+  );
+  const localUri = isLocal && localEntry ? localEntry.uri : null;
+
+  const detail = useMemo(() => {
+    if (!isLocal) {
+      return remoteDetail;
+    }
+    if (!localEntry) {
+      return null;
+    }
+    const meta = localEntry.meta || {};
+    return {
+      filename: localEntry.filename,
+      source: localEntry.source,
+      width: localEntry.width,
+      height: localEntry.height,
+      size_bytes: localEntry.size,
+      created_at: localEntry.mtime ? new Date(localEntry.mtime).toISOString() : null,
+      seed: meta.seed === undefined || meta.seed === null ? undefined : meta.seed,
+      prompt: typeof meta.prompt === 'string' ? meta.prompt : null,
+      negative_prompt: typeof meta.negativePrompt === 'string' ? meta.negativePrompt : null,
+    };
+  }, [isLocal, localEntry, remoteDetail]);
+
+  const loading = isLocal ? localFiles === null : remoteLoading;
+  const error = isLocal
+    ? actionError ||
+      (localFiles !== null && !localEntry ? 'This wallpaper is no longer on this phone.' : null)
+    : remoteError || actionError;
+
+  // "Generate again" only makes sense with a stored prompt; without one the
+  // button is hidden rather than offered and then refused.
+  const canGenerateAgain =
+    fromGeneration &&
+    !!detail &&
+    typeof detail.prompt === 'string' &&
+    detail.prompt.trim().length >= 3;
+
+  // Swiping to another image clears a delete error left over from the last one.
+  useEffect(() => {
+    setActionError(null);
+  }, [filename]);
 
   // A fresh generation handoff (new nonce) starts this screen clean: a save
   // notice left over from a previous image must not read as belonging to this
@@ -377,7 +454,12 @@ export default function DetailScreen() {
     setNotice(null);
     try {
       // Honours the Save location setting - gallery or the chosen SD folder.
-      const result = await saveWallpaper(api.imageUrl(filename), filename);
+      // A phone-gallery image is saved from its own file; a server image from
+      // its URL.
+      const result = await saveWallpaper(
+        isLocal && localUri ? localUri : api.imageUrl(filename),
+        filename
+      );
       setNotice({
         kind: result.ok ? 'ok' : 'error',
         text: result.message,
@@ -393,7 +475,9 @@ export default function DetailScreen() {
     setWallpaperBusy(true);
     setNotice(null);
     try {
-      const result = await setAsWallpaper(api.imageUrl(filename));
+      const result = await setAsWallpaper(
+        isLocal && localUri ? localUri : api.imageUrl(filename)
+      );
       setNotice(
         result.ok
           ? { kind: 'ok', text: 'Wallpaper updated.' }
@@ -429,13 +513,25 @@ export default function DetailScreen() {
     });
   };
 
+  // Deletes from whichever source is showing: the phone's own file, or the
+  // server's copy.
   const doDelete = async () => {
     setDeleting(true);
+    setActionError(null);
     try {
-      await api.deleteImage(filename);
+      if (isLocal) {
+        const result = await deleteLocalImage(filename);
+        if (!result.ok) {
+          setActionError(result.message || 'Delete failed.');
+          setConfirming(false);
+          return;
+        }
+      } else {
+        await api.deleteImage(filename);
+      }
       navigation.goBack();
     } catch (err) {
-      setError(err.message || 'Delete failed.');
+      setActionError(err.message || 'Delete failed.');
       setConfirming(false);
     } finally {
       setDeleting(false);
@@ -470,8 +566,11 @@ export default function DetailScreen() {
       {error !== null && (
         <View style={styles.errorCard}>
           <Text style={styles.errorText}>{error}</Text>
-          <Pressable style={styles.secondaryButton} onPress={load}>
-            <Text style={styles.secondaryButtonText}>Try again</Text>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() => (isLocal ? setReloadKey((key) => key + 1) : load())}
+          >
+            <Text style={styles.secondaryButtonText}>{isLocal ? 'Rescan this phone' : 'Try again'}</Text>
           </Pressable>
         </View>
       )}
@@ -482,6 +581,7 @@ export default function DetailScreen() {
             <View style={styles.imageStage} {...inlineResponder.panHandlers}>
               <WallpaperImage
                 filename={filename}
+                localUri={localUri}
                 style={styles.image}
                 resizeMode="contain"
               />
@@ -603,9 +703,10 @@ export default function DetailScreen() {
             </Pressable>
           )}
 
-          {/* Only offered for an image the owner just generated: it returns to
-              Generate and re-runs the prompt stored with this image. */}
-          {fromGeneration && (
+          {/* Only offered for an image the owner just generated AND that has a
+              stored prompt: without one there is nothing to re-run, so the
+              button is hidden rather than offered and then refused. */}
+          {canGenerateAgain && (
             <Pressable style={styles.generateAgainButton} onPress={generateAgain}>
               <Text style={styles.generateAgainButtonText}>Generate again</Text>
             </Pressable>
@@ -613,7 +714,11 @@ export default function DetailScreen() {
 
           {confirming ? (
             <View style={styles.confirmCard}>
-              <Text style={styles.confirmText}>Delete {detail.filename} permanently?</Text>
+              <Text style={styles.confirmText}>
+                {isLocal
+                  ? `Remove ${detail.filename} from this phone?`
+                  : `Delete ${detail.filename} permanently?`}
+              </Text>
               <View style={styles.actionRow}>
                 <Pressable
                   style={[styles.button, styles.cancelButton]}
@@ -653,6 +758,7 @@ export default function DetailScreen() {
           <View style={styles.viewerStage} {...viewerResponder.panHandlers}>
             <WallpaperImage
               filename={filename}
+              localUri={localUri}
               style={[
                 styles.viewerImage,
                 {

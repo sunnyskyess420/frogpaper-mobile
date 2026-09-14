@@ -31,6 +31,7 @@
     "web": "expo start --web",
     "check:sentry": "node scripts/check-sentry.js",
     "check:offline": "node scripts/check-offline.js",
+    "check:local-gallery": "node scripts/check-local-gallery.js",
     "check:builder": "node scripts/check-builder.js",
     "check:rotation": "node scripts/check-rotation.js",
     "check:engine": "node scripts/check-engine.js",

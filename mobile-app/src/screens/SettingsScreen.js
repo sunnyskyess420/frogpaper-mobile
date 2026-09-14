@@ -56,6 +56,17 @@ import {
 } from '../services/saveTarget';
 import { clearCache, getCacheStats } from '../services/imageCache';
 import { clearQueue, listQueue } from '../services/generationQueue';
+import {
+  PHONE,
+  SERVER,
+  getGallerySource,
+  setGallerySource,
+} from '../services/gallerySource';
+import {
+  describeImport,
+  importFromFolder,
+  localImageCount,
+} from '../services/localGallery';
 import ByokHelpModal from '../components/ByokHelpModal';
 
 function formatMegabytes(bytes) {
@@ -304,6 +315,46 @@ export default function SettingsScreen() {
     setSaveTarget({ target: 'gallery', folderName: null });
   };
 
+  // ---- Gallery source (the phone's own store, or the server list) ---------
+  const [gallerySource, setGallerySourceState] = useState(PHONE);
+  const [galleryCount, setGalleryCount] = useState(0);
+  const [importing, setImporting] = useState(false);
+  const [importNotice, setImportNotice] = useState(null);
+
+  const refreshGallerySource = useCallback(async () => {
+    try {
+      const [source, count] = await Promise.all([getGallerySource(), localImageCount()]);
+      setGallerySourceState(source);
+      setGalleryCount(count);
+    } catch (err) {
+      // informational - never block Settings
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshGallerySource();
+  }, [refreshGallerySource]);
+
+  const chooseGallerySource = async (next) => {
+    setGallerySourceState(next);
+    setImportNotice(null);
+    const saved = await setGallerySource(next);
+    setGallerySourceState(saved);
+    await refreshGallerySource();
+  };
+
+  const importNow = async () => {
+    if (importing) {
+      return;
+    }
+    setImporting(true);
+    setImportNotice(null);
+    const result = await importFromFolder({ max: 40 });
+    setImportNotice({ kind: result.ok ? 'ok' : 'error', text: describeImport(result) });
+    await refreshGallerySource();
+    setImporting(false);
+  };
+
   // ---- Offline storage (cached images + queued generations) --------------
   const [offlineState, setOfflineState] = useState({ stats: { count: 0, bytes: 0 }, queue: 0 });
 
@@ -392,6 +443,10 @@ export default function SettingsScreen() {
             }.`
           : 'You have no favourites saved yet, so this falls back to the surprise idea pool. Star a prompt on the Generate screen to use your own.'
         : 'A random wallpaper already in your gallery - nothing new is generated.';
+  const gallerySourceHint =
+    gallerySource === PHONE
+      ? 'Shows the wallpapers kept on this phone - the ones you generate, save or import. They stay even when the server storage is wiped.'
+      : "Shows the list from the backend. That storage is wiped by every deploy, so the phone copy is the safer default.";
 
   // Which cards are expanded. Everyday settings start open; the technical
   // cards start collapsed so Settings reads at a glance.
@@ -900,6 +955,82 @@ export default function SettingsScreen() {
           This only affects the wallpapers you save - the offline cache is separate and
           stays in internal storage (see Offline).
         </Text>
+
+        <View style={styles.separator} />
+
+        <Text style={styles.inputLabel}>Gallery source</Text>
+        <View style={styles.buttonRow}>
+          <Pressable
+            style={[
+              styles.button,
+              styles.buttonSecondary,
+              gallerySource === PHONE && styles.chipActive,
+            ]}
+            onPress={() => chooseGallerySource(PHONE)}
+          >
+            <Text
+              style={[
+                styles.buttonSecondaryText,
+                gallerySource === PHONE && styles.chipActiveText,
+              ]}
+            >
+              This phone
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.button,
+              styles.buttonSecondary,
+              gallerySource === SERVER && styles.chipActive,
+            ]}
+            onPress={() => chooseGallerySource(SERVER)}
+          >
+            <Text
+              style={[
+                styles.buttonSecondaryText,
+                gallerySource === SERVER && styles.chipActiveText,
+              ]}
+            >
+              The server
+            </Text>
+          </Pressable>
+        </View>
+        <Text style={styles.hint}>{gallerySourceHint}</Text>
+
+        {gallerySource === PHONE && (
+          <>
+            <View style={styles.aboutRow}>
+              <Text style={styles.aboutKey}>Images on this phone</Text>
+              <Text style={styles.aboutValue}>{galleryCount}</Text>
+            </View>
+            <View style={styles.buttonRow}>
+              <Pressable
+                style={[styles.button, styles.buttonSecondary]}
+                onPress={importNow}
+                disabled={importing}
+              >
+                {importing ? (
+                  <View style={styles.busyRow}>
+                    <ActivityIndicator color={colors.text} />
+                    <Text style={styles.buttonSecondaryText}>Importing…</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.buttonSecondaryText}>Import from my SD folder</Text>
+                )}
+              </Pressable>
+            </View>
+            {importNotice !== null && (
+              <Text
+                style={[
+                  styles.shuffleNotice,
+                  importNotice.kind === 'error' ? styles.shuffleNoticeError : null,
+                ]}
+              >
+                {importNotice.text}
+              </Text>
+            )}
+          </>
+        )}
       </SettingsCard>
 
       <SettingsCard
@@ -1101,7 +1232,7 @@ export default function SettingsScreen() {
 
       <SettingsCard
         title="About & diagnostics"
-        summary="FrogPaper 1.9.38"
+        summary="FrogPaper 1.9.39"
         open={openCards.about}
         onPress={() => {
           // Keep the hidden 5-tap gesture from the old About heading: a run of
@@ -1112,7 +1243,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.38</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.39</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>

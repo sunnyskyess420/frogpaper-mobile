@@ -30,6 +30,8 @@ import {
   saveEnginePreference,
 } from '../services/enginePreference';
 import { saveWallpaper } from '../services/saveTarget';
+import { PHONE, getGallerySource } from '../services/gallerySource';
+import { saveLocalImage } from '../services/localGallery';
 import { appendPreset, clearPresetText } from '../services/negativePresets';
 import NEGATIVE_PRESETS from '../data/negativePresets.json';
 import WallpaperImage from '../components/WallpaperImage';
@@ -405,6 +407,29 @@ export default function GenerateScreen() {
       setLastSeed(response.image.seed);
       setSeedInput(''); // Clear seed input after successful generation
       loadRecent(); // the new prompt should appear in history right away
+      // Phone-gallery mode also keeps the owner's own work on the phone, so it
+      // survives the server's storage being wiped. Fire-and-forget: the
+      // handoff below must not wait on a download.
+      getGallerySource()
+        .then((source) => {
+          if (source !== PHONE) {
+            return null;
+          }
+          return saveLocalImage({
+            remoteUrl: api.imageUrl(response.image.filename),
+            filename: response.image.filename,
+            meta: {
+              source: PHONE,
+              prompt: fullPrompt,
+              negativePrompt: negative.trim() || null,
+              width: preset.width,
+              height: preset.height,
+              seed: response.image.seed === undefined ? null : response.image.seed,
+              provider: providerId,
+            },
+          });
+        })
+        .catch(() => {});
       // Straight to the full-screen view so the result is on screen without
       // hunting for it. The result card stays mounted underneath (Generate is
       // still in the stack), so the fallback/queue/save state it shows is not
@@ -460,6 +485,21 @@ export default function GenerateScreen() {
       // Honours the Save location setting - gallery or the chosen SD folder.
       const saveResult = await saveWallpaper(api.imageUrl(result.filename), result.filename);
       setSaveNotice({ kind: saveResult.ok ? 'ok' : 'error', text: saveResult.message });
+      if (saveResult.ok) {
+        // Phone-gallery mode: a saved wallpaper also belongs in the phone's own
+        // gallery, which is what the app shows by default.
+        getGallerySource()
+          .then((source) =>
+            source === PHONE
+              ? saveLocalImage({
+                  remoteUrl: api.imageUrl(result.filename),
+                  filename: result.filename,
+                  meta: { source: PHONE, prompt: prompt.trim() || null },
+                })
+              : null
+          )
+          .catch(() => {});
+      }
     } catch (err) {
       setSaveNotice({ kind: 'error', text: err.message || 'Could not save the image.' });
     } finally {

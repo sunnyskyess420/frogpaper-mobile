@@ -18,6 +18,8 @@ import api from './api';
 import { saveWallpaper } from './saveTarget';
 import { setAsWallpaper } from './deviceMedia';
 import { IDEAS, FAVORITES_KEY } from './promptLibrary';
+import { PHONE, getGallerySource } from './gallerySource';
+import { saveLocalImage } from './localGallery';
 
 const DAILY_ENABLED_KEY = '@frogpaper/daily_enabled';
 const DAILY_SOURCE_KEY = '@frogpaper/daily_source'; // 'surprise' | 'favorites'
@@ -186,6 +188,13 @@ export async function runDailyWallpaper({ force = false, source: sourceOverride 
       saved = !!saveResult.ok;
     } catch (saveErr) {
       // permission missing or storage hiccup - the wallpaper still gets set
+    }
+
+    // Phone-gallery mode keeps the owner's own work on the phone as well, so
+    // the gallery still has it after the server's storage is wiped. Best-effort
+    // and not awaited: the wallpaper set below must not wait on it.
+    if ((await getGallerySource()) === PHONE) {
+      saveLocalImage({ remoteUrl: url, filename: image.filename, meta: { source: PHONE, prompt } });
     }
 
     const setResult = await setAsWallpaper(url);
