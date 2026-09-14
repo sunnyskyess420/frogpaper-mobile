@@ -1,0 +1,51 @@
+[
+  {
+    "name": "Cinematic Landscape (Copy)",
+    "description": "Beautiful landscape with cinematic quality",
+    "template": "a {mood} {landscape_type} landscape in {style} style, with {lighting} and {color} tones, {weather} weather",
+    "variables": {
+      "mood": [
+        "serene",
+        "dramatic",
+        "mysterious",
+        "peaceful",
+        "majestic"
+      ],
+      "landscape_type": [
+        "mountain",
+        "ocean",
+        "forest",
+        "desert",
+        "valley"
+      ],
+      "style": [
+        "photorealistic",
+        "cinematic",
+        "digital art",
+        "oil painting",
+        "watercolor"
+      ],
+      "lighting": [
+        "golden hour",
+        "blue hour",
+        "moonlight",
+        "sunrise",
+        "sunset"
+      ],
+      "color": [
+        "warm",
+        "cool",
+        "vibrant",
+        "muted",
+        "pastel"
+      ],
+      "weather": [
+        "clear",
+        "cloudy",
+        "foggy",
+        "stormy",
+        "snowy"
+      ]
+    }
+  }
+]

@@ -30,6 +30,8 @@ import {
   saveEnginePreference,
 } from '../services/enginePreference';
 import { saveWallpaper } from '../services/saveTarget';
+import { appendPreset, clearPresetText } from '../services/negativePresets';
+import NEGATIVE_PRESETS from '../data/negativePresets.json';
 import WallpaperImage from '../components/WallpaperImage';
 import ProviderFallbackNotice from '../components/ProviderFallbackNotice';
 import { colors, radii, spacing } from '../theme';
@@ -41,6 +43,14 @@ const SIZE_PRESETS = [
   { id: 'square', label: 'Square', width: 1024, height: 1024 },
   { id: 'landscape', label: 'Landscape', width: 1920, height: 1080 },
 ];
+
+// Quick negatives, ported from the desktop app's preset file. The last entry
+// ("None (Custom Only)") carries no terms and clears the field instead.
+// The file's styleDefaults are deliberately not surfaced here: they are keyed by
+// the Build screen's mode slugs ("product-photo", "surreal", ...), and this
+// screen has no style/mode selection to match them against, so there is no chip
+// whose id could equal a default key.
+const QUICK_NEGATIVES = Array.isArray(NEGATIVE_PRESETS.presets) ? NEGATIVE_PRESETS.presets : [];
 
 // Friendly names for the "engine unavailable, used free fallback" notice, and
 // the sentence itself, live in ProviderFallbackNotice so the result card and
@@ -81,6 +91,9 @@ export default function GenerateScreen() {
   // Set when a mode's negative list arrives from the Build screen, so the owner
   // knows why a long text appeared in the (now expanded) Avoid field.
   const [negativeNotice, setNegativeNotice] = useState(null);
+  // Short line under the quick-negative chips naming what the last tap did
+  // (added the terms, found them already present, or cleared the field).
+  const [presetNotice, setPresetNotice] = useState(null);
   // Measured height of the pinned action bar, so the scroll content can end
   // clear of it instead of underneath it.
   const [barHeight, setBarHeight] = useState(0);
@@ -213,6 +226,7 @@ export default function GenerateScreen() {
     setNegative(built);
     setMoreOpen(true);
     setNegativeNotice('Avoid filled from the Build screen - review or edit it below.');
+    setPresetNotice(null);
   }, [route.params?.builtNegativeNonce]);
 
   // A handoff can arrive without a prompt: the image's stored metadata has
@@ -259,6 +273,27 @@ export default function GenerateScreen() {
   const reusePrompt = (item) => {
     setPrompt(item.prompt || '');
     setNegative(item.negative_prompt || '');
+  };
+
+  // A quick-negative chip appends its terms to whatever is already in Avoid -
+  // the owner's own words are kept, and a term already there is not repeated.
+  // The blank "None (Custom Only)" entry clears the field, but only on this
+  // explicit tap; nothing else on the screen ever clears it.
+  const applyNegativePreset = (item) => {
+    if (!item.terms || item.terms.trim() === '') {
+      setNegative(clearPresetText());
+      setNegativeNotice(null);
+      setPresetNotice('Avoid list cleared.');
+      return;
+    }
+    const { text, added } = appendPreset(negative, item.terms);
+    setNegative(text);
+    // The "filled from Build" note has served its purpose once the owner
+    // starts shaping the list by hand.
+    setNegativeNotice(null);
+    setPresetNotice(
+      added.length > 0 ? `Added: ${item.label}` : `Already in the list: ${item.label}`
+    );
   };
 
   // ---- Offline queue -----------------------------------------------------
@@ -628,10 +663,38 @@ export default function GenerateScreen() {
                 // The owner has taken over the field - the "filled from Build"
                 // note has served its purpose.
                 setNegativeNotice(null);
+                setPresetNotice(null);
               }}
               placeholder="Things to avoid, e.g. text, watermark, people"
               placeholderTextColor={colors.muted}
             />
+
+            {/* Quick negatives: one tap appends a preset's terms to whatever is
+                already here. Appending only ever adds - the field is cleared
+                only by the explicit "None (Custom Only)" chip below. */}
+            {QUICK_NEGATIVES.length > 0 && (
+              <>
+                <Text style={styles.quickNegativesLabel}>Quick negatives</Text>
+                <View style={styles.quickNegatives}>
+                  {QUICK_NEGATIVES.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      style={styles.presetChip}
+                      onPress={() => applyNegativePreset(item)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Add preset: ${item.label}`}
+                      accessibilityHint={item.description || undefined}
+                    >
+                      <Text style={styles.presetText}>{item.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {presetNotice !== null && (
+                  <Text style={styles.presetNotice}>{presetNotice}</Text>
+                )}
+              </>
+            )}
+
             <Text style={styles.negativeHint}>
               Soft guidance only - the AI model does not support strict negative prompts.
             </Text>
@@ -985,6 +1048,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     marginBottom: spacing.sm,
+  },
+  quickNegativesLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  quickNegatives: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  presetNotice: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: spacing.sm,
   },
   presets: {
     flexDirection: 'row',

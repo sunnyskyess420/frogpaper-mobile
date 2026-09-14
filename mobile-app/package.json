@@ -33,7 +33,8 @@
     "check:offline": "node scripts/check-offline.js",
     "check:builder": "node scripts/check-builder.js",
     "check:rotation": "node scripts/check-rotation.js",
-    "check:engine": "node scripts/check-engine.js"
+    "check:engine": "node scripts/check-engine.js",
+    "check:recipes": "node scripts/check-recipes.js"
   },
   "private": true
 }

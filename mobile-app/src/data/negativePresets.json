@@ -1,0 +1,53 @@
+{
+  "presets": [
+    {
+      "id": "minimal_clutter",
+      "label": "Minimal Clutter",
+      "description": "Reduce busy backgrounds and distractions",
+      "terms": "busy background, distracting objects, multiple subjects, clutter, messy, crowded"
+    },
+    {
+      "id": "no_text",
+      "label": "No Text",
+      "description": "Remove all text and logos",
+      "terms": "text, watermark, logo, signature, labels, captions, writing, typography, words, letters"
+    },
+    {
+      "id": "photorealistic_clean",
+      "label": "Photorealistic Clean",
+      "description": "Exclude stylized and painted looks",
+      "terms": "cartoon, illustration, stylized, painting, drawn, sketch, anime, comic"
+    },
+    {
+      "id": "high_detail",
+      "label": "High Detail",
+      "description": "Prevent low-quality artifacts and AI structural deformations",
+      "terms": "low quality, blurry, pixelated, compression artifacts, blocky, fuzzy, muddy, soft focus, deformed, malformed, amorphous, morphed, misshapen, warped, distorted, low resolution, grainy, noisy, overexposed, underexposed, lack of detail, undefined edges, melting, fused shapes, indistinct, vague, abstract smear"
+    },
+    {
+      "id": "portrait_focus",
+      "label": "Portrait Focus",
+      "description": "Clean portrait without background distractions",
+      "terms": "background, landscape, scenery, objects, clutter, multiple people, crowd"
+    },
+    {
+      "id": "landscape_focus",
+      "label": "Landscape Focus",
+      "description": "Wide scenic view without subjects",
+      "terms": "people, characters, figures, humans, animals, structures, buildings"
+    },
+    {
+      "id": "none",
+      "label": "None (Custom Only)",
+      "description": "Use only your custom negative prompt",
+      "terms": ""
+    }
+  ],
+  "styleDefaults": {
+    "_universal": "blurry, low resolution, pixelated, grainy, deformed, malformed, amorphous, undefined edges, lack of detail, low quality, compression artifacts",
+    "stylized": "cartoon, anime, drawn, sketch, blurry, low resolution, pixelated, grainy, deformed, malformed, amorphous, undefined edges, lack of detail, low quality",
+    "realistic": "cartoon, illustration, stylized, painting, drawn, anime, blurry, low resolution, pixelated, grainy, deformed, malformed, undefined edges, lack of detail, low quality, compression artifacts",
+    "product-photo": "people, faces, hands, background clutter, text, watermark, blurry, low resolution, deformed, malformed, lack of detail, noisy, grainy",
+    "surreal": "photorealistic, mundane, ordinary, plain, realistic, blurry, low resolution, pixelated, grainy, deformed, malformed, undefined edges, lack of detail, low quality"
+  }
+}
