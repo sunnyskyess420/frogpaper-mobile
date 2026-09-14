@@ -10,8 +10,8 @@
 // can wake the cloud for nothing. Running "on first open of the day" is
 // 100% reliable, costs zero battery and still feels magical.
 //
-// Off by default: nothing here runs unless the user turns the feature on in
-// Settings (or taps the manual button on Home). Keys stay on the device -
+// Off by default: nothing here runs unless the rotation service (see
+// services/wallpaperRotation.js) decides it is due. Keys stay on the device -
 // the shared api layer attaches any saved BYOK keys to the request.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
@@ -25,9 +25,9 @@ const DAILY_LASTRUN_KEY = '@frogpaper/daily_lastrun'; // 'YYYY-MM-DD' (local)
 const DAILY_LASTFAIL_KEY = '@frogpaper/daily_lastfail'; // epoch ms
 // After a failed attempt, wait 2 hours before auto-retrying so a flaky
 // morning connection cannot burn through the provider quota all day.
-const FAIL_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+export const FAIL_COOLDOWN_MS = 2 * 60 * 60 * 1000;
 
-function localDateKey(date = new Date()) {
+export function localDateKey(date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
@@ -55,7 +55,7 @@ export async function setDailySource(source) {
   );
 }
 
-async function readFavorites() {
+export async function readFavorites() {
   try {
     const raw = await AsyncStorage.getItem(FAVORITES_KEY);
     const list = raw ? JSON.parse(raw) : [];
@@ -90,6 +90,39 @@ export async function getDailyInfo() {
   };
 }
 
+// The "once a day" gate is shared with the rotation service, which owns the
+// merged frequency setting: it needs to know whether today's wallpaper is
+// already done, and to record the outcome after a gallery-sourced change (the
+// generate path records lastRun/lastFail itself inside runDailyWallpaper).
+export async function getDailyGate() {
+  const [lastRun, lastFail] = await Promise.all([
+    AsyncStorage.getItem(DAILY_LASTRUN_KEY),
+    AsyncStorage.getItem(DAILY_LASTFAIL_KEY),
+  ]);
+  return {
+    lastRun: lastRun || null,
+    lastFail: parseInt(lastFail || '0', 10) || 0,
+    today: localDateKey(),
+  };
+}
+
+export async function markDailyRun() {
+  try {
+    await AsyncStorage.setItem(DAILY_LASTRUN_KEY, localDateKey());
+    await AsyncStorage.removeItem(DAILY_LASTFAIL_KEY);
+  } catch (err) {
+    // best-effort - a failed write must never break the app
+  }
+}
+
+export async function markDailyFailure() {
+  try {
+    await AsyncStorage.setItem(DAILY_LASTFAIL_KEY, String(Date.now()));
+  } catch (err) {
+    // best-effort - a failed write must never break the app
+  }
+}
+
 // Which phase is the daily wallpaper in right now? Purely informational -
 // nothing is generated here.
 //   'hidden'      feature is off
@@ -111,10 +144,14 @@ export async function dailyPhase() {
 }
 
 // Generate + save + set. force=true ignores the "already ran today" and
-// cooldown checks (that is what the manual button uses); it is never
-// triggered automatically.
-export async function runDailyWallpaper({ force = false } = {}) {
+// cooldown checks (that is what "Change it now" uses); it is never triggered
+// automatically. `source` lets the rotation service pick the pool explicitly
+// instead of reading the legacy daily_source key.
+export async function runDailyWallpaper({ force = false, source: sourceOverride = null } = {}) {
   const info = await getDailyInfo();
+  if (sourceOverride === 'surprise' || sourceOverride === 'favorites') {
+    info.source = sourceOverride;
+  }
   if (!force) {
     if (!info.enabled) {
       return { kind: 'disabled' };

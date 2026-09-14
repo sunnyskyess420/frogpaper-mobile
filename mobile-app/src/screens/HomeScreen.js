@@ -13,8 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import api, { getBaseUrl } from '../services/api';
-import { shuffleWallpaperOnce, getShuffleOnOpen } from '../services/shuffle';
-import { dailyPhase, runDailyWallpaper } from '../services/dailyWallpaper';
+import { loadRotation, runOnLaunch } from '../services/wallpaperRotation';
 import { describeQueueRun, listQueue, processQueue } from '../services/generationQueue';
 import { colors, radii, spacing } from '../theme';
 
@@ -22,7 +21,9 @@ export default function HomeScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState({ state: 'checking', info: null });
-  const autoShuffledRef = useRef(false);
+  // Guards the merged wallpaper rotation so it can only fire once per app
+  // launch, no matter how often the backend check re-runs (pull-to-refresh).
+  const rotationRanRef = useRef(false);
 
   // ---- Queued generations (saved while the backend was unreachable) -------
   const [queueCount, setQueueCount] = useState(0);
@@ -30,12 +31,10 @@ export default function HomeScreen() {
   const queueRunRef = useRef(false);
   const queueRunningRef = useRef(false);
 
-  // ---- Daily auto-wallpaper (opt-in, off by default) --------------------
-  // Phases: 'hidden' (off) | 'running' | 'done' | 'already-run' |
+  // ---- Wallpaper rotation (off / every open / once a day) ----------------
+  // Phases: 'hidden' (nothing happened) | 'running' | 'done' | 'already-run' |
   //         'cooldown' | 'failed'
-  const [daily, setDaily] = useState({ phase: 'hidden' });
-  const dailyBusyRef = useRef(false);
-  const onlineRef = useRef(false);
+  const [rotation, setRotation] = useState({ phase: 'hidden' });
 
   const refreshQueueCount = useCallback(async () => {
     try {
@@ -82,99 +81,88 @@ export default function HomeScreen() {
     }
   }, [refreshQueueCount]);
 
+  // The merged wallpaper rotation: one call decides whether this launch is
+  // due and does the work (generate/save/set or random-from-gallery). Guarded
+  // so it runs at most once per app launch, however often Home re-checks.
+  const runRotationOnce = useCallback(async () => {
+    if (rotationRanRef.current) {
+      return;
+    }
+    rotationRanRef.current = true;
+
+    let info;
+    try {
+      info = await loadRotation();
+    } catch (err) {
+      info = { frequency: 'off', source: 'surprise' };
+    }
+    if (info.frequency === 'off') {
+      setRotation({ phase: 'hidden' });
+      return;
+    }
+
+    // Generating takes a minute or two, so show the progress card; a gallery
+    // shuffle is instant and stays quiet unless it fails.
+    const generates = info.source !== 'gallery';
+    if (generates) {
+      setRotation({ phase: 'running' });
+    }
+
+    const result = await runOnLaunch().catch((err) => ({
+      ok: false,
+      acted: true,
+      message: (err && err.message) || 'Could not change the wallpaper.',
+    }));
+
+    if (result.acted) {
+      if (!result.ok) {
+        setRotation({ phase: 'failed', message: result.message });
+      } else if (generates) {
+        setRotation({ phase: 'done' });
+      } else {
+        setRotation({ phase: 'hidden' });
+      }
+      return;
+    }
+    if (result.reason === 'already-run' && result.frequency === 'daily') {
+      setRotation({ phase: 'already-run' });
+      return;
+    }
+    if (result.reason === 'cooldown') {
+      setRotation({ phase: 'cooldown' });
+      return;
+    }
+    setRotation({ phase: 'hidden' });
+  }, []);
+
   const checkBackend = useCallback(async () => {
     setStatus({ state: 'checking', info: null });
     try {
       const health = await api.health();
       setStatus({ state: 'online', info: health });
-      // Auto-shuffle once per app open, if the user enabled it. Best-effort
-      // and silent - never blocks startup or shows errors on its own.
-      if (!autoShuffledRef.current) {
-        autoShuffledRef.current = true;
-        try {
-          if (await getShuffleOnOpen()) {
-            await shuffleWallpaperOnce();
-          }
-        } catch (err) {
-          // ignore
-        }
-        // Wallpapers queued while offline are owed to the user - run them
-        // now that the backend answers (not awaited: this can take minutes).
-        runQueueOnce();
-      }
+      // Wallpapers queued while offline are owed to the user - run them now
+      // that the backend answers (not awaited: this can take minutes, and it
+      // must not wait for a wallpaper generation below).
+      runQueueOnce();
+      // Change the wallpaper if the rotation setting says this launch is due.
+      // Best-effort and silent on success - never blocks startup.
+      await runRotationOnce();
     } catch (error) {
       setStatus({ state: 'offline', info: null });
     }
-  }, [runQueueOnce]);
+  }, [runRotationOnce, runQueueOnce]);
 
   useEffect(() => {
     checkBackend();
     refreshQueueCount();
   }, [checkBackend, refreshQueueCount]);
 
-  // Daily auto-wallpaper: only ever generates when the user turned it on in
-  // Settings. Runs on the first open of the day while the backend is online.
-  const refreshDaily = useCallback(async () => {
-    if (dailyBusyRef.current || !onlineRef.current) {
-      return;
-    }
-    try {
-      const { phase } = await dailyPhase();
-      if (phase === 'hidden') {
-        setDaily({ phase: 'hidden' });
-        return;
-      }
-      if (phase === 'due') {
-        dailyBusyRef.current = true;
-        setDaily({ phase: 'running' });
-        const result = await runDailyWallpaper();
-        dailyBusyRef.current = false;
-        setDaily(
-          result.kind === 'ok'
-            ? { phase: 'done', result }
-            : { phase: 'failed', result }
-        );
-        return;
-      }
-      setDaily({ phase }); // 'already-run' | 'cooldown'
-    } catch (err) {
-      setDaily({ phase: 'hidden' }); // never let the daily feature break Home
-    }
-  }, []);
-
-  useEffect(() => {
-    onlineRef.current = status.state === 'online';
-    if (onlineRef.current) {
-      refreshDaily();
-    } else {
-      setDaily((prev) => (prev.phase === 'running' ? prev : { phase: 'hidden' }));
-    }
-  }, [status.state, refreshDaily]);
-
   useFocusEffect(
     useCallback(() => {
-      // Re-check when the user returns to Home (e.g. after enabling the
-      // feature in Settings) - the status effect only fires on state change.
-      refreshDaily();
       refreshQueueCount(); // the user may have queued a prompt on Generate
       return () => {};
-    }, [refreshDaily, refreshQueueCount])
+    }, [refreshQueueCount])
   );
-
-  const makeDailyNow = async () => {
-    if (dailyBusyRef.current) {
-      return;
-    }
-    dailyBusyRef.current = true;
-    setDaily({ phase: 'running' });
-    const result = await runDailyWallpaper({ force: true });
-    dailyBusyRef.current = false;
-    setDaily(
-      result.kind === 'ok'
-        ? { phase: 'done', result }
-        : { phase: 'failed', result }
-    );
-  };
 
   const online = status.state === 'online';
   const checking = status.state === 'checking';
@@ -263,13 +251,13 @@ export default function HomeScreen() {
         </Text>
       )}
 
-      {daily.phase !== 'hidden' && (
-        <View style={[styles.dailyCard, daily.phase === 'failed' && styles.dailyCardFailed]}>
-          {daily.phase === 'running' ? (
+      {rotation.phase !== 'hidden' && (
+        <View style={[styles.dailyCard, rotation.phase === 'failed' && styles.dailyCardFailed]}>
+          {rotation.phase === 'running' ? (
             <>
               <ActivityIndicator color={colors.accent} />
               <View style={styles.statusTextWrap}>
-                <Text style={styles.dailyTitle}>Painting today's wallpaper...</Text>
+                <Text style={styles.dailyTitle}>Painting your new wallpaper...</Text>
                 <Text style={styles.dailySub}>
                   The cloud is creating a fresh wallpaper and setting it for you. This can
                   take a minute or two.
@@ -279,42 +267,32 @@ export default function HomeScreen() {
           ) : (
             <>
               <Text style={styles.dailyEmoji}>
-                {daily.phase === 'done' || daily.phase === 'already-run'
+                {rotation.phase === 'done' || rotation.phase === 'already-run'
                   ? '\u2705'
-                  : daily.phase === 'cooldown'
+                  : rotation.phase === 'cooldown'
                     ? '\u23F3'
                     : '\u26A0\uFE0F'}
               </Text>
               <View style={styles.statusTextWrap}>
                 <Text style={styles.dailyTitle}>
-                  {daily.phase === 'done' || daily.phase === 'already-run'
-                    ? "Today's fresh wallpaper is set!"
-                    : daily.phase === 'cooldown'
-                      ? 'Daily wallpaper hit a snag'
-                      : 'Daily wallpaper could not finish'}
+                  {rotation.phase === 'done'
+                    ? 'Your new wallpaper is set!'
+                    : rotation.phase === 'already-run'
+                      ? "Today's wallpaper is already set"
+                      : rotation.phase === 'cooldown'
+                        ? 'Wallpaper change hit a snag'
+                        : 'Could not change the wallpaper'}
                 </Text>
                 <Text style={styles.dailySub}>
-                  {daily.phase === 'done' || daily.phase === 'already-run'
-                    ? 'Come back tomorrow for another surprise.'
-                    : daily.phase === 'cooldown'
-                      ? 'FrogPaper will try again next time you open the app.'
-                      : (daily.result && daily.result.message) ||
-                        'Check your connection and try again.'}
+                  {rotation.phase === 'done'
+                    ? 'FrogPaper changed it automatically on this launch.'
+                    : rotation.phase === 'already-run'
+                      ? 'FrogPaper changes it once a day - come back tomorrow.'
+                      : rotation.phase === 'cooldown'
+                        ? 'FrogPaper will try again next time you open the app.'
+                        : rotation.message || 'Check your connection and try again.'}
                 </Text>
               </View>
-              {(daily.phase === 'failed' ||
-                daily.phase === 'cooldown' ||
-                daily.phase === 'already-run') && (
-                <TouchableOpacity
-                  style={styles.dailyButton}
-                  onPress={makeDailyNow}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.dailyButtonText}>
-                    {daily.phase === 'already-run' ? 'Another' : 'Try now'}
-                  </Text>
-                </TouchableOpacity>
-              )}
             </>
           )}
         </View>
@@ -451,17 +429,6 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     marginTop: 2,
-  },
-  dailyButton: {
-    backgroundColor: colors.accent,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-  },
-  dailyButtonText: {
-    color: colors.bg,
-    fontSize: 14,
-    fontWeight: '800',
   },
   actionList: {
     gap: spacing.md,

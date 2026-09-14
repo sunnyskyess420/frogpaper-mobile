@@ -7,12 +7,12 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import api, {
   discoverBaseUrl,
   getBaseUrl,
@@ -41,14 +41,19 @@ import {
   setRuntimeEnvironment,
 } from '../services/sentry';
 import { colors, radii, spacing } from '../theme';
-import { getDailyInfo, setDailyEnabled, setDailySource } from '../services/dailyWallpaper';
+import {
+  changeNow as runWallpaperChangeNow,
+  loadRotation,
+  savedFavoriteCount,
+  setFrequency,
+  setSource,
+} from '../services/wallpaperRotation';
 import {
   FOLDER,
   chooseSaveFolder,
   getSaveTarget,
   usePhoneGallery,
 } from '../services/saveTarget';
-import { getShuffleOnOpen, setShuffleOnOpen, shuffleWallpaperOnce } from '../services/shuffle';
 import { clearCache, getCacheStats } from '../services/imageCache';
 import { clearQueue, listQueue } from '../services/generationQueue';
 import ByokHelpModal from '../components/ByokHelpModal';
@@ -205,56 +210,64 @@ export default function SettingsScreen() {
     refresh();
   }, [refresh]);
 
-  // ---- Daily auto-wallpaper preference (off by default) -----------------
-  const [dailyState, setDailyState] = useState({ enabled: false, source: 'surprise' });
+  // ---- Wallpaper rotation (off / every open / once a day) ----------------
+  // One merged preference (services/wallpaperRotation.js) replaces the old
+  // "daily wallpaper" switch and "shuffle on app open" switch.
+  const [rotationState, setRotationState] = useState({
+    frequency: 'off',
+    source: 'surprise',
+    favorites: 0,
+    ready: false,
+  });
+  const [rotating, setRotating] = useState(false);
+  const [rotationNotice, setRotationNotice] = useState(null);
 
-  useEffect(() => {
-    getDailyInfo()
-      .then((info) => setDailyState({ enabled: info.enabled, source: info.source }))
-      .catch(() => {}); // preferences are optional - never block Settings
+  const refreshRotation = useCallback(async () => {
+    try {
+      const [rotation, favorites] = await Promise.all([
+        loadRotation(),
+        savedFavoriteCount(),
+      ]);
+      setRotationState({
+        frequency: rotation.frequency,
+        source: rotation.source,
+        favorites,
+        ready: true,
+      });
+    } catch (err) {
+      setRotationState((prev) => ({ ...prev, ready: true })); // never block Settings
+    }
   }, []);
 
-  const toggleDaily = async (value) => {
-    setDailyState((prev) => ({ ...prev, enabled: value }));
-    await setDailyEnabled(value);
+  // Re-read on focus: the user may have just starred a prompt on Generate,
+  // which changes the "My favourites" prerequisite hint.
+  useFocusEffect(
+    useCallback(() => {
+      refreshRotation();
+      return () => {};
+    }, [refreshRotation])
+  );
+
+  const chooseFrequency = async (frequency) => {
+    setRotationState((prev) => ({ ...prev, frequency }));
+    await setFrequency(frequency);
   };
 
-  const chooseDailySource = async (source) => {
-    setDailyState((prev) => ({ ...prev, source }));
-    await setDailySource(source);
+  const chooseRotationSource = async (source) => {
+    setRotationState((prev) => ({ ...prev, source }));
+    const updated = await setSource(source);
+    setRotationState((prev) => ({ ...prev, source: updated.source }));
   };
 
-  // ---- Shuffle (on app open + shuffle-now) -------------------------------
-  // Moved here from Home together with the daily wallpaper controls.
-  const [shuffleOnOpen, setShuffleOnOpenState] = useState(false);
-  const [shuffling, setShuffling] = useState(false);
-  const [shuffleNotice, setShuffleNotice] = useState(null);
-
-  useEffect(() => {
-    getShuffleOnOpen()
-      .then((on) => setShuffleOnOpenState(on))
-      .catch(() => {}); // preference is optional - never block Settings
-  }, []);
-
-  const toggleShuffleOnOpen = async (value) => {
-    setShuffleOnOpenState(value);
-    const saved = await setShuffleOnOpen(value);
-    setShuffleNotice({
-      kind: saved ? 'ok' : 'error',
-      text: saved
-        ? value
-          ? 'Auto-shuffle ON - a random wallpaper is set each time you open FrogPaper.'
-          : 'Auto-shuffle OFF.'
-        : 'Could not save the setting.',
-    });
-  };
-
-  const shuffleNow = async () => {
-    setShuffling(true);
-    setShuffleNotice(null);
-    const result = await shuffleWallpaperOnce();
-    setShuffleNotice({ kind: result.ok ? 'ok' : 'error', text: result.message });
-    setShuffling(false);
+  const changeWallpaperNow = async () => {
+    if (rotating) {
+      return;
+    }
+    setRotating(true);
+    setRotationNotice(null);
+    const result = await runWallpaperChangeNow();
+    setRotationNotice({ kind: result.ok ? 'ok' : 'error', text: result.message });
+    setRotating(false);
   };
 
   // ---- Save location (phone gallery or an SD-card folder) -----------------
@@ -344,6 +357,41 @@ export default function SettingsScreen() {
   };
 
   const online = state.health !== null;
+
+  // Labels for the merged Wallpaper card.
+  const saveLocationLabel = saveTarget.target === FOLDER ? 'saves to SD card' : 'saves to phone gallery';
+  const frequencyLabel =
+    rotationState.frequency === 'daily'
+      ? 'Once a day'
+      : rotationState.frequency === 'open'
+        ? 'Every open'
+        : 'Off';
+  const sourceLabel =
+    rotationState.source === 'surprise'
+      ? 'surprise me'
+      : rotationState.source === 'favorites'
+        ? 'my favourites'
+        : 'random from my gallery';
+  const wallpaperSummary =
+    rotationState.frequency === 'off'
+      ? `Off · ${saveLocationLabel}`
+      : `${frequencyLabel} · ${sourceLabel} · ${saveLocationLabel}`;
+  const frequencyHint =
+    rotationState.frequency === 'daily'
+      ? 'On the first time you open FrogPaper each day, the wallpaper changes once - while the app is open, never in the background.'
+      : rotationState.frequency === 'open'
+        ? 'Every time you open FrogPaper, the wallpaper changes once - while the app is open, never in the background.'
+        : 'FrogPaper never changes your wallpaper on its own.';
+  const sourceHint =
+    rotationState.source === 'surprise'
+      ? 'A brand-new wallpaper painted from the surprise idea pool.'
+      : rotationState.source === 'favorites'
+        ? rotationState.favorites > 0
+          ? `A brand-new wallpaper painted from one of your ${rotationState.favorites} saved favourite prompt${
+              rotationState.favorites === 1 ? '' : 's'
+            }.`
+          : 'You have no favourites saved yet, so this falls back to the surprise idea pool. Star a prompt on the Generate screen to use your own.'
+        : 'A random wallpaper already in your gallery - nothing new is generated.';
 
   // Which cards are expanded. Everyday settings start open; the technical
   // cards start collapsed so Settings reads at a glance.
@@ -667,112 +715,146 @@ export default function SettingsScreen() {
 
       <SettingsCard
         title="Wallpaper"
-        summary={`${dailyState.enabled ? 'Daily on' : 'Daily off'} · shuffle ${
-          shuffleOnOpen ? 'on open' : 'off'
-        } · saves to ${saveTarget.target === FOLDER ? 'SD card' : 'phone gallery'}`}
+        summary={wallpaperSummary}
         open={openCards.wallpaper}
         onPress={() => toggleCard('wallpaper')}
       >
-        <View style={styles.row}>
-          <Text style={styles.rowValue}>Fresh wallpaper every day</Text>
-          <Switch
-            value={dailyState.enabled}
-            onValueChange={toggleDaily}
-            trackColor={{ false: colors.cardAlt, true: colors.accentDim }}
-            thumbColor={dailyState.enabled ? colors.accent : colors.muted}
-            ios_backgroundColor={colors.cardAlt}
-          />
-        </View>
-        <Text style={styles.hint}>
-          When ON, opening FrogPaper each day sets a brand-new wallpaper - only while the
-          app is open, never in the background.
-        </Text>
-        {dailyState.enabled && (
-          <>
-            <Text style={styles.hint}>Where should today's idea come from?</Text>
-            <View style={styles.buttonRow}>
-              <Pressable
-                style={[
-                  styles.button,
-                  styles.buttonSecondary,
-                  dailyState.source === 'surprise' && styles.chipActive,
-                ]}
-                onPress={() => chooseDailySource('surprise')}
-              >
-                <Text
-                  style={[
-                    styles.buttonSecondaryText,
-                    dailyState.source === 'surprise' && styles.chipActiveText,
-                  ]}
-                >
-                  {'\uD83C\uDFB2 Surprise me'}
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.button,
-                  styles.buttonSecondary,
-                  dailyState.source === 'favorites' && styles.chipActive,
-                ]}
-                onPress={() => chooseDailySource('favorites')}
-              >
-                <Text
-                  style={[
-                    styles.buttonSecondaryText,
-                    dailyState.source === 'favorites' && styles.chipActiveText,
-                  ]}
-                >
-                  {'\u2605 My favorites'}
-                </Text>
-              </Pressable>
-            </View>
-            <Text style={styles.hint}>
-              "My favorites" uses a prompt you starred on the Generate screen, and falls
-              back to surprise ideas if you have none yet.
+        <Text style={[styles.inputLabel, styles.firstInputLabel]}>Change my wallpaper</Text>
+        <View style={styles.buttonRow}>
+          <Pressable
+            style={[
+              styles.button,
+              styles.buttonSecondary,
+              rotationState.frequency === 'off' && styles.chipActive,
+            ]}
+            onPress={() => chooseFrequency('off')}
+          >
+            <Text
+              style={[
+                styles.buttonSecondaryText,
+                rotationState.frequency === 'off' && styles.chipActiveText,
+              ]}
+            >
+              Off
             </Text>
-          </>
-        )}
-
-        <View style={styles.separator} />
-
-        <View style={styles.row}>
-          <Text style={styles.rowValue}>Shuffle on app open</Text>
-          <Switch
-            value={shuffleOnOpen}
-            onValueChange={toggleShuffleOnOpen}
-            trackColor={{ false: colors.cardAlt, true: colors.accentDim }}
-            thumbColor={shuffleOnOpen ? colors.accent : colors.muted}
-            ios_backgroundColor={colors.cardAlt}
-          />
+          </Pressable>
+          <Pressable
+            style={[
+              styles.button,
+              styles.buttonSecondary,
+              rotationState.frequency === 'open' && styles.chipActive,
+            ]}
+            onPress={() => chooseFrequency('open')}
+          >
+            <Text
+              style={[
+                styles.buttonSecondaryText,
+                rotationState.frequency === 'open' && styles.chipActiveText,
+              ]}
+            >
+              Every time I open
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.button,
+              styles.buttonSecondary,
+              rotationState.frequency === 'daily' && styles.chipActive,
+            ]}
+            onPress={() => chooseFrequency('daily')}
+          >
+            <Text
+              style={[
+                styles.buttonSecondaryText,
+                rotationState.frequency === 'daily' && styles.chipActiveText,
+              ]}
+            >
+              Once a day
+            </Text>
+          </Pressable>
         </View>
-        <Text style={styles.hint}>
-          When ON, opening FrogPaper sets a random wallpaper from your gallery - only while
-          the app is open, never in the background.
-        </Text>
+        <Text style={styles.hint}>{frequencyHint}</Text>
+
+        <Text style={styles.inputLabel}>What to use</Text>
+        <View style={styles.buttonRow}>
+          <Pressable
+            style={[
+              styles.button,
+              styles.buttonSecondary,
+              rotationState.source === 'surprise' && styles.chipActive,
+            ]}
+            onPress={() => chooseRotationSource('surprise')}
+          >
+            <Text
+              style={[
+                styles.buttonSecondaryText,
+                rotationState.source === 'surprise' && styles.chipActiveText,
+              ]}
+            >
+              {'\uD83C\uDFB2 Surprise me'}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.button,
+              styles.buttonSecondary,
+              rotationState.source === 'favorites' && styles.chipActive,
+            ]}
+            onPress={() => chooseRotationSource('favorites')}
+          >
+            <Text
+              style={[
+                styles.buttonSecondaryText,
+                rotationState.source === 'favorites' && styles.chipActiveText,
+              ]}
+            >
+              {'\u2605 My favourites'}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.button,
+              styles.buttonSecondary,
+              rotationState.source === 'gallery' && styles.chipActive,
+            ]}
+            onPress={() => chooseRotationSource('gallery')}
+          >
+            <Text
+              style={[
+                styles.buttonSecondaryText,
+                rotationState.source === 'gallery' && styles.chipActiveText,
+              ]}
+            >
+              {'\uD83D\uDDBC Random from my gallery'}
+            </Text>
+          </Pressable>
+        </View>
+        <Text style={styles.hint}>{sourceHint}</Text>
+
         <View style={styles.buttonRow}>
           <Pressable
             style={[styles.button, styles.buttonSecondary]}
-            onPress={shuffleNow}
-            disabled={shuffling}
+            onPress={changeWallpaperNow}
+            disabled={rotating}
           >
-            {shuffling ? (
+            {rotating ? (
               <View style={styles.busyRow}>
                 <ActivityIndicator color={colors.text} />
-                <Text style={styles.buttonSecondaryText}>Shuffling…</Text>
+                <Text style={styles.buttonSecondaryText}>Changing…</Text>
               </View>
             ) : (
-              <Text style={styles.buttonSecondaryText}>Shuffle wallpaper now</Text>
+              <Text style={styles.buttonSecondaryText}>Change it now</Text>
             )}
           </Pressable>
         </View>
-        {shuffleNotice !== null && (
+        {rotationNotice !== null && (
           <Text
             style={[
               styles.shuffleNotice,
-              shuffleNotice.kind === 'error' ? styles.shuffleNoticeError : null,
+              rotationNotice.kind === 'error' ? styles.shuffleNoticeError : null,
             ]}
           >
-            {shuffleNotice.text}
+            {rotationNotice.text}
           </Text>
         )}
 
@@ -1019,7 +1101,7 @@ export default function SettingsScreen() {
 
       <SettingsCard
         title="About & diagnostics"
-        summary="FrogPaper 1.9.32"
+        summary="FrogPaper 1.9.33"
         open={openCards.about}
         onPress={() => {
           // Keep the hidden 5-tap gesture from the old About heading: a run of
@@ -1030,7 +1112,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.32</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.33</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>
@@ -1259,8 +1341,8 @@ const styles = StyleSheet.create({
   cardBody: {
     marginTop: spacing.md,
   },
-  // Separates the Save-location half of the Wallpaper card from the daily
-  // wallpaper controls above it.
+  // Separates the rotation controls from the Save-location half of the
+  // Wallpaper card.
   separator: {
     borderTopColor: colors.border,
     borderTopWidth: 1,
@@ -1429,6 +1511,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: spacing.md,
     marginBottom: 2,
+  },
+  // The first label in a card body sits right under the header, so it does not
+  // need the usual breathing room above it.
+  firstInputLabel: {
+    marginTop: 0,
   },
   aboutRow: {
     flexDirection: 'row',
