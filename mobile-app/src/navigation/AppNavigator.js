@@ -5,6 +5,7 @@ import GalleryScreen from '../screens/GalleryScreen';
 import GenerateScreen from '../screens/GenerateScreen';
 import DetailScreen from '../screens/DetailScreen';
 import HomeScreen from '../screens/HomeScreen';
+import PromptBuilderScreen from '../screens/PromptBuilderScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import SlideshowScreen from '../screens/SlideshowScreen';
 import { colors } from '../theme';
@@ -25,6 +26,7 @@ export default function AppNavigator() {
     >
       <Stack.Screen name="Home" component={HomeScreen} options={{ title: 'FrogPaper' }} />
       <Stack.Screen name="Generate" component={GenerateScreen} options={{ title: 'Generate' }} />
+      <Stack.Screen name="Build" component={PromptBuilderScreen} options={{ title: 'Build' }} />
       <Stack.Screen name="Gallery" component={GalleryScreen} options={{ title: 'Gallery' }} />
       <Stack.Screen name="Detail" component={DetailScreen} options={{ title: 'Detail' }} />
       <Stack.Screen name="Slideshow" component={SlideshowScreen} options={{ title: 'Slideshow' }} />

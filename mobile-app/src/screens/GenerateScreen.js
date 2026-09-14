@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import api from '../services/api';
 import { getByokSnapshot, getByokSnapshotAsync, isOfflineError } from '../services/api';
 import {
@@ -56,6 +56,7 @@ const PROVIDER_LABELS = {
 
 export default function GenerateScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
   const insets = useSafeAreaInsets();
   const [prompt, setPrompt] = useState('');
   const [negative, setNegative] = useState('');
@@ -148,6 +149,16 @@ export default function GenerateScreen() {
       })
       .catch(() => {}); // favorites are optional - never block the screen on them
   }, []);
+
+  // The Build screen hands its composed prompt back through route params. The
+  // nonce - not the text - is the dependency, so sending the same prompt twice
+  // still refreshes the field.
+  useEffect(() => {
+    const built = route.params?.builtPrompt;
+    if (typeof built === 'string' && built.length > 0) {
+      setPrompt(built);
+    }
+  }, [route.params?.builtPromptNonce]);
 
   const persistFavorites = async (list) => {
     setFavorites(list);
@@ -360,6 +371,14 @@ export default function GenerateScreen() {
           placeholderTextColor={colors.muted}
         />
         <Text style={styles.charCount}>{prompt.length}/600</Text>
+
+        <Pressable
+          style={styles.buildRow}
+          onPress={() => navigation.navigate('Build')}
+        >
+          <Text style={styles.buildRowText}>🧩 Build a prompt from options</Text>
+          <Text style={styles.buildRowChevron}>▸</Text>
+        </Pressable>
 
         <View style={styles.promptActions}>
           <Pressable style={styles.pillButton} onPress={surpriseMe}>
@@ -740,6 +759,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'right',
     marginTop: spacing.xs,
+  },
+  // Entry point to the Build screen: a full-width outlined row using the
+  // control fill so the shape stays visible on the dark background.
+  buildRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.control,
+    borderColor: colors.controlBorder,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 13,
+    marginTop: spacing.sm,
+  },
+  buildRowText: {
+    color: '#EAF7F1',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  buildRowChevron: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '700',
   },
   promptActions: {
     flexDirection: 'row',

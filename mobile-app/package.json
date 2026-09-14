@@ -30,7 +30,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "check:sentry": "node scripts/check-sentry.js",
-    "check:offline": "node scripts/check-offline.js"
+    "check:offline": "node scripts/check-offline.js",
+    "check:builder": "node scripts/check-builder.js"
   },
   "private": true
 }

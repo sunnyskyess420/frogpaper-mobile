@@ -1,0 +1,130 @@
+// Option lists for the Build screen - the mobile port of the desktop app's
+// dropdowns, so both versions assemble a prompt from the same vocabulary.
+// Labels are plain strings; the composer turns the chosen ones into a sentence.
+export const MODES = [
+  'Stylized',
+  'Realistic',
+  'Cinematic',
+  'Anime',
+  'Dark Fantasy',
+  'Painterly',
+  'Pixel Art',
+  'Minimalist',
+  'Product Photo',
+  'Surreal',
+];
+
+export const SUBJECTS = [
+  'frog',
+  'cat',
+  'cyber ninja',
+  'astronaut',
+  'racing car',
+  'giant mecha',
+  'dragon',
+  'samurai',
+  'witch',
+  'forest spirit',
+  'robot wolf',
+  'baroque peacock',
+  'desert nomad',
+  'shadowy sentinel',
+  'bioengineered creature',
+  'mech pilot',
+];
+
+export const STYLES = [
+  'cyberpunk',
+  'anime key visual',
+  'oil painting',
+  'watercolor storybook',
+  '3D render',
+  'synthwave poster',
+  'gouache illustration',
+  'colored pencil',
+  'ink and wash',
+  'pixel art 16-bit',
+  'isometric vector',
+  'stained glass',
+  'art nouveau',
+  'art deco',
+  'noir comic',
+  'risograph print',
+  'mid-century poster',
+  'claymation',
+  'stop-motion puppet',
+  'surrealism',
+  'hyperrealism',
+  'ukiyo-e',
+  'concept art',
+];
+
+export const LIGHTING = [
+  'neon',
+  'golden hour',
+  'blue hour',
+  'moonlight',
+  'cinematic bloom',
+  'blacklight',
+  'misty light',
+  'soft diffused light',
+  'dramatic chiaroscuro',
+  'backlit silhouette',
+  'volumetric god rays',
+  'studio rim light',
+  'candlelight',
+  'bioluminescent glow',
+  'overcast daylight',
+  'sunset haze',
+  'storm lightning',
+  'lantern light',
+  'hazy dawn',
+];
+
+export const MOODS = [
+  'epic',
+  'chill',
+  'mysterious',
+  'cozy',
+  'nostalgic',
+  'trippy',
+  'dark',
+  'melancholic',
+  'dreamlike',
+  'majestic',
+  'ominous',
+  'playful',
+  'serene',
+  'mythic',
+  'eerie',
+  'romantic',
+  'chaotic',
+  'hopeful',
+  'lonely',
+];
+
+export const ATMOSPHERES = [
+  'forest fog',
+  'soft atmospheric depth',
+  'soft dreamy haze',
+  'holographic mist',
+  'embers in air',
+  'rain',
+  'snow',
+  'dust',
+  'stardust',
+  'low valley fog',
+];
+
+// Free-text starting points for the Setting row. Any sentence works - these are
+// just tappable chips; the composer only cares that a setting is present.
+export const SETTING_SUGGESTIONS = [
+  'misty forest',
+  'neon city street',
+  'lily pond at dawn',
+  'snowy mountain valley',
+  'rainy Tokyo alley',
+  'sunflower field',
+  'abandoned temple',
+  'floating island',
+];
