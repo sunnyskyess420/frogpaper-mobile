@@ -78,6 +78,9 @@ export default function GenerateScreen() {
   // Size / Avoid / Seed are one collapsed section: they are rarely touched and
   // used to push the action below the fold.
   const [moreOpen, setMoreOpen] = useState(false);
+  // Set when a mode's negative list arrives from the Build screen, so the owner
+  // knows why a long text appeared in the (now expanded) Avoid field.
+  const [negativeNotice, setNegativeNotice] = useState(null);
   // Measured height of the pinned action bar, so the scroll content can end
   // clear of it instead of underneath it.
   const [barHeight, setBarHeight] = useState(0);
@@ -195,6 +198,22 @@ export default function GenerateScreen() {
       }
     }
   }, [route.params?.builtPromptNonce, route.params?.autoGenerateNonce]);
+
+  // A selected Build mode also hands back its negative list. It travels with
+  // its own nonce, so editing Avoid by hand can never re-trigger this effect -
+  // only an explicit Build handoff replaces what the owner typed. The section
+  // is opened and a notice shown, so the filled field is never hidden behind
+  // "More options". A no-mode handoff carries no negative (empty string) and
+  // leaves the field alone rather than silently clearing it.
+  useEffect(() => {
+    const built = route.params?.builtNegative;
+    if (typeof built !== 'string' || built.length === 0) {
+      return;
+    }
+    setNegative(built);
+    setMoreOpen(true);
+    setNegativeNotice('Avoid filled from the Build screen - review or edit it below.');
+  }, [route.params?.builtNegativeNonce]);
 
   // A handoff can arrive without a prompt: the image's stored metadata has
   // none, so nothing is fired. The prompt field is left untouched and this says
@@ -597,11 +616,19 @@ export default function GenerateScreen() {
             </View>
 
             <Text style={styles.sectionLabel}>Avoid (optional)</Text>
+            {negativeNotice !== null && (
+              <Text style={styles.negativeNotice}>{negativeNotice}</Text>
+            )}
             <TextInput
               style={styles.negativeInput}
-              maxLength={300}
+              maxLength={2200}
               value={negative}
-              onChangeText={setNegative}
+              onChangeText={(text) => {
+                setNegative(text);
+                // The owner has taken over the field - the "filled from Build"
+                // note has served its purpose.
+                setNegativeNotice(null);
+              }}
               placeholder="Things to avoid, e.g. text, watermark, people"
               placeholderTextColor={colors.muted}
             />
@@ -952,6 +979,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: spacing.xs,
     marginBottom: spacing.lg,
+  },
+  negativeNotice: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: spacing.sm,
   },
   presets: {
     flexDirection: 'row',

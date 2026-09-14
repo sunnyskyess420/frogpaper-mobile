@@ -23,7 +23,7 @@ import {
   STYLES,
   SUBJECTS,
 } from '../data/promptOptions';
-import { composePrompt, randomCombo } from '../services/promptComposer';
+import { composeSelection, randomCombo } from '../services/promptComposer';
 import { colors, radii, spacing } from '../theme';
 
 // The seven rows, in the order they read best as a sentence. The setting row has
@@ -55,7 +55,7 @@ export default function PromptBuilderScreen() {
   const [sheetKey, setSheetKey] = useState(null);
   const [settingOpen, setSettingOpen] = useState(false);
 
-  const preview = composePrompt(selection);
+  const { prompt: preview, negative } = composeSelection(selection);
   const activeSheet = ROWS.find((row) => row.key === sheetKey) || null;
 
   const setValue = (key, value) => setSelection((current) => ({ ...current, [key]: value }));
@@ -81,9 +81,13 @@ export default function PromptBuilderScreen() {
       return;
     }
     // The nonce makes sending the same prompt twice still update Generate.
+    // The Avoid list travels with its own payload and nonce, so a prompt-only
+    // handoff (or a repeated one) can never carry a stale negative across.
     navigation.navigate('Generate', {
       builtPrompt: preview,
       builtPromptNonce: Date.now(),
+      builtNegative: negative,
+      builtNegativeNonce: Date.now(),
     });
   };
 
@@ -173,6 +177,13 @@ export default function PromptBuilderScreen() {
           <Text style={preview ? styles.previewText : styles.previewPlaceholder}>
             {preview || 'Pick a few options and your prompt appears here.'}
           </Text>
+          {/* A mode brings its own negative list to Generate's Avoid field, so
+              say so here - that field lives behind "More options" over there. */}
+          {negative !== '' && (
+            <Text style={styles.previewModeHint}>
+              {selection.mode} also fills the Avoid list with its own negatives.
+            </Text>
+          )}
         </View>
 
         <Pressable
@@ -365,6 +376,13 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 14,
     fontStyle: 'italic',
+  },
+  previewModeHint: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 19,
+    marginTop: spacing.sm,
   },
   primaryButton: {
     backgroundColor: colors.accent,

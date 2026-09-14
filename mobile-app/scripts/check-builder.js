@@ -19,6 +19,10 @@
  *   4. randomCombo() only ever returns values taken from those lists.
  *   5. composePrompt() is deterministic: the same selection twice is
  *      byte-identical.
+ *   6. A selected mode uses its real data (promptModes.json): styleBase wording,
+ *      qualityLead early and qualityClose last, and composeSelection() hands back
+ *      that mode's negative list. With no mode the composition and the empty
+ *      negative are unchanged from before modes changed the writing.
  *
  * How it loads the app code: same trick as check-offline.js - the app modules
  * are plain ESM, so this script transpiles them to CommonJS on the fly (babel,
@@ -74,7 +78,14 @@ Module._extensions['.js'] = function (mod, filename) {
 };
 
 const options = require(path.join(ROOT, 'src/data/promptOptions.js'));
-const { composePrompt, randomCombo } = require(path.join(ROOT, 'src/services/promptComposer.js'));
+const PROMPT_MODES = require(path.join(ROOT, 'src/data/promptModes.json'));
+const {
+  composePrompt,
+  composeSelection,
+  modeData,
+  modeKey,
+  randomCombo,
+} = require(path.join(ROOT, 'src/services/promptComposer.js'));
 
 // --- assertion helpers ----------------------------------------------------
 let failures = 0;
@@ -99,9 +110,11 @@ function checkComposes(name, selection, expected) {
 function checkComposer() {
   console.log('\nComposer');
 
-  // The example from the feature request: the mode closes the sentence.
+  // A mode brings real data (see the Modes section below), so a full selection
+  // reads subject/setting, the mode's quality cues, its style wording, then the
+  // remaining rows, and the mode's closing cues - not the bare mode word.
   checkComposes(
-    'a full selection composes subject + setting, then style/lighting/mood/atmosphere/mode',
+    'a full selection composes subject + setting, mode quality/style, then the other rows',
     {
       subject: 'frog',
       setting: 'lily pond at dawn',
@@ -111,7 +124,12 @@ function checkComposer() {
       mood: 'serene',
       atmosphere: 'forest fog',
     },
-    'A frog in a lily pond at dawn, oil painting style, golden hour lighting, serene mood, forest fog, cinematic'
+    'A frog in a lily pond at dawn, movie-poster depth of field, dramatic lighting ratio, ' +
+      'rich shadow and highlight detail, subject must remain clearly recognizable, ' +
+      'cinematic widescreen composition, anamorphic lens render, film-quality lighting and ' +
+      'colour grade, oil painting style, golden hour lighting, serene mood, forest fog, ' +
+      'professional colour grading, sharp foreground with atmospheric background, ' +
+      'no flat or amateur lighting, style must not obscure subject identity'
   );
 
   // Vowel subjects take "an"; a preposition setting is used verbatim.
@@ -133,16 +151,26 @@ function checkComposer() {
     'In a misty forest'
   );
 
+  // Mode-only still starts capitalised, but now carries the mode's own wording.
   checkComposes(
-    'mode-only is capitalised and lowercased in the body',
+    'mode-only composes the mode data, capitalised',
     { mode: 'Pixel Art' },
-    'Pixel art'
+    'Clean pixel-perfect edges, readable silhouette at all scales, intentional dithering, ' +
+      'subject must remain clearly recognizable, high-quality pixel art, crisp pixel grid, ' +
+      'retro game aesthetic, limited colour palette, 16-bit or 32-bit era quality, ' +
+      'consistent pixel size, strong contrast between foreground and background, ' +
+      'style must not obscure subject identity'
   );
 
+  // The other rows keep their places around the mode's data.
   checkComposes(
-    'mood + mode keep their order',
+    'mood and mode data keep their order',
     { mood: 'cozy', mode: 'Dark Fantasy' },
-    'Cozy mood, dark fantasy'
+    'Rich shadow detail, high contrast chiaroscuro, brooding colour palette, epic scale, ' +
+      'subject must remain clearly recognizable, dark fantasy concept art, dramatic shadows, ' +
+      'moody atmospheric depth, gothic grandeur, cozy mood, AAA game concept art quality, ' +
+      'painterly textures, no flat shading, deep atmospheric perspective, ' +
+      'style must not obscure subject identity'
   );
 
   // Unselected / blank keys are skipped, not rendered as empty clauses.
@@ -258,6 +286,13 @@ function checkDeterminism() {
   const first = composePrompt(selection);
   const second = composePrompt({ ...selection });
   check('the same selection composes byte-identical text', first === second, first);
+  const firstBoth = composeSelection(selection);
+  const secondBoth = composeSelection({ ...selection });
+  check(
+    'composeSelection is deterministic (prompt and negative)',
+    firstBoth.prompt === secondBoth.prompt && firstBoth.negative === secondBoth.negative,
+    firstBoth.prompt
+  );
   check(
     'composing does not mutate the selection object',
     JSON.stringify(selection) ===
@@ -273,6 +308,164 @@ function checkDeterminism() {
   );
 }
 
+// --- 6: no-mode fidelity --------------------------------------------------
+// The mode work must not change a single character of what the composer did
+// before, for selections without a mode. These literals are that old output.
+function checkNoModeFidelity() {
+  console.log('\nNo-mode fidelity (unchanged behaviour)');
+  checkComposes(
+    'no mode: every non-mode row still composes in order',
+    {
+      subject: 'frog',
+      setting: 'lily pond at dawn',
+      style: 'oil painting',
+      lighting: 'golden hour',
+      mood: 'serene',
+      atmosphere: 'forest fog',
+    },
+    'A frog in a lily pond at dawn, oil painting style, golden hour lighting, serene mood, forest fog'
+  );
+  checkComposes(
+    'no mode: a partial selection is untouched',
+    { subject: 'astronaut', setting: 'under the sea', style: 'watercolor storybook' },
+    'An astronaut under the sea, watercolor storybook style'
+  );
+  checkComposes('no mode: setting-only is untouched', { setting: 'the old mill' }, 'In the old mill');
+  checkComposes(
+    'no mode: the empty selection is still empty',
+    { subject: '  ', style: '', mode: '' },
+    ''
+  );
+  const unknown = { mode: 'Not A Real Mode' };
+  check(
+    'an unknown mode keeps the old bare-word behaviour',
+    composePrompt(unknown) === 'Not a real mode',
+    composePrompt(unknown)
+  );
+  check(
+    'an unknown mode returns no negative',
+    composeSelection(unknown).negative === '',
+    JSON.stringify(composeSelection(unknown).negative)
+  );
+}
+
+// --- 7: modes that change the writing -------------------------------------
+// Each of the 10 modes must carry real data and actually shape both outputs.
+function checkModes() {
+  console.log('\nModes');
+  const labels = options.MODES;
+
+  check(
+    'promptModes.json holds exactly the 10 Build modes, keyed by slug',
+    Object.keys(PROMPT_MODES).length === labels.length &&
+      labels.every((label) =>
+        Object.prototype.hasOwnProperty.call(PROMPT_MODES, modeKey(label))
+      ),
+    `keys=${Object.keys(PROMPT_MODES).join(',')}`
+  );
+
+  // All four fields must exist and be non-empty for every mode.
+  const fields = ['styleBase', 'qualityLead', 'qualityClose', 'negative'];
+  for (const field of fields) {
+    const missing = labels.filter((label) => {
+      const data = modeData(label);
+      return !data || typeof data[field] !== 'string' || data[field].trim().length === 0;
+    });
+    check(
+      `every mode has a non-empty ${field}`,
+      missing.length === 0,
+      `missing/blank: ${missing.join(', ') || 'none'}`
+    );
+  }
+  const shortNegatives = labels.filter((label) => {
+    const data = modeData(label);
+    if (!data) {
+      return true;
+    }
+    return data.negative.split(',').filter((term) => term.trim().length > 0).length < 80;
+  });
+  check(
+    'every mode negative lists at least 80 comma-separated terms',
+    shortNegatives.length === 0,
+    `too short: ${shortNegatives.join(', ') || 'none'}`
+  );
+
+  const opening = 'A frog in a lily pond at dawn, ';
+  for (const label of labels) {
+    const data = modeData(label);
+
+    // styleBase supplies the style wording, qualityClose closes the sentence.
+    const modeOnly = composePrompt({ mode: label });
+    check(
+      `${label}: the prompt uses its styleBase and closes with its qualityClose`,
+      modeOnly.includes(data.styleBase) && modeOnly.endsWith(data.qualityClose),
+      modeOnly
+    );
+
+    // qualityLead lands early - right after the subject/setting clause.
+    const withOpening = composePrompt({
+      subject: 'frog',
+      setting: 'lily pond at dawn',
+      mode: label,
+    });
+    check(
+      `${label}: qualityLead lands after the subject/setting clause, before the style base`,
+      withOpening.startsWith(`${opening}${data.qualityLead}`) &&
+        withOpening.indexOf(data.styleBase) > withOpening.indexOf(data.qualityLead),
+      withOpening
+    );
+
+    // The mode's negative travels with the composition.
+    const selection = composeSelection({ mode: label });
+    check(
+      `${label}: composeSelection returns that mode's negative`,
+      selection.negative === PROMPT_MODES[modeKey(label)].negative &&
+        selection.negative.length > 0,
+      `got ${selection.negative.length} chars`
+    );
+
+    // A Style chosen by hand survives alongside the mode's style wording.
+    const styled = composePrompt({ mode: label, style: 'oil painting' });
+    check(
+      `${label}: mode + Style keeps both the styleBase and the chosen style`,
+      styled.includes(data.styleBase) && styled.includes('oil painting style'),
+      styled
+    );
+  }
+
+  // A mode is never tacked on as a bare word any more.
+  const bareWord = labels.filter((label) =>
+    composePrompt({ mode: label }).endsWith(label.toLowerCase())
+  );
+  check(
+    'no mode is appended as a bare word',
+    bareWord.length === 0,
+    bareWord.join(', ')
+  );
+
+  // A fragment another row already stated is not repeated by the mode data.
+  const deduped = composePrompt({
+    setting: 'cinematic widescreen composition',
+    mode: 'Cinematic',
+  });
+  check(
+    'a mode fragment already stated by another row is not repeated',
+    deduped.split('cinematic widescreen composition').length - 1 === 1,
+    deduped
+  );
+
+  const both = composeSelection({ subject: 'frog', mode: 'Anime', style: 'stained glass' });
+  check(
+    'composePrompt stays in step with composeSelection().prompt',
+    composePrompt({ subject: 'frog', mode: 'Anime', style: 'stained glass' }) === both.prompt,
+    both.prompt
+  );
+  check(
+    'no mode selected returns an empty negative',
+    composeSelection({ subject: 'frog', style: 'ink and wash' }).negative === ''
+  );
+}
+
 (async () => {
   try {
     checkComposer();
@@ -280,6 +473,8 @@ function checkDeterminism() {
     checkLists();
     checkRandomCombo();
     checkDeterminism();
+    checkNoModeFidelity();
+    checkModes();
   } catch (err) {
     failures += 1;
     console.log(`${FAIL} unexpected error: ${err && err.stack ? err.stack : err}`);
