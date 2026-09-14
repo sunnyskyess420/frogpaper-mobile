@@ -35,17 +35,6 @@ const SIZE_PRESETS = [
   { id: 'landscape', label: 'Landscape', width: 1920, height: 1080 },
 ];
 
-// Style presets append proven descriptor phrases to the prompt.
-const STYLE_PRESETS = [
-  { id: 'photo', label: 'Photorealistic', suffix: 'photorealistic, 50mm photo, natural lighting, sharp focus' },
-  { id: 'cyberpunk', label: 'Cyberpunk', suffix: 'cyberpunk style, neon lights, rain, moody atmosphere, high detail' },
-  { id: 'pastel', label: 'Pastel', suffix: 'pastel colors, soft light, dreamy, gentle atmosphere' },
-  { id: 'fantasy', label: 'Fantasy', suffix: 'epic fantasy art, magical atmosphere, rich colors' },
-  { id: 'minimal', label: 'Minimalist', suffix: 'minimalist, clean composition, lots of negative space' },
-  { id: 'painting', label: 'Oil painting', suffix: 'oil painting, textured brush strokes, classic art style' },
-  { id: 'anime', label: 'Anime', suffix: 'anime style illustration, vibrant colors, clean line art' },
-];
-
 // Friendly names for the "engine unavailable, used free fallback" notice.
 // The backend reports the original provider as an id (e.g. "huggingface").
 const PROVIDER_LABELS = {
@@ -61,7 +50,6 @@ export default function GenerateScreen() {
   const [prompt, setPrompt] = useState('');
   const [negative, setNegative] = useState('');
   const [presetId, setPresetId] = useState('phone');
-  const [styleId, setStyleId] = useState(null);
   const [providerId, setProviderId] = useState(null);
   const [providers, setProviders] = useState([]);
   // null until a providers request fails: { offline }. Kept next to the list so
@@ -80,6 +68,12 @@ export default function GenerateScreen() {
   const [lastSeed, setLastSeed] = useState(null);
   const [seedInput, setSeedInput] = useState('');
   const [favorites, setFavorites] = useState([]);
+  // Size / Avoid / Seed are one collapsed section: they are rarely touched and
+  // used to push the action below the fold.
+  const [moreOpen, setMoreOpen] = useState(false);
+  // Measured height of the pinned action bar, so the scroll content can end
+  // clear of it instead of underneath it.
+  const [barHeight, setBarHeight] = useState(0);
   // Local-only: the idea list starts collapsed on every mount.
   const [ideasOpen, setIdeasOpen] = useState(false);
   // Requests parked for a later attempt (backend unreachable at the time).
@@ -92,9 +86,14 @@ export default function GenerateScreen() {
   const cancelledRef = useRef(false);
 
   const preset = SIZE_PRESETS.find((item) => item.id === presetId);
-  const style = STYLE_PRESETS.find((item) => item.id === styleId) || null;
   const selectedProvider = providers.find((p) => p.id === providerId) || null;
   const isUsable = (p) => p.status === 'active' || !!(byok && byok[p.id]);
+  // One-line "what is set" summary for the collapsed More options row.
+  const moreSummary = [
+    preset.label,
+    negative.trim() ? 'avoid set' : 'no avoid',
+    seedInput.trim() ? `seed ${seedInput.trim()}` : 'no seed',
+  ].join(' · ');
 
   const loadRecent = useCallback(async () => {
     try {
@@ -266,8 +265,9 @@ export default function GenerateScreen() {
       return;
     }
     // Built once here so an offline failure can queue exactly what would have
-    // been sent (style suffix, size, engine and seed included).
-    const fullPrompt = style ? `${trimmed}, ${style.suffix}` : trimmed;
+    // been sent (prompt, size, engine and seed included). Style is chosen on
+    // the Build screen and arrives already composed in the prompt text.
+    const fullPrompt = trimmed;
     const seedToUse = seedInput.trim() ? parseInt(seedInput.trim(), 10) : undefined;
     setLoading(true);
     setError(null);
@@ -357,7 +357,11 @@ export default function GenerateScreen() {
       style={styles.screen}
     >
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
+        contentContainerStyle={[
+          styles.content,
+          // End the scroll clear of the pinned action bar measured below.
+          { paddingBottom: barHeight + spacing.lg },
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.sectionLabel}>Describe your wallpaper</Text>
@@ -402,53 +406,6 @@ export default function GenerateScreen() {
               </Text>
             </Pressable>
           )}
-        </View>
-
-        <Text style={styles.sectionLabel}>Style (optional)</Text>
-        <View style={styles.presets}>
-          {STYLE_PRESETS.map((item) => (
-            <Pressable
-              key={item.id}
-              onPress={() => setStyleId(styleId === item.id ? null : item.id)}
-              style={[styles.presetChip, styleId === item.id && styles.presetChipActive]}
-            >
-              <Text
-                style={[styles.presetText, styleId === item.id && styles.presetTextActive]}
-              >
-                {item.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Text style={styles.sectionLabel}>Avoid (optional)</Text>
-        <TextInput
-          style={styles.negativeInput}
-          maxLength={300}
-          value={negative}
-          onChangeText={setNegative}
-          placeholder="Things to avoid, e.g. text, watermark, people"
-          placeholderTextColor={colors.muted}
-        />
-        <Text style={styles.negativeHint}>
-          Soft guidance only - the AI model does not support strict negative prompts.
-        </Text>
-
-        <Text style={styles.sectionLabel}>Size</Text>
-        <View style={styles.presets}>
-          {SIZE_PRESETS.map((item) => (
-            <Pressable
-              key={item.id}
-              onPress={() => setPresetId(item.id)}
-              style={[styles.presetChip, presetId === item.id && styles.presetChipActive]}
-            >
-              <Text
-                style={[styles.presetText, presetId === item.id && styles.presetTextActive]}
-              >
-                {item.label}
-              </Text>
-            </Pressable>
-          ))}
         </View>
 
         <Text style={styles.sectionLabel}>AI Engine</Text>
@@ -506,50 +463,78 @@ export default function GenerateScreen() {
           </Text>
         )}
 
-        <Text style={styles.sectionLabel}>Seed (optional)</Text>
-        <View style={styles.seedRow}>
-          <TextInput
-            style={styles.seedInput}
-            placeholder="Random if empty"
-            placeholderTextColor={colors.muted}
-            value={seedInput}
-            onChangeText={setSeedInput}
-            keyboardType="number-pad"
-            maxLength={9}
-          />
-          {lastSeed !== null && (
-            <Pressable
-              onPress={() => setSeedInput(String(lastSeed))}
-              style={styles.seedChipButton}
-            >
-              <Text style={styles.seedChipText}>Reuse: {lastSeed}</Text>
-            </Pressable>
-          )}
-        </View>
-        <Text style={styles.seedHint}>
-          Same seed + same prompt = same image. Leave empty for random.
-        </Text>
-
+        {/* Size, Avoid and Seed used to push the action below the fold, so they
+            now live behind one collapsed row that states what is set. */}
         <Pressable
-          style={[styles.generateButton, loading && styles.generateButtonDisabled]}
-          onPress={generate}
-          disabled={loading}
+          style={styles.moreToggle}
+          onPress={() => setMoreOpen((open) => !open)}
         >
-          {loading ? (
-            <ActivityIndicator color={colors.bg} />
-          ) : (
-            <Text style={styles.generateButtonText}>Generate wallpaper</Text>
-          )}
+          <View style={styles.moreToggleText}>
+            <Text style={styles.moreToggleTitle}>More options</Text>
+            {!moreOpen && (
+              <Text style={styles.moreSummary} numberOfLines={1}>
+                {moreSummary}
+              </Text>
+            )}
+          </View>
+          <Text style={styles.moreChevron}>{moreOpen ? '▾' : '▸'}</Text>
         </Pressable>
 
-        {loading && (
-          <View style={styles.loadingContainer}>
-            <Text style={styles.loadingHint}>
-              FLUX is painting your wallpaper... {elapsed}s elapsed
+        {moreOpen && (
+          <View style={styles.moreBody}>
+            <Text style={styles.sectionLabel}>Size</Text>
+            <View style={styles.presets}>
+              {SIZE_PRESETS.map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setPresetId(item.id)}
+                  style={[styles.presetChip, presetId === item.id && styles.presetChipActive]}
+                >
+                  <Text
+                    style={[styles.presetText, presetId === item.id && styles.presetTextActive]}
+                  >
+                    {item.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={styles.sectionLabel}>Avoid (optional)</Text>
+            <TextInput
+              style={styles.negativeInput}
+              maxLength={300}
+              value={negative}
+              onChangeText={setNegative}
+              placeholder="Things to avoid, e.g. text, watermark, people"
+              placeholderTextColor={colors.muted}
+            />
+            <Text style={styles.negativeHint}>
+              Soft guidance only - the AI model does not support strict negative prompts.
             </Text>
-            <Pressable style={styles.cancelButton} onPress={cancelGeneration}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </Pressable>
+
+            <Text style={styles.sectionLabel}>Seed (optional)</Text>
+            <View style={styles.seedRow}>
+              <TextInput
+                style={styles.seedInput}
+                placeholder="Random if empty"
+                placeholderTextColor={colors.muted}
+                value={seedInput}
+                onChangeText={setSeedInput}
+                keyboardType="number-pad"
+                maxLength={9}
+              />
+              {lastSeed !== null && (
+                <Pressable
+                  onPress={() => setSeedInput(String(lastSeed))}
+                  style={styles.seedChipButton}
+                >
+                  <Text style={styles.seedChipText}>Reuse: {lastSeed}</Text>
+                </Pressable>
+              )}
+            </View>
+            <Text style={styles.seedHint}>
+              Same seed + same prompt = same image. Leave empty for random.
+            </Text>
           </View>
         )}
 
@@ -661,9 +646,9 @@ export default function GenerateScreen() {
           </View>
         )}
 
-        {/* Prompt browsing lives below the generate button and the result:
-            the inputs and the action must be reachable without scrolling
-            past any list. */}
+        {/* Prompt browsing sits at the very bottom of the scroll: the inputs,
+            the engines and the action (now pinned) all come first, so nothing
+            has to be scrolled past to start a generation. */}
         {favorites.length > 0 && (
           <View style={styles.ideasBlock}>
             <Text style={styles.sectionLabel}>★ Favorite prompts</Text>
@@ -723,6 +708,37 @@ export default function GenerateScreen() {
             ))}
         </View>
       </ScrollView>
+
+      {/* Pinned to the bottom of the screen (a sibling of the scroll view, so
+          the layout keeps the action visible without absolute positioning).
+          The scroll content reserves this bar's measured height as padding. */}
+      <View
+        style={[styles.actionBar, { paddingBottom: insets.bottom + spacing.sm }]}
+        onLayout={(event) => setBarHeight(event.nativeEvent.layout.height)}
+      >
+        <Pressable
+          style={[styles.generateButton, loading && styles.generateButtonDisabled]}
+          onPress={generate}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color={colors.bg} />
+          ) : (
+            <Text style={styles.generateButtonText}>Generate wallpaper</Text>
+          )}
+        </Pressable>
+
+        {loading && (
+          <View style={styles.loadingRow}>
+            <Text style={styles.loadingHint}>
+              FLUX is painting your wallpaper... {elapsed}s elapsed
+            </Text>
+            <Pressable style={styles.cancelButton} onPress={cancelGeneration}>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -988,12 +1004,46 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     marginBottom: spacing.lg,
   },
+  // Collapsible "More options" row (Size / Avoid / Seed). Uses the control
+  // fill + border pair so the shape stays visible on the dark background.
+  moreToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.control,
+    borderColor: colors.controlBorder,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 13,
+  },
+  moreToggleText: {
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  moreToggleTitle: {
+    color: '#EAF7F1',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  moreSummary: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  moreChevron: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  moreBody: {
+    marginTop: spacing.lg,
+  },
   generateButton: {
     backgroundColor: colors.accent,
     borderRadius: radii.md,
     paddingVertical: 16,
     alignItems: 'center',
-    marginTop: spacing.sm,
   },
   generateButtonDisabled: {
     opacity: 0.6,
@@ -1003,17 +1053,27 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
   },
+  // Pinned bottom action bar.
+  actionBar: {
+    backgroundColor: colors.bg,
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    paddingTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
   loadingHint: {
     color: colors.muted,
     fontSize: 13,
     textAlign: 'center',
   },
-  loadingContainer: {
-    alignItems: 'center',
-    marginTop: spacing.md,
-  },
   cancelButton: {
-    marginTop: spacing.sm,
     paddingVertical: 8,
     paddingHorizontal: 16,
     backgroundColor: colors.cardAlt,
