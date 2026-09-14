@@ -56,6 +56,36 @@ function formatMegabytes(bytes) {
   return `${((bytes || 0) / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// One collapsible Settings card: a tappable header (uppercase label, one-line
+// summary, chevron) and a body that is unmounted while collapsed, so the
+// screen really is short when you are just scanning it.
+function SettingsCard({ title, summary, summaryDotStyle, open, onPress, children }) {
+  return (
+    <View style={styles.card}>
+      <Pressable
+        style={styles.cardHeader}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+      >
+        <View style={styles.cardHeaderText}>
+          <Text style={[styles.sectionLabel, styles.cardTitle]}>{title}</Text>
+          <View style={styles.cardSummaryRow}>
+            {summaryDotStyle ? (
+              <View style={[styles.dot, styles.dotSmall, summaryDotStyle]} />
+            ) : null}
+            <Text style={styles.cardSummary} numberOfLines={1}>
+              {summary}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.chevron}>{open ? '\u25BE' : '\u25B8'}</Text>
+      </Pressable>
+      {open ? <View style={styles.cardBody}>{children}</View> : null}
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState({
@@ -280,6 +310,21 @@ export default function SettingsScreen() {
   };
 
   const online = state.health !== null;
+
+  // Which cards are expanded. Everyday settings start open; the technical
+  // cards start collapsed so Settings reads at a glance.
+  const [openCards, setOpenCards] = useState({
+    connection: true,
+    wallpaper: false,
+    offline: false,
+    keys: false,
+    advanced: false,
+    about: false,
+  });
+
+  const toggleCard = (key) => {
+    setOpenCards((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const handleCustomUrlChange = async (text) => {
     setState((prev) => ({ ...prev, customUrl: text }));
@@ -553,8 +598,15 @@ export default function SettingsScreen() {
       style={styles.screen}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
     >
-      <Text style={styles.sectionLabel}>Connection</Text>
-      <View style={styles.card}>
+      <SettingsCard
+        title="Connection"
+        summary={state.loading ? 'Checking…' : online ? 'Connected' : 'Backend unreachable'}
+        summaryDotStyle={
+          state.loading ? styles.dotChecking : online ? styles.dotOnline : styles.dotOffline
+        }
+        open={openCards.connection}
+        onPress={() => toggleCard('connection')}
+      >
         <View style={styles.row}>
           <View style={[styles.dot, online ? styles.dotOnline : styles.dotOffline]} />
           <Text style={styles.rowValue}>
@@ -567,9 +619,8 @@ export default function SettingsScreen() {
         </View>
         <Text style={styles.monoText}>{getBaseUrl()}</Text>
         <Text style={styles.hint}>
-          Android emulator reaches your PC via 10.0.2.2. Physical phones use the LAN IP
-          ({LAN_IP}) - both are tried automatically. To change the LAN IP, edit
-          LAN_IP in src/services/api.js.
+          Emulators use 10.0.2.2 and phones use the LAN IP ({LAN_IP}) - both are tried
+          automatically. To change it, edit LAN_IP in src/services/api.js.
         </Text>
         <Pressable style={styles.button} onPress={refresh} disabled={state.loading}>
           {state.loading ? (
@@ -578,37 +629,16 @@ export default function SettingsScreen() {
             <Text style={styles.buttonText}>Re-test connection</Text>
           )}
         </Pressable>
-      </View>
+      </SettingsCard>
 
-      <Text style={styles.sectionLabel}>Custom server address</Text>
-      <View style={styles.card}>
-        <Text style={styles.hint}>
-          For cloud deployment, enter your backend URL here (e.g., https://your-app.onrender.com).
-          Leave empty to use automatic LAN discovery.
-        </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="https://your-backend-url.com"
-          placeholderTextColor={colors.muted}
-          value={state.customUrl}
-          onChangeText={handleCustomUrlChange}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <View style={styles.buttonRow}>
-          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveCustomUrl}>
-            <Text style={styles.buttonSecondaryText}>Save URL</Text>
-          </Pressable>
-          {state.customUrl && (
-            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearCustomUrl}>
-              <Text style={styles.buttonSecondaryText}>Clear</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
-
-      <Text style={styles.sectionLabel}>Daily wallpaper</Text>
-      <View style={styles.card}>
+      <SettingsCard
+        title="Wallpaper"
+        summary={`${dailyState.enabled ? 'Daily on' : 'Daily off'} · saves to ${
+          saveTarget.target === FOLDER ? 'SD card' : 'phone gallery'
+        }`}
+        open={openCards.wallpaper}
+        onPress={() => toggleCard('wallpaper')}
+      >
         <View style={styles.row}>
           <Text style={styles.rowValue}>Fresh wallpaper every day</Text>
           <Switch
@@ -620,9 +650,8 @@ export default function SettingsScreen() {
           />
         </View>
         <Text style={styles.hint}>
-          When ON, the first time you open FrogPaper each day it quietly paints a
-          brand-new wallpaper and sets it on your phone. It only works while the app is
-          open - nothing runs in the background, so it never drains your battery.
+          When ON, opening FrogPaper each day sets a brand-new wallpaper - only while the
+          app is open, never in the background.
         </Text>
         {dailyState.enabled && (
           <>
@@ -664,15 +693,14 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
             <Text style={styles.hint}>
-              "My favorites" picks a random prompt you starred on the Generate screen
-              (it falls back to surprise ideas if you have not saved any yet).
+              "My favorites" uses a prompt you starred on the Generate screen, and falls
+              back to surprise ideas if you have none yet.
             </Text>
           </>
         )}
-      </View>
 
-      <Text style={styles.sectionLabel}>Save location</Text>
-      <View style={styles.card}>
+        <View style={styles.separator} />
+
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Wallpapers are saved to</Text>
           <Text style={[styles.aboutValue, styles.aboutValueShrink]} numberOfLines={1}>
@@ -684,10 +712,8 @@ export default function SettingsScreen() {
         {Platform.OS === 'android' ? (
           <>
             <Text style={styles.hint}>
-              On a phone with little internal storage, point saves at a folder on the SD
-              card. Android asks once which folder FrogPaper may use - the app gets access
-              to that folder only, never to the rest of the card - and every wallpaper you
-              save goes straight there from then on.
+              Point saves at a folder on the SD card: Android gives FrogPaper access to
+              that folder only, never to the rest of the card.
             </Text>
             <View style={styles.buttonRow}>
               <Pressable style={[styles.button, styles.buttonSecondary]} onPress={chooseFolder}>
@@ -712,14 +738,19 @@ export default function SettingsScreen() {
           </Text>
         )}
         <Text style={styles.hint}>
-          This setting is only about the wallpapers you save. The offline cache is a
-          separate thing: it keeps at most 60 images inside the app (internal storage, never
-          the SD card) so the gallery still opens with no connection - see Offline below.
+          This only affects the wallpapers you save - the offline cache is separate and
+          stays in internal storage (see Offline).
         </Text>
-      </View>
+      </SettingsCard>
 
-      <Text style={styles.sectionLabel}>Offline</Text>
-      <View style={styles.card}>
+      <SettingsCard
+        title="Offline"
+        summary={`${offlineState.stats.count} image${
+          offlineState.stats.count === 1 ? '' : 's'
+        } cached · ${offlineState.queue} queued`}
+        open={openCards.offline}
+        onPress={() => toggleCard('offline')}
+      >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Cached images</Text>
           <Text style={styles.aboutValue}>
@@ -732,11 +763,9 @@ export default function SettingsScreen() {
           <Text style={styles.aboutValue}>{offlineState.queue}</Text>
         </View>
         <Text style={styles.hint}>
-          The newest wallpapers are kept on this phone, so the gallery still opens with no
-          connection. Prompts you queue while the backend is unreachable are generated the
-          next time the app is open and the backend answers - the queue runs only while the
-          app is open, never in the background. Up to 10 prompts are kept (the oldest is
-          dropped), and the cache holds at most 60 images.
+          The newest wallpapers (up to 60) stay on this phone so the gallery opens with no
+          connection; queued prompts (up to 10, oldest dropped first) are generated when
+          the backend answers - only while the app is open.
         </Text>
         <View style={styles.buttonRow}>
           <Pressable
@@ -752,42 +781,19 @@ export default function SettingsScreen() {
             <Text style={styles.buttonSecondaryText}>Clear queue</Text>
           </Pressable>
         </View>
-      </View>
+      </SettingsCard>
 
-      <Text style={styles.sectionLabel}>Access key</Text>
-      <View style={styles.card}>
+      <SettingsCard
+        title="AI keys"
+        summary={`Gemini: ${state.byokStatus.gemini ? 'saved' : 'not set'} · HF: ${
+          state.byokStatus.huggingface ? 'saved' : 'not set'
+        } · Replicate: ${state.byokStatus.replicate ? 'saved' : 'not set'}`}
+        open={openCards.keys}
+        onPress={() => toggleCard('keys')}
+      >
         <Text style={styles.hint}>
-          Shared secret key for API authentication. Required when the backend is configured with an access key.
-          Leave empty if your backend does not require authentication.
-        </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter access key"
-          placeholderTextColor={colors.muted}
-          value={state.accessKey}
-          onChangeText={handleAccessKeyChange}
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry
-        />
-        <View style={styles.buttonRow}>
-          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveAccessKey}>
-            <Text style={styles.buttonSecondaryText}>Save key</Text>
-          </Pressable>
-          {state.accessKey && (
-            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearAccessKey}>
-              <Text style={styles.buttonSecondaryText}>Clear</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
-
-      <Text style={styles.sectionLabel}>Your API keys</Text>
-      <View style={styles.card}>
-        <Text style={styles.hint}>
-          Bring your own keys (BYOK). Paste your own free API keys here to use your own quotas.
-          Keys are stored only on this phone and sent with each generate request. They never appear
-          in logs and are never saved on the server.
+          Bring your own keys (BYOK): stored only on this phone, sent with each generate
+          request, never logged and never saved on the server.
         </Text>
 
         <Pressable style={[styles.button, styles.buttonPrimary]} onPress={openByokHelp}>
@@ -854,7 +860,10 @@ export default function SettingsScreen() {
             <Text style={styles.buttonSecondaryText}>Save</Text>
           </Pressable>
           {state.byokStatus.replicate && (
-            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearReplicateToken}>
+            <Pressable
+              style={[styles.button, styles.buttonSecondary]}
+              onPress={clearReplicateToken}
+            >
               <Text style={styles.buttonSecondaryText}>Clear</Text>
             </Pressable>
           )}
@@ -871,30 +880,80 @@ export default function SettingsScreen() {
           Get free keys at: aistudio.google.com/apikey (Gemini), huggingface.co/settings/tokens (HF),
           replicate.com/accounts (Replicate, paid).
         </Text>
-      </View>
+      </SettingsCard>
 
-      <Text style={styles.sectionLabel}>AI provider</Text>
-      {state.providers.map((provider) => (
-        <View key={provider.id} style={styles.card}>
-          <Text style={styles.rowValue}>{provider.name}</Text>
-          <Text style={styles.hint}>{provider.description}</Text>
-          <View style={styles.metaRow}>
-            <Text style={styles.metaChip}>model: {provider.model}</Text>
-            <Text style={styles.metaChip}>status: {provider.status}</Text>
-            <Text style={styles.metaChip}>
-              api key: {provider.requires_api_key ? 'required' : 'not needed'}
-            </Text>
-          </View>
+      <SettingsCard
+        title="Advanced"
+        summary="Server address · access key"
+        open={openCards.advanced}
+        onPress={() => toggleCard('advanced')}
+      >
+        <Text style={styles.inputLabel}>Custom server address</Text>
+        <Text style={styles.hint}>
+          For cloud deployment enter your backend URL (e.g. https://your-app.onrender.com);
+          leave empty to use automatic LAN discovery.
+        </Text>
+        <TextInput
+          style={styles.input}
+          placeholder="https://your-backend-url.com"
+          placeholderTextColor={colors.muted}
+          value={state.customUrl}
+          onChangeText={handleCustomUrlChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <View style={styles.buttonRow}>
+          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveCustomUrl}>
+            <Text style={styles.buttonSecondaryText}>Save URL</Text>
+          </Pressable>
+          {state.customUrl && (
+            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearCustomUrl}>
+              <Text style={styles.buttonSecondaryText}>Clear</Text>
+            </Pressable>
+          )}
         </View>
-      ))}
 
-      <Pressable onPress={bumpCrashTap}>
-        <Text style={styles.sectionLabel}>About</Text>
-      </Pressable>
-      <View style={styles.card}>
+        <Text style={styles.inputLabel}>Access key</Text>
+        <Text style={styles.hint}>
+          Shared secret sent with API requests; leave empty if your backend does not
+          require authentication.
+        </Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter access key"
+          placeholderTextColor={colors.muted}
+          value={state.accessKey}
+          onChangeText={handleAccessKeyChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+        />
+        <View style={styles.buttonRow}>
+          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveAccessKey}>
+            <Text style={styles.buttonSecondaryText}>Save key</Text>
+          </Pressable>
+          {state.accessKey && (
+            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearAccessKey}>
+              <Text style={styles.buttonSecondaryText}>Clear</Text>
+            </Pressable>
+          )}
+        </View>
+      </SettingsCard>
+
+      <SettingsCard
+        title="About & diagnostics"
+        summary="FrogPaper 1.9.31"
+        open={openCards.about}
+        onPress={() => {
+          // Keep the hidden 5-tap gesture from the old About heading: a run of
+          // taps still reveals the crash-test buttons for testers.
+          bumpCrashTap();
+          toggleCard('about');
+        }}
+      >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.30</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.31</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>
@@ -921,16 +980,33 @@ export default function SettingsScreen() {
             {state.sentryStatus === 'initialized' ? 'Sentry active' : 'Sentry off'}
           </Text>
         </View>
-      </View>
 
-      {state.diagnosticsRevealed && (
-        <>
-          <Text style={styles.sectionLabel}>Diagnostics</Text>
-          <View style={styles.card}>
+        {state.providers.length > 0 && (
+          <>
+            <Text style={[styles.sectionLabel, styles.subLabel]}>AI provider</Text>
+            {state.providers.map((provider) => (
+              <View key={provider.id} style={styles.subBlock}>
+                <Text style={styles.rowValue}>{provider.name}</Text>
+                <Text style={styles.hint}>{provider.description}</Text>
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaChip}>model: {provider.model}</Text>
+                  <Text style={styles.metaChip}>status: {provider.status}</Text>
+                  <Text style={styles.metaChip}>
+                    api key: {provider.requires_api_key ? 'required' : 'not needed'}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </>
+        )}
+
+        {state.diagnosticsRevealed && (
+          <>
+            <Text style={[styles.sectionLabel, styles.subLabel]}>Diagnostics</Text>
+
             <Text style={styles.hint}>
-              Sentry DSN (Data Source Name). Paste the DSN from your Sentry project settings
-              (looks like https://&lt;key&gt;@o&lt;org&gt;.ingest.sentry.io/&lt;id&gt;). The DSN
-              is safe to ship in client builds - it only allows writing crash events, never reading them.
+              Paste the Sentry DSN from your project settings; it is safe to ship in
+              client builds because it can only write crash events, never read them.
             </Text>
             <TextInput
               style={styles.input}
@@ -942,8 +1018,8 @@ export default function SettingsScreen() {
               autoCorrect={false}
             />
             <Text style={[styles.hint, { marginTop: spacing.sm }]}>
-              Environment label (e.g. development, staging, production).
-              Used to filter events in the Sentry dashboard.
+              Environment label (e.g. development, production) used to filter events in
+              the Sentry dashboard.
             </Text>
             <TextInput
               style={styles.input}
@@ -975,53 +1051,54 @@ export default function SettingsScreen() {
                 {maskDsn(state.sentryEffectiveDsn)}
               </Text>
             </View>
-          </View>
 
-          <View style={styles.card}>
-            <Text style={styles.rowValue}>Send test event</Text>
-            <Text style={styles.hint}>
-              Sends a test exception to Sentry using captureException(). Most reliable method on web.
-              Does NOT crash the app - just sends the event in the background.
-            </Text>
-            <Pressable
-              style={[styles.button, styles.buttonSecondary]}
-              onPress={sendTestEventNow}
-            >
-              <Text style={styles.buttonSecondaryText}>Send test event</Text>
-            </Pressable>
-            {state.testEventFeedback ? (
-              <View style={styles.feedbackCard}>
-                <Text style={styles.feedbackText}>{state.testEventFeedback}</Text>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.rowValue}>Send test crash</Text>
-            <Text style={styles.hint}>
-              Forces a real uncaught crash that the Sentry SDK will capture. The app will crash.
-              After ~30 seconds, check your Sentry dashboard.
-            </Text>
-            <View style={styles.buttonRow}>
+            <View style={styles.subBlock}>
+              <Text style={styles.rowValue}>Send test event</Text>
+              <Text style={styles.hint}>
+                Sends a test exception in the background with captureException(); it does
+                not crash the app.
+              </Text>
               <Pressable
-                style={[styles.button, styles.buttonDanger]}
-                onPress={() => confirmTestCrash('throwError')}
+                style={[styles.button, styles.buttonSecondary]}
+                onPress={sendTestEventNow}
               >
-                <Text style={styles.buttonText}>JS throw</Text>
+                <Text style={styles.buttonSecondaryText}>Send test event</Text>
               </Pressable>
-              <Pressable
-                style={[styles.button, styles.buttonDanger]}
-                onPress={() => confirmTestCrash('nativeCrash')}
-              >
-                <Text style={styles.buttonText}>Native crash</Text>
-              </Pressable>
+              {state.testEventFeedback ? (
+                <View style={styles.feedbackCard}>
+                  <Text style={styles.feedbackText}>{state.testEventFeedback}</Text>
+                </View>
+              ) : null}
             </View>
-            <Text style={styles.hint}>
-              Native crash requires a dev-client or standalone build - it is a no-op inside Expo Go.
-            </Text>
-          </View>
-        </>
-      )}
+
+            <View style={styles.subBlock}>
+              <Text style={styles.rowValue}>Send test crash</Text>
+              <Text style={styles.hint}>
+                Forces a real uncaught crash that Sentry captures - check your dashboard
+                after ~30 seconds.
+              </Text>
+              <View style={styles.buttonRow}>
+                <Pressable
+                  style={[styles.button, styles.buttonDanger]}
+                  onPress={() => confirmTestCrash('throwError')}
+                >
+                  <Text style={styles.buttonText}>JS throw</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.button, styles.buttonDanger]}
+                  onPress={() => confirmTestCrash('nativeCrash')}
+                >
+                  <Text style={styles.buttonText}>Native crash</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.hint}>
+                Native crash needs a dev-client or standalone build - it is a no-op inside
+                Expo Go.
+              </Text>
+            </View>
+          </>
+        )}
+      </SettingsCard>
 
       {state.error !== null && (
         <View style={styles.errorCard}>
@@ -1068,6 +1145,58 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     marginTop: spacing.md,
   },
+  // Section label sitting inside a collapsible card header.
+  cardTitle: {
+    marginTop: 0,
+    marginBottom: 2,
+  },
+  // Section label for the blocks nested inside the About & diagnostics card.
+  subLabel: {
+    marginTop: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  cardHeaderText: {
+    flex: 1,
+  },
+  cardSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  cardSummary: {
+    color: colors.muted,
+    fontSize: 13,
+    flexShrink: 1,
+  },
+  chevron: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  cardBody: {
+    marginTop: spacing.md,
+  },
+  // Separates the Save-location half of the Wallpaper card from the daily
+  // wallpaper controls above it.
+  separator: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    marginTop: spacing.md,
+  },
+  // A labelled block inside a card body (provider info, diagnostic tools) -
+  // a divider rather than a nested card, so the page stays calm.
+  subBlock: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+  },
   card: {
     backgroundColor: colors.card,
     borderColor: colors.border,
@@ -1092,6 +1221,16 @@ const styles = StyleSheet.create({
   },
   dotOffline: {
     backgroundColor: colors.danger,
+  },
+  // The status dot in a collapsed Connection header while we are still
+  // checking whether the backend answers.
+  dotChecking: {
+    backgroundColor: colors.muted,
+  },
+  dotSmall: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   rowValue: {
     color: colors.text,
@@ -1144,6 +1283,7 @@ const styles = StyleSheet.create({
   },
   buttonSecondaryText: {
     color: '#EAF7F1',
+    textAlign: 'center',
   },
   chipActive: {
     backgroundColor: colors.accentDim,
@@ -1165,6 +1305,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   buttonPrimary: {
     backgroundColor: colors.accent,
@@ -1177,6 +1318,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   input: {
     backgroundColor: colors.cardAlt,

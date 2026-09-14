@@ -343,6 +343,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 16,
     fontWeight: '800',
+    textAlign: 'center',
   },
   hint: {
     color: colors.muted,
@@ -419,6 +420,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   resultActions: {
     flexDirection: 'row',
@@ -437,6 +439,7 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
   },
   loadingContainer: {
     alignItems: 'center',

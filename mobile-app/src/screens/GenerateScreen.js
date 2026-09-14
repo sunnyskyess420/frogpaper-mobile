@@ -910,6 +910,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   ideasBlock: {
     marginTop: spacing.sm,
@@ -1052,6 +1053,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 17,
     fontWeight: '800',
+    textAlign: 'center',
   },
   // Pinned bottom action bar.
   actionBar: {
@@ -1085,6 +1087,7 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 14,
     fontWeight: '600',
+    textAlign: 'center',
   },
   errorCard: {
     backgroundColor: '#2A1520',
@@ -1128,6 +1131,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   queueCard: {
     backgroundColor: colors.card,
@@ -1159,6 +1163,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   resultCard: {
     backgroundColor: colors.card,
@@ -1217,6 +1222,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   resultActions: {
     flexDirection: 'row',
@@ -1235,5 +1241,6 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
   },
 });

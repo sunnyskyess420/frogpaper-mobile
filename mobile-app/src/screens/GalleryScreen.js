@@ -307,6 +307,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   header: {
     color: colors.muted,
@@ -331,6 +332,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   row: {
     gap: spacing.md,

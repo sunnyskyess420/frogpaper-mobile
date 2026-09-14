@@ -704,6 +704,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
   },
   viewerHint: {
     position: 'absolute',
@@ -756,6 +757,7 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 12,
     fontWeight: '600',
+    textAlign: 'center',
   },
   promptBlock: {
     marginTop: spacing.sm,
@@ -804,6 +806,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   buttonBusy: {
     opacity: 0.7,
@@ -820,6 +823,7 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 15,
     fontWeight: '700',
+    textAlign: 'center',
   },
   deleteButton: {
     backgroundColor: '#7F1D1D',
@@ -832,6 +836,7 @@ const styles = StyleSheet.create({
     color: '#FEE2E2',
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'center',
   },
   confirmCard: {
     backgroundColor: '#2A1520',
@@ -865,6 +870,7 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
   },
   secondaryButton: {
     borderColor: colors.accent,
@@ -878,6 +884,7 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
   },
   errorCard: {
     backgroundColor: '#2A1520',

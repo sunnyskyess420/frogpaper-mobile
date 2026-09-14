@@ -379,6 +379,7 @@ const styles = StyleSheet.create({
     color: colors.bg,
     fontSize: 16,
     fontWeight: '800',
+    textAlign: 'center',
   },
   buttonRow: {
     flexDirection: 'row',
@@ -400,6 +401,7 @@ const styles = StyleSheet.create({
     color: '#EAF7F1',
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
   },
   backdrop: {
     flex: 1,
@@ -432,6 +434,7 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
   },
   optionRow: {
     flexDirection: 'row',
