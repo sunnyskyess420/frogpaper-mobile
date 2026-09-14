@@ -23,6 +23,12 @@ import {
   processQueue,
 } from '../services/generationQueue';
 import { capabilities, setAsWallpaper } from '../services/deviceMedia';
+import {
+  isProviderUsable,
+  loadEnginePreference,
+  resolveEnginePreference,
+  saveEnginePreference,
+} from '../services/enginePreference';
 import { saveWallpaper } from '../services/saveTarget';
 import WallpaperImage from '../components/WallpaperImage';
 import ProviderFallbackNotice from '../components/ProviderFallbackNotice';
@@ -49,6 +55,9 @@ export default function GenerateScreen() {
   const [presetId, setPresetId] = useState('phone');
   const [providerId, setProviderId] = useState(null);
   const [providers, setProviders] = useState([]);
+  // Set when a saved engine could not be honoured (gone, or a paid engine with
+  // no saved key): one sentence explaining the free engine in use instead.
+  const [engineNotice, setEngineNotice] = useState(null);
   // null until a providers request fails: { offline }. Kept next to the list so
   // the AI Engine section can explain an empty list instead of just being blank.
   const [providersError, setProvidersError] = useState(null);
@@ -91,7 +100,8 @@ export default function GenerateScreen() {
 
   const preset = SIZE_PRESETS.find((item) => item.id === presetId);
   const selectedProvider = providers.find((p) => p.id === providerId) || null;
-  const isUsable = (p) => p.status === 'active' || !!(byok && byok[p.id]);
+  // The chips and the restore decision share this rule (services/enginePreference).
+  const isUsable = (p) => isProviderUsable(p, byok);
   // One-line "what is set" summary for the collapsed More options row.
   const moreSummary = [
     preset.label,
@@ -115,16 +125,21 @@ export default function GenerateScreen() {
       const activeProviders = response.providers || [];
       const byokSnap = (await getByokSnapshotAsync()) || { gemini: false, huggingface: false, replicate: false };
       setByok(byokSnap);
-      const usableNow = (p) => p.status === 'active' || !!(byokSnap && byokSnap[p.id]);
       setProviders(activeProviders);
+      // Only the first successful load decides the engine, so a choice made in
+      // this session is never overwritten by a later default. The saved engine
+      // is validated against the live list - if it is gone, or it is a paid
+      // engine whose key was cleared, the free default takes over and the
+      // engine section says so instead of silently pretending it stuck.
       if (!providerId && activeProviders.length > 0) {
-        const defaultProvider =
-          activeProviders.find(p => p.id === 'pollinations' && usableNow(p)) ||
-          activeProviders.find(p => p.id === 'gemini' && usableNow(p)) ||
-          activeProviders.find(p => p.id === 'huggingface' && usableNow(p)) ||
-          activeProviders.find(p => usableNow(p)) ||
-          activeProviders[0];
-        if (defaultProvider) setProviderId(defaultProvider.id);
+        const savedId = await loadEnginePreference();
+        const resolved = resolveEnginePreference({
+          savedId,
+          providers: activeProviders,
+          byok: byokSnap,
+        });
+        if (resolved.providerId) setProviderId(resolved.providerId);
+        setEngineNotice(resolved.note);
       }
       setProvidersError(null);
     } catch (err) {
@@ -484,7 +499,16 @@ export default function GenerateScreen() {
             {providers.map((provider) => (
               <Pressable
                 key={provider.id}
-                onPress={() => isUsable(provider) && setProviderId(provider.id)}
+                onPress={() => {
+                  if (!isUsable(provider)) {
+                    return;
+                  }
+                  setProviderId(provider.id);
+                  // A deliberate tap answers any earlier "we used the free
+                  // engine instead" note, and is remembered for next time.
+                  setEngineNotice(null);
+                  saveEnginePreference(provider.id);
+                }}
                 style={[
                   styles.presetChip,
                   providerId === provider.id && styles.presetChipActive,
@@ -527,6 +551,9 @@ export default function GenerateScreen() {
             </Pressable>
           </View>
         ) : null}
+        {providers.length > 0 && engineNotice && (
+          <Text style={styles.engineNotice}>{engineNotice}</Text>
+        )}
         {selectedProvider && (
           <Text style={styles.providerHint}>
             {selectedProvider.description}
@@ -964,6 +991,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: spacing.lg,
     lineHeight: 18,
+  },
+  // "Your saved engine needs a key - using X instead" sits right under the
+  // chips, in the same warning tone the engine error card uses.
+  engineNotice: {
+    color: colors.warn,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: spacing.sm,
   },
   engineErrorCard: {
     backgroundColor: colors.card,

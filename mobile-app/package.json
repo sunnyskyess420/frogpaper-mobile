@@ -32,7 +32,8 @@
     "check:sentry": "node scripts/check-sentry.js",
     "check:offline": "node scripts/check-offline.js",
     "check:builder": "node scripts/check-builder.js",
-    "check:rotation": "node scripts/check-rotation.js"
+    "check:rotation": "node scripts/check-rotation.js",
+    "check:engine": "node scripts/check-engine.js"
   },
   "private": true
 }
