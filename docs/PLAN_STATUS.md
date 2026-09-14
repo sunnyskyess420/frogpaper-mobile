@@ -7,7 +7,9 @@ Updated 2026-09-10 after cloud independence and generation UX hardening tasks.
 
 ## Current status - 2026-09-13 - THIS SECTION SUPERSEDES THE SNAPSHOT BELOW
 
-Repo `C:\FrogPaperMobile` @ `b2e337f` (app 1.9.27 / versionCode 18, backend 1.9.28).
+Repo `C:\FrogPaperMobile` @ end of 2026-09-13 (app **1.9.39** / versionCode 29, backend 1.9.28).
+The app now also has a dropdown/recipe prompt builder, a phone-first gallery with SD import,
+a merged wallpaper-rotation control, remembered engine choice and an auto-opening result view.
 Since this section was first written the app also gained offline support (cached gallery +
 generation queue), SD-card saving, a new icon/launch screen, clear offline messaging and
 backend-side frog-breed variety. Based on reading the current source, a live call to the
