@@ -679,7 +679,23 @@ REQUEST_TIMEOUT = (10, 120)
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2.0
 USER_AGENT = "FrogPaper/1.7 (mobile app backend)"
-MAX_NEGATIVE_PROMPT_LENGTH = 300
+MAX_NEGATIVE_PROMPT_LENGTH = 2000
+# Providers without a real negative parameter get the list appended as soft
+# guidance text. A mode's negative list is up to ~2,000 characters, which would
+# swamp the prompt, so only a leading slice is appended - cut back to a comma so
+# no term is half-written.
+MAX_SOFT_NEGATIVE_LENGTH = 400
+
+def _soft_negative(negative_prompt: str, limit: int = MAX_SOFT_NEGATIVE_LENGTH) -> str:
+    """Trim a long negative list for providers that only take it as text."""
+    text = (negative_prompt or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    if "," in cut:
+        cut = cut[: cut.rfind(",")]
+    return cut.strip().rstrip(",")
+
 
 
 class GenerationError(Exception):
@@ -823,7 +839,7 @@ def generate_image(
     seed = seed or random.randint(1, 999_999_999)
     effective_prompt = _compose_prompt(prompt, seed)
     if negative_prompt:
-        effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
+        effective_prompt = f"{effective_prompt} Avoid: {_soft_negative(negative_prompt)}."
 
     url = POLLINATIONS_ENDPOINT.format(prompt=quote(effective_prompt, safe=""))
     params = {
@@ -1426,7 +1442,7 @@ def generate_image_huggingface(
     seed = seed or random.randint(1, 999_999_999)
     effective_prompt = _compose_prompt(prompt, seed)
     if negative_prompt:
-        effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
+        effective_prompt = f"{effective_prompt} Avoid: {_soft_negative(negative_prompt)}."
 
     render_w, render_h = _hf_dimensions_for(width, height)
 
@@ -1739,7 +1755,7 @@ def generate_image_replicate(
     seed = seed or random.randint(1, 999_999_999)
     effective_prompt = _compose_prompt(prompt, seed)
     if negative_prompt:
-        effective_prompt = f"{effective_prompt} Avoid: {negative_prompt}."
+        effective_prompt = f"{effective_prompt} Avoid: {_soft_negative(negative_prompt)}."
 
     aspect_ratio = _replicate_aspect_ratio(width, height)
     auth = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}

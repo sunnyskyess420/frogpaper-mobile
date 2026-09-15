@@ -74,7 +74,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.9.28"
+APP_VERSION = "1.9.40"
 
 # Access key for API authentication (shared secret between app and backend)
 # Set via the FROGPAPER_ACCESS_KEY environment variable (Render), or fall back
@@ -275,7 +275,7 @@ def generate():
     negative_prompt = str(data.get("negative_prompt") or "").strip()
     if len(negative_prompt) > MAX_NEGATIVE_PROMPT_LENGTH:
         return _error_response(
-            "Negative prompt must be 300 characters or fewer.", 400
+            f"Negative prompt must be {MAX_NEGATIVE_PROMPT_LENGTH} characters or fewer.", 400
         )
 
     width = _parse_int(data.get("width"), 1080, 256, 2048)
