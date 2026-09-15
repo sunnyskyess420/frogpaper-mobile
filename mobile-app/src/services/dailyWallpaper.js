@@ -17,7 +17,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
 import { saveWallpaper } from './saveTarget';
 import { setAsWallpaper } from './deviceMedia';
-import { IDEAS, FAVORITES_KEY } from './promptLibrary';
+import { FAVORITES_KEY } from './promptLibrary';
+import { SURPRISE_NEGATIVE, surprisePrompt } from './promptComposer';
 import { PHONE, getGallerySource } from './gallerySource';
 import { saveLocalImage } from './localGallery';
 
@@ -74,7 +75,10 @@ async function pickDailyPrompt(source) {
       return favorites[Math.floor(Math.random() * favorites.length)];
     }
   }
-  return IDEAS[Math.floor(Math.random() * IDEAS.length)];
+  // "Surprise me" composes a fresh wallpaper prompt from the same vocabulary the
+  // Build screen offers, so an unattended wallpaper is never a one-line idea that
+  // turns into a flat white background.
+  return surprisePrompt();
 }
 
 export async function getDailyInfo() {
@@ -172,7 +176,9 @@ export async function runDailyWallpaper({ force = false, source: sourceOverride 
     // so give slow peak-hour queues room to finish.
     const response = await api.generate({
       prompt,
-      negativePrompt: null,
+      // Always sent: the owner only sees the result of this run, so keep text,
+      // watermarks and phone-mockup framing out of it either way.
+      negativePrompt: SURPRISE_NEGATIVE,
       width: 1080,
       height: 1920,
       timeoutMs: 180000,

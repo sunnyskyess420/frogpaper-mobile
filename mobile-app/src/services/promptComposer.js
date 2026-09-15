@@ -259,6 +259,34 @@ export function composePrompt(selection = {}) {
   return composeSelection(selection).prompt;
 }
 
+// --- the unattended wallpaper prompt ---------------------------------------
+// Once a day the app picks a wallpaper on its own, and the owner only sees the
+// result. So it must always be a proper, full-scene phone wallpaper: composed
+// from the same vocabulary the Build screen offers, never a bare one-line idea.
+// (The old list included things like "…hibiscus, white background", which the
+// image model happily turned into a white product shot.)
+export const WALLPAPER_TAIL = 'vertical phone wallpaper';
+
+// Kept short and specific: this is what the daily run asks the model to avoid.
+// Phones/mockups/product shots are the failure mode that prompted it.
+export const SURPRISE_NEGATIVE =
+  'text, watermark, signature, logo, phone, smartphone, tablet, mockup, ' +
+  'product photo, white background, frame, border, blurry, low detail';
+
+export function surprisePrompt(rand = Math.random) {
+  const composed = composePrompt(randomCombo(rand));
+  if (!composed) {
+    return WALLPAPER_TAIL;
+  }
+  // Only the exact tail counts: a mode cue such as "wallpaper-ready 16:9
+  // composition" mentions wallpaper but describes a landscape frame, which is
+  // exactly what a phone wallpaper must not be.
+  const lower = composed.toLowerCase();
+  return lower.includes(WALLPAPER_TAIL.toLowerCase())
+    ? composed
+    : `${composed}, ${WALLPAPER_TAIL}`;
+}
+
 // One random option per row - what the Randomise button drops into the screen.
 // It draws from the same enriched lists the screen shows, so a surprise can use
 // every word the keyword bank offers. `rand` is injectable so the check script
