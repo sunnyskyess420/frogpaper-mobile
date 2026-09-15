@@ -7,6 +7,7 @@ import { ActivityIndicator, View } from 'react-native';
 import AppNavigator from './src/navigation/AppNavigator';
 import { colors } from './src/theme';
 import { initSentry } from './src/services/sentry';
+import { initErrorLog } from './src/services/errorLog';
 
 const FrogPaperTheme = {
   ...DarkTheme,
@@ -26,6 +27,12 @@ export default function App() {
 
   // Initialise Sentry before the first render commits. initSentry is a
   // no-op when no DSN is configured, so it's safe to call unconditionally.
+  // Install the error log first: it should catch anything that happens while
+  // the rest of the app is still starting up.
+  useEffect(() => {
+    initErrorLog().catch(() => {});
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     initSentry()

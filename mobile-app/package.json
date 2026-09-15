@@ -35,7 +35,8 @@
     "check:builder": "node scripts/check-builder.js",
     "check:rotation": "node scripts/check-rotation.js",
     "check:engine": "node scripts/check-engine.js",
-    "check:recipes": "node scripts/check-recipes.js"
+    "check:recipes": "node scripts/check-recipes.js",
+    "check:errorlog": "node scripts/check-errorlog.js"
   },
   "private": true
 }

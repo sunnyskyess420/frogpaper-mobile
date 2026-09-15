@@ -18,8 +18,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetch as expoFetch } from 'expo/fetch';
-import { File } from 'expo-file-system';
+import { recordError } from './errorLog';
 
 export const LAN_IP = '192.168.1.168'; // manual fallback - your Windows PC running the backend (check with `ipconfig` if your router reassigns IPs)
 export const EMULATOR_ALIAS = '10.0.2.2'; // Android emulator alias for the host machine
@@ -362,10 +361,16 @@ async function request(path, options = {}) {
       ...fetchOptions,
       signal: signal || controller.signal,
     });
+    return parseResponse(response);
+  } catch (error) {
+    // Quiet failures are worth keeping: record everything except the app's own
+    // offline/cancel noise (the error log filters those out) so the owner can
+    // show me what actually went wrong later.
+    recordError(error, path);
+    throw error;
   } finally {
     clearTimeout(timer);
   }
-  return parseResponse(response);
 }
 
 export const api = {
@@ -400,6 +405,13 @@ export const api = {
       method: 'DELETE',
     }),
   uploadImage: async (asset) => {
+
+    // Loaded lazily: the headless check scripts stub the native modules, and a
+    // top-level import of expo/fetch would drag the native runtime into them.
+    // eslint-disable-next-line global-require
+    const { fetch: expoFetch } = require('expo/fetch');
+    // eslint-disable-next-line global-require
+    const { File } = require('expo-file-system');
     const base = getBaseUrl();
     const form = new FormData();
     if (Platform.OS === 'web') {

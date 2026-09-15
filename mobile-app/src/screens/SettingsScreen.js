@@ -40,6 +40,14 @@ import {
   setRuntimeDsn,
   setRuntimeEnvironment,
 } from '../services/sentry';
+import * as Clipboard from 'expo-clipboard';
+import {
+  clearErrors as clearErrorLog,
+  describeErrorEntry,
+  errorCount as errorLogCount,
+  listErrors as listErrorLog,
+  recordError,
+} from '../services/errorLog';
 import { colors, radii, spacing } from '../theme';
 import {
   changeNow as runWallpaperChangeNow,
@@ -105,6 +113,68 @@ function SettingsCard({ title, summary, summaryDotStyle, open, onPress, children
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  // Kept separate from the big settings state object: the error log is
+  // read-mostly and its failures must never disturb the rest of the screen.
+  const [errorLog, setErrorLog] = useState({ count: 0, entries: [], show: false });
+
+  const refreshErrorLog = useCallback(async () => {
+    try {
+      const count = await errorLogCount();
+      setErrorLog((prev) => ({ ...prev, count }));
+    } catch (error) {
+      // ignore
+    }
+  }, []);
+
+  const toggleErrorLog = useCallback(async () => {
+    if (errorLog.show) {
+      setErrorLog((prev) => ({ ...prev, show: false }));
+      return;
+    }
+    try {
+      const entries = await listErrorLog();
+      setErrorLog((prev) => ({ ...prev, entries, show: true }));
+    } catch (error) {
+      // ignore
+    }
+  }, [errorLog.show]);
+
+  const copyErrorLog = useCallback(async () => {
+    try {
+      const entries = await listErrorLog();
+      const text = entries.length
+        ? entries.map((entry) => describeErrorEntry(entry)).join('\n\n')
+        : 'No errors recorded.';
+      await Clipboard.setStringAsync(text);
+      setErrorLog((prev) => ({ ...prev, entries, show: true }));
+    } catch (error) {
+      // ignore
+    }
+  }, []);
+
+  const confirmClearErrorLog = useCallback(() => {
+    Alert.alert(
+      'Clear the error log?',
+      'This removes the recorded errors from this phone. It cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await clearErrorLog();
+            setErrorLog({ count: 0, entries: [], show: false });
+          },
+        },
+      ]
+    );
+  }, []);
+
+  const recordTestError = useCallback(async () => {
+    await recordError(new Error('Test error recorded from Settings'), 'test');
+    await refreshErrorLog();
+  }, [refreshErrorLog]);
+
   const [state, setState] = useState({
     loading: true,
     health: null,
@@ -254,6 +324,7 @@ export default function SettingsScreen() {
   // which changes the "My favourites" prerequisite hint.
   useFocusEffect(
     useCallback(() => {
+      refreshErrorLog();
       refreshRotation();
       return () => {};
     }, [refreshRotation])
@@ -1243,7 +1314,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.42</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.43</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>
@@ -1289,6 +1360,39 @@ export default function SettingsScreen() {
             ))}
           </>
         )}
+
+            <View style={styles.subBlock}>
+              <Text style={styles.rowValue}>Recent app errors</Text>
+              <Text style={styles.hint}>
+                {errorLog.count === 0
+                  ? 'None recorded. JavaScript errors only - a hard crash of the whole app cannot be recorded here.'
+                  : `${errorLog.count} recorded. JavaScript errors only - a hard crash of the whole app cannot be recorded here.`}
+              </Text>
+              <View style={styles.buttonRow}>
+                <Pressable style={[styles.button, styles.buttonSecondary]} onPress={toggleErrorLog}>
+                  <Text style={styles.buttonSecondaryText}>{errorLog.show ? 'Hide' : 'Show'}</Text>
+                </Pressable>
+                <Pressable style={[styles.button, styles.buttonSecondary]} onPress={copyErrorLog}>
+                  <Text style={styles.buttonSecondaryText}>Copy all</Text>
+                </Pressable>
+                <Pressable style={[styles.button, styles.buttonSecondary]} onPress={confirmClearErrorLog}>
+                  <Text style={styles.buttonSecondaryText}>Clear</Text>
+                </Pressable>
+              </View>
+              {errorLog.show && errorLog.entries.length > 0
+                ? errorLog.entries.map((entry, index) => (
+                    <View key={`err-${index}`} style={styles.feedbackCard}>
+                      <Text style={styles.feedbackText}>{describeErrorEntry(entry)}</Text>
+                    </View>
+                  ))
+                : null}
+              {errorLog.show && errorLog.entries.length === 0 ? (
+                <Text style={styles.hint}>Nothing recorded yet.</Text>
+              ) : null}
+              <Pressable style={[styles.button, styles.buttonSecondary]} onPress={recordTestError}>
+                <Text style={styles.buttonSecondaryText}>Record a test error</Text>
+              </Pressable>
+            </View>
 
         {state.diagnosticsRevealed && (
           <>
@@ -1360,6 +1464,7 @@ export default function SettingsScreen() {
                 </View>
               ) : null}
             </View>
+
 
             <View style={styles.subBlock}>
               <Text style={styles.rowValue}>Send test crash</Text>
