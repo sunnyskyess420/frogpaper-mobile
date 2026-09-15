@@ -26,6 +26,14 @@ import {
 } from '../data/promptOptions';
 import { composeSelection, randomCombo } from '../services/promptComposer';
 import {
+  ATMOSPHERE_OPTIONS,
+  LIGHTING_OPTIONS,
+  MOOD_OPTIONS,
+  STYLE_OPTIONS,
+  SUBJECT_OPTIONS,
+  expandSubject,
+} from '../services/keywordBank';
+import {
   recipeIsUsable,
   renderRecipe,
   recipeSlots,
@@ -46,12 +54,12 @@ import { colors, radii, spacing } from '../theme';
 // no fixed list - it opens a text input with the suggestions as chips.
 const ROWS = [
   { key: 'mode', label: 'Mode', options: MODES },
-  { key: 'subject', label: 'Subject', options: SUBJECTS },
+  { key: 'subject', label: 'Subject', options: SUBJECT_OPTIONS },
   { key: 'setting', label: 'Setting', options: null },
-  { key: 'style', label: 'Style', options: STYLES },
-  { key: 'lighting', label: 'Lighting', options: LIGHTING },
-  { key: 'mood', label: 'Mood', options: MOODS },
-  { key: 'atmosphere', label: 'Atmosphere', options: ATMOSPHERES },
+  { key: 'style', label: 'Style', options: STYLE_OPTIONS },
+  { key: 'lighting', label: 'Lighting', options: LIGHTING_OPTIONS },
+  { key: 'mood', label: 'Mood', options: MOOD_OPTIONS },
+  { key: 'atmosphere', label: 'Atmosphere', options: ATMOSPHERE_OPTIONS },
 ];
 
 const EMPTY_SELECTION = {
@@ -124,7 +132,12 @@ export default function PromptBuilderScreen() {
   const recipe = recipeName
     ? allRecipes.find((item) => sameName(item.name, recipeName)) || null
     : null;
-  const composed = composeSelection(selection);
+  // Some subjects have a richer phrase behind them, so "tree frog" reaches the
+  // prompt as "detailed tree frog on branch". The row still shows the short name.
+  const composed = composeSelection({
+    ...selection,
+    subject: expandSubject(selection.subject) || selection.subject,
+  });
   // The preview comes from exactly one mode, never a blend of both. A recipe
   // only hands Generate Avoid text when it carries a negative of its own.
   const preview = recipe ? renderRecipe(recipe, recipeValues) : composed.prompt;

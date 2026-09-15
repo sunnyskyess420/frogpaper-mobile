@@ -37,7 +37,8 @@
     "check:engine": "node scripts/check-engine.js",
     "check:recipes": "node scripts/check-recipes.js",
     "check:errorlog": "node scripts/check-errorlog.js",
-    "check:recipelib": "node scripts/check-recipe-store.js"
+    "check:recipelib": "node scripts/check-recipe-store.js",
+    "check:keywords": "node scripts/check-keyword-bank.js"
   },
   "private": true
 }
