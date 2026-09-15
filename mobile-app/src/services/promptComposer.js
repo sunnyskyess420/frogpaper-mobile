@@ -9,16 +9,16 @@
 // and close the sentence, and a mode-specific negative list. The mode's own
 // wording replaces the bare mode word the composer used to append, so a mode
 // still colours the whole sentence without saying its name twice.
-import {
-  ATMOSPHERES,
-  LIGHTING,
-  MODES,
-  MOODS,
-  SETTING_SUGGESTIONS,
-  STYLES,
-  SUBJECTS,
-} from '../data/promptOptions';
+import { MODES, SETTING_SUGGESTIONS } from '../data/promptOptions';
 import PROMPT_MODES from '../data/promptModes.json';
+import {
+  ATMOSPHERE_OPTIONS,
+  COLOR_OPTIONS,
+  LIGHTING_OPTIONS,
+  MOOD_OPTIONS,
+  STYLE_OPTIONS,
+  SUBJECT_OPTIONS,
+} from './keywordBank';
 
 // A setting already starting with one of these reads as a place on its own
 // ("under the sea"), so the composer must not prepend "in a".
@@ -161,6 +161,7 @@ function capitalise(sentence) {
 function composePlain(selection) {
   const style = clean(selection.style);
   const lighting = clean(selection.lighting);
+  const color = clean(selection.color);
   const mood = clean(selection.mood);
   const atmosphere = clean(selection.atmosphere);
   const mode = clean(selection.mode);
@@ -175,6 +176,10 @@ function composePlain(selection) {
   }
   if (lighting) {
     clauses.push(`${lighting} lighting`);
+  }
+  // Colour reads with the light, so it sits right after it.
+  if (color) {
+    clauses.push(`${color} tones`);
   }
   if (mood) {
     clauses.push(`${mood} mood`);
@@ -199,6 +204,7 @@ function composePlain(selection) {
 function composeWithMode(selection, mode) {
   const style = clean(selection.style);
   const lighting = clean(selection.lighting);
+  const color = clean(selection.color);
   const mood = clean(selection.mood);
   const atmosphere = clean(selection.atmosphere);
 
@@ -218,6 +224,9 @@ function composeWithMode(selection, mode) {
   }
   if (lighting) {
     pushClause(clauses, `${lighting} lighting`, seen);
+  }
+  if (color) {
+    pushClause(clauses, `${color} tones`, seen);
   }
   if (mood) {
     pushClause(clauses, `${mood} mood`, seen);
@@ -251,16 +260,19 @@ export function composePrompt(selection = {}) {
 }
 
 // One random option per row - what the Randomise button drops into the screen.
-// `rand` is injectable so the check script can drive it deterministically.
+// It draws from the same enriched lists the screen shows, so a surprise can use
+// every word the keyword bank offers. `rand` is injectable so the check script
+// can drive it deterministically.
 export function randomCombo(rand = Math.random) {
   const pick = (list) => list[Math.min(list.length - 1, Math.floor(rand() * list.length))];
   return {
     mode: pick(MODES),
-    subject: pick(SUBJECTS),
+    subject: pick(SUBJECT_OPTIONS),
     setting: pick(SETTING_SUGGESTIONS),
-    style: pick(STYLES),
-    lighting: pick(LIGHTING),
-    mood: pick(MOODS),
-    atmosphere: pick(ATMOSPHERES),
+    style: pick(STYLE_OPTIONS),
+    lighting: pick(LIGHTING_OPTIONS),
+    color: pick(COLOR_OPTIONS),
+    mood: pick(MOOD_OPTIONS),
+    atmosphere: pick(ATMOSPHERE_OPTIONS),
   };
 }

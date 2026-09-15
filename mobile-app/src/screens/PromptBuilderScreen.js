@@ -27,6 +27,7 @@ import {
 import { composeSelection, randomCombo } from '../services/promptComposer';
 import {
   ATMOSPHERE_OPTIONS,
+  COLOR_OPTIONS,
   LIGHTING_OPTIONS,
   MOOD_OPTIONS,
   STYLE_OPTIONS,
@@ -58,6 +59,7 @@ const ROWS = [
   { key: 'setting', label: 'Setting', options: null },
   { key: 'style', label: 'Style', options: STYLE_OPTIONS },
   { key: 'lighting', label: 'Lighting', options: LIGHTING_OPTIONS },
+  { key: 'color', label: 'Colour', options: COLOR_OPTIONS },
   { key: 'mood', label: 'Mood', options: MOOD_OPTIONS },
   { key: 'atmosphere', label: 'Atmosphere', options: ATMOSPHERE_OPTIONS },
 ];
@@ -68,6 +70,7 @@ const EMPTY_SELECTION = {
   setting: '',
   style: '',
   lighting: '',
+  color: '',
   mood: '',
   atmosphere: '',
 };

@@ -129,7 +129,29 @@ function main() {
   check('every alias key is a real subject', aliasKeys.every((name) => lower(BANK.subjects).includes(name.toLowerCase())), aliasKeys.join(', '));
   check('every alias value is a phrase', aliasKeys.every((name) => String(BANK.SUBJECT_ALIASES[name]).trim().split(/\s+/).length >= 3));
 
-  // 7. merge behaviour on its own
+  // 7. the colour row reaches the prompt
+  const composer = require(path.join(ROOT, 'src/services/promptComposer.js'));
+  const withColour = composer.composeSelection({ subject: 'frog', color: 'neon purple' }).prompt;
+  check('a chosen colour reaches the prompt', withColour.includes('neon purple tones'), withColour);
+  const colourLater = composer.composeSelection({ subject: 'frog', lighting: 'golden hour', color: 'acid green', mood: 'cozy' }).prompt;
+  check('the colour sits with the light', colourLater.indexOf('acid green tones') > colourLater.indexOf('golden hour lighting') && colourLater.indexOf('cozy mood') > colourLater.indexOf('acid green tones'), colourLater);
+  check('no colour means no colour clause', !composer.composeSelection({ subject: 'frog' }).prompt.includes('tones'), composer.composeSelection({ subject: 'frog' }).prompt);
+  const emptyColour = composer.composeSelection({ subject: 'frog', color: '   ' }).prompt;
+  check('whitespace is not a colour', emptyColour === composer.composeSelection({ subject: 'frog' }).prompt, emptyColour);
+  const modedColour = composer.composeSelection({ mode: 'Cinematic', subject: 'frog', color: 'midnight black' }).prompt;
+  check('a colour works with a mode too', modedColour.includes('midnight black tones'), modedColour);
+  const draw = composer.randomCombo(() => 0.99);
+  check('randomise offers a colour', kb.COLOR_OPTIONS.includes(draw.color), String(draw.color));
+  check('every row uses an enriched list', [
+    kb.SUBJECT_OPTIONS.includes(draw.subject),
+    kb.STYLE_OPTIONS.includes(draw.style),
+    kb.MOOD_OPTIONS.includes(draw.mood),
+    kb.ATMOSPHERE_OPTIONS.includes(draw.atmosphere),
+    kb.LIGHTING_OPTIONS.includes(draw.lighting),
+  ].every(Boolean), JSON.stringify(draw));
+  check('randomise fills every row', Object.keys(draw).sort().join(',') === 'atmosphere,color,lighting,mode,mood,setting,style,subject', Object.keys(draw).sort().join(','));
+
+  // 8. merge behaviour on its own
   check('merging nothing gives nothing', kb.mergeOptions([], []).length === 0);
   check('merging tolerates junk', kb.mergeOptions([null, '', '  ', 'x'], [undefined, 'y']).join(',') === 'x,y', kb.mergeOptions([null, '', '  ', 'x'], [undefined, 'y']).join(','));
 

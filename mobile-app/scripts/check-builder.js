@@ -77,6 +77,7 @@ Module._extensions['.js'] = function (mod, filename) {
   mod._compile(code, filename);
 };
 
+const bank = require(path.join(ROOT, 'src/services/keywordBank.js'));
 const options = require(path.join(ROOT, 'src/data/promptOptions.js'));
 const PROMPT_MODES = require(path.join(ROOT, 'src/data/promptModes.json'));
 const {
@@ -234,14 +235,16 @@ function checkLists() {
 // --- 4: randomCombo -------------------------------------------------------
 function checkRandomCombo() {
   console.log('\nrandomCombo');
+  // The screen shows the enriched lists, so Randomise draws from those.
   const lists = {
     mode: options.MODES,
-    subject: options.SUBJECTS,
+    subject: bank.SUBJECT_OPTIONS,
     setting: options.SETTING_SUGGESTIONS,
-    style: options.STYLES,
-    lighting: options.LIGHTING,
-    mood: options.MOODS,
-    atmosphere: options.ATMOSPHERES,
+    style: bank.STYLE_OPTIONS,
+    lighting: bank.LIGHTING_OPTIONS,
+    color: bank.COLOR_OPTIONS,
+    mood: bank.MOOD_OPTIONS,
+    atmosphere: bank.ATMOSPHERE_OPTIONS,
   };
 
   let allFromLists = true;
