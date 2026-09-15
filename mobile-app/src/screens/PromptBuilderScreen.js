@@ -1,6 +1,7 @@
 // Build - assemble a prompt from tap-to-choose lists and hand it to Generate.
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -29,10 +30,16 @@ import {
   renderRecipe,
   recipeSlots,
   rollRecipe,
-  selectedRecipe,
   slotLabel,
 } from '../services/recipeComposer';
 import RECIPES from '../data/recipes.json';
+import {
+  deleteUserRecipe,
+  listComposerRecipes,
+  listFavouriteRecipes,
+  saveUserRecipe,
+  toggleFavouriteRecipe,
+} from '../services/recipeStore';
 import { colors, radii, spacing } from '../theme';
 
 // The seven rows, in the order they read best as a sentence. The setting row has
@@ -57,6 +64,22 @@ const EMPTY_SELECTION = {
   atmosphere: '',
 };
 
+// Names are how recipes are remembered, so compare them the way a person
+// would - ignoring case and stray spaces.
+function sameName(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
+// A short, readable default name: the first few words of the prompt on screen.
+function defaultRecipeName(prompt) {
+  const text = String(prompt || '').trim();
+  if (!text) {
+    return '';
+  }
+  const words = text.split(/\s+/).slice(0, 5).join(' ');
+  return words.length > 40 ? `${words.slice(0, 39)}\u2026` : words;
+}
+
 export default function PromptBuilderScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -68,16 +91,64 @@ export default function PromptBuilderScreen() {
   // rows and the preview for that recipe's slots and template. The normal
   // selection is left untouched, so leaving recipe mode restores it instead of
   // mixing the two vocabularies.
-  const [recipeIndex, setRecipeIndex] = useState(null);
+  // Tracked by name rather than position, so starring something (which
+  // re-sorts the list) can never change which recipe is being previewed.
+  const [recipeName, setRecipeName] = useState(null);
   const [recipeValues, setRecipeValues] = useState({});
   const [recipeListOpen, setRecipeListOpen] = useState(false);
 
-  const recipe = selectedRecipe(RECIPES, recipeIndex);
+  // The owner's own recipes and their stars live on this phone only.
+  const [userRecipes, setUserRecipes] = useState([]);
+  const [favourites, setFavourites] = useState([]);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [saveDescription, setSaveDescription] = useState('');
+  const [saveNote, setSaveNote] = useState('');
+
+  const refreshRecipeStore = useCallback(async () => {
+    try {
+      const [mine, stars] = await Promise.all([listComposerRecipes(), listFavouriteRecipes()]);
+      setUserRecipes(mine);
+      setFavourites(stars);
+    } catch (error) {
+      // The built-in recipe keeps working even if the phone store is unavailable.
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshRecipeStore();
+  }, [refreshRecipeStore]);
+
+  // Built-in recipes first, then the owner's own.
+  const allRecipes = [...RECIPES.map((item) => ({ ...item })), ...userRecipes];
+  const recipe = recipeName
+    ? allRecipes.find((item) => sameName(item.name, recipeName)) || null
+    : null;
   const composed = composeSelection(selection);
   // The preview comes from exactly one mode, never a blend of both. A recipe
-  // carries no negative list, so it hands Generate no Avoid text.
+  // only hands Generate Avoid text when it carries a negative of its own.
   const preview = recipe ? renderRecipe(recipe, recipeValues) : composed.prompt;
-  const negative = recipe ? '' : composed.negative;
+  const negative = recipe ? String(recipe.negative || '') : composed.negative;
+
+  // Starred recipes float to the top, in the order they were starred. The list
+  // holds indexes into allRecipes so the preview stays stable while it re-sorts.
+  const displayOrder = (() => {
+    const starred = [];
+    const rest = [];
+    allRecipes.forEach((item, index) => {
+      if (favourites.some((name) => sameName(name, item.name))) {
+        starred.push(index);
+      } else {
+        rest.push(index);
+      }
+    });
+    starred.sort(
+      (a, b) =>
+        favourites.findIndex((name) => sameName(name, allRecipes[a].name)) -
+        favourites.findIndex((name) => sameName(name, allRecipes[b].name))
+    );
+    return [...starred, ...rest];
+  })();
   const unsetSlots = recipe
     ? recipeSlots(recipe).filter((slot) => !String(recipeValues[slot] || '').trim())
     : [];
@@ -141,8 +212,8 @@ export default function PromptBuilderScreen() {
     setSheet(null);
   };
 
-  const chooseRecipe = (index) => {
-    setRecipeIndex(index);
+  const chooseRecipe = (name) => {
+    setRecipeName(name);
     setRecipeValues({});
     setSettingOpen(false);
     setSheet(null);
@@ -150,11 +221,83 @@ export default function PromptBuilderScreen() {
   };
 
   const useNormalBuilder = () => {
-    setRecipeIndex(null);
+    setRecipeName(null);
     setRecipeValues({});
     setSettingOpen(false);
     setSheet(null);
     setRecipeListOpen(false);
+  };
+
+  const starRecipe = async (name) => {
+    const next = await toggleFavouriteRecipe(name);
+    setFavourites(next);
+  };
+
+  const startSaveRecipe = () => {
+    if (recipe) {
+      Alert.alert(
+        'You are previewing a recipe',
+        'Switch back to the normal builder first, then save what you have chosen.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Switch',
+            onPress: () => {
+              useNormalBuilder();
+              setSaveName(defaultRecipeName(composed.prompt));
+              setSaveDescription('');
+              setSaveNote('');
+              setSaveOpen(true);
+            },
+          },
+        ]
+      );
+      return;
+    }
+    setSaveName(defaultRecipeName(composed.prompt));
+    setSaveDescription(selection.style ? `${selection.style} wallpapers`.trim() : '');
+    setSaveNote('');
+    setSaveOpen(true);
+  };
+
+  const saveCurrentRecipe = async () => {
+    if (RECIPES.some((item) => sameName(item.name, saveName))) {
+      setSaveNote('A built-in recipe already has that name. Please pick another one.');
+      return;
+    }
+    const result = await saveUserRecipe({
+      name: saveName,
+      description: saveDescription,
+      prompt: composed.prompt,
+      negative: composed.negative,
+    });
+    if (!result.ok) {
+      setSaveNote(result.message || 'Could not save that recipe on this phone.');
+      return;
+    }
+    setSaveOpen(false);
+    setSaveName('');
+    setSaveDescription('');
+    setSaveNote('');
+    await refreshRecipeStore();
+  };
+
+  const confirmDeleteRecipe = (name) => {
+    Alert.alert(
+      `Delete "${name}"?`,
+      'This removes your saved recipe from this phone. It cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteUserRecipe(name);
+            await refreshRecipeStore();
+          },
+        },
+      ]
+    );
   };
 
   const usePrompt = () => {
@@ -206,7 +349,9 @@ export default function PromptBuilderScreen() {
           <Text style={styles.rowLabel}>Recipes</Text>
           <View style={styles.rowValueWrap}>
             <Text style={[styles.rowValue, !recipe && styles.rowValueEmpty]} numberOfLines={1}>
-              {recipe ? recipe.name : 'Browse'}
+              {recipe
+                ? recipe.name
+                : `${RECIPES.length} built-in${userRecipes.length ? ` \u00b7 ${userRecipes.length} of yours` : ''}`}
             </Text>
             <Text style={styles.rowChevron}>▸</Text>
           </View>
@@ -339,7 +484,7 @@ export default function PromptBuilderScreen() {
             disabled={recipe ? !recipeIsUsable(recipe) : false}
           >
             <Text style={styles.secondaryButtonText}>
-              {recipe ? '🎲 Roll all' : '🎲 Randomise'}
+              {recipe ? (recipeIsUsable(recipe) ? '🎲 Roll all' : 'Ready to use') : '🎲 Randomise'}
             </Text>
           </Pressable>
           <Pressable style={styles.secondaryButton} onPress={clearAll}>
@@ -403,37 +548,113 @@ export default function PromptBuilderScreen() {
         onRequestClose={() => setRecipeListOpen(false)}
       >
         <Pressable style={styles.backdrop} onPress={() => setRecipeListOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]} onPress={() => {}}>
+          <Pressable
+            style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
+            onPress={() => {}}
+          >
             <Text style={styles.sheetTitle}>Recipes</Text>
-            <FlatList
-              data={RECIPES}
-              keyExtractor={(item, index) => `${item.name || 'recipe'}-${index}`}
-              keyboardShouldPersistTaps="handled"
-              ListHeaderComponent={
-                recipe ? (
-                  <Pressable style={styles.clearEntry} onPress={useNormalBuilder}>
-                    <Text style={styles.clearEntryText}>Use the normal builder instead</Text>
-                  </Pressable>
-                ) : null
-              }
-              ListEmptyComponent={<Text style={styles.recipeEmpty}>No saved recipes yet.</Text>}
-              renderItem={({ item, index }) => {
-                const selected = recipeIndex === index;
-                return (
+            <Text style={styles.recipeIntro}>
+              Tap a recipe to use it. Star the ones you reach for most - they stay at the top.
+            </Text>
+
+            {recipe ? (
+              <Pressable style={styles.clearEntry} onPress={useNormalBuilder}>
+                <Text style={styles.clearEntryText}>Use the normal builder instead</Text>
+              </Pressable>
+            ) : null}
+
+            {saveOpen ? (
+              <View style={styles.savePanel}>
+                <Text style={styles.saveLabel}>Name</Text>
+                <TextInput
+                  style={styles.saveInput}
+                  value={saveName}
+                  onChangeText={setSaveName}
+                  placeholder="e.g. Golden ocean evening"
+                  placeholderTextColor={colors.muted}
+                  maxLength={60}
+                  returnKeyType="done"
+                />
+                <Text style={styles.saveLabel}>What is it for? (optional)</Text>
+                <TextInput
+                  style={styles.saveInput}
+                  value={saveDescription}
+                  onChangeText={setSaveDescription}
+                  placeholder="e.g. Calm wallpapers for my lock screen"
+                  placeholderTextColor={colors.muted}
+                  maxLength={120}
+                  returnKeyType="done"
+                />
+                {saveNote ? <Text style={styles.saveNote}>{saveNote}</Text> : null}
+                <View style={styles.buttonRow}>
                   <Pressable
-                    style={[styles.optionRow, selected && styles.optionRowActive]}
-                    onPress={() => chooseRecipe(index)}
+                    style={[styles.primaryButton, !saveName.trim() && styles.primaryButtonDisabled]}
+                    onPress={saveCurrentRecipe}
+                    disabled={!saveName.trim()}
                   >
-                    <View style={styles.recipeRowText}>
-                      <Text style={[styles.optionText, selected && styles.optionTextActive]}>
-                        {item.name}
-                      </Text>
-                      {item.description ? (
-                        <Text style={styles.recipeRowDescription}>{item.description}</Text>
-                      ) : null}
-                    </View>
-                    {selected && <Text style={styles.optionCheck}>✓</Text>}
+                    <Text style={styles.primaryButtonText}>Save recipe</Text>
                   </Pressable>
+                  <Pressable
+                    style={styles.secondaryButton}
+                    onPress={() => {
+                      setSaveOpen(false);
+                      setSaveNote('');
+                    }}
+                  >
+                    <Text style={styles.secondaryButtonText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <Pressable style={styles.secondaryButton} onPress={startSaveRecipe}>
+                <Text style={styles.secondaryButtonText}>Save current Build as a recipe</Text>
+              </Pressable>
+            )}
+
+            <FlatList
+              data={displayOrder}
+              keyExtractor={(index) => `${(allRecipes[index] && allRecipes[index].name) || 'recipe'}-${index}`}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={styles.recipeEmpty}>No recipes yet.</Text>}
+              renderItem={({ item: index }) => {
+                const entry = allRecipes[index];
+                if (!entry) {
+                  return null;
+                }
+                const selected = sameName(entry.name, recipeName);
+                const isMine = userRecipes.some((mine) => sameName(mine.name, entry.name));
+                const starred = favourites.some((name) => sameName(name, entry.name));
+                return (
+                  <View style={[styles.optionRow, selected && styles.optionRowActive]}>
+                    <Pressable
+                      style={styles.recipeStar}
+                      onPress={() => starRecipe(entry.name)}
+                      hitSlop={10}
+                    >
+                      <Text style={[styles.recipeStarText, starred && styles.recipeStarTextOn]}>
+                        {starred ? '★' : '☆'}
+                      </Text>
+                    </Pressable>
+                    <Pressable style={styles.recipeRowText} onPress={() => chooseRecipe(entry.name)}>
+                      <Text style={[styles.optionText, selected && styles.optionTextActive]}>
+                        {entry.name}
+                      </Text>
+                      {entry.description ? (
+                        <Text style={styles.recipeRowDescription}>{entry.description}</Text>
+                      ) : null}
+                      {isMine ? <Text style={styles.recipeMine}>Yours</Text> : null}
+                    </Pressable>
+                    {isMine ? (
+                      <Pressable
+                        style={styles.recipeDelete}
+                        onPress={() => confirmDeleteRecipe(entry.name)}
+                        hitSlop={10}
+                      >
+                        <Text style={styles.recipeDeleteText}>{'✕'}</Text>
+                      </Pressable>
+                    ) : null}
+                    {selected ? <Text style={styles.optionCheck}>{'✓'}</Text> : null}
+                  </View>
                 );
               }}
             />
@@ -695,5 +916,66 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 15,
     fontWeight: '800',
+  },
+  recipeIntro: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  savePanel: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  saveLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  saveInput: {
+    backgroundColor: colors.control,
+    borderColor: colors.controlBorder,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    color: colors.text,
+    fontSize: 15,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+  },
+  saveNote: {
+    color: colors.warn,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: spacing.sm,
+  },
+  recipeStar: {
+    paddingRight: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  recipeStarText: {
+    color: colors.muted,
+    fontSize: 20,
+  },
+  recipeStarTextOn: {
+    color: colors.warn,
+  },
+  recipeMine: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  recipeDelete: {
+    paddingLeft: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  recipeDeleteText: {
+    color: colors.danger,
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

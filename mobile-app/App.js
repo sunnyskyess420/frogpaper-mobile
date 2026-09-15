@@ -8,6 +8,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { colors } from './src/theme';
 import { initSentry } from './src/services/sentry';
 import { initErrorLog } from './src/services/errorLog';
+import { initRecipeStore } from './src/services/recipeStore';
 
 const FrogPaperTheme = {
   ...DarkTheme,
@@ -31,6 +32,7 @@ export default function App() {
   // the rest of the app is still starting up.
   useEffect(() => {
     initErrorLog().catch(() => {});
+    initRecipeStore().catch(() => {});
   }, []);
 
   useEffect(() => {
