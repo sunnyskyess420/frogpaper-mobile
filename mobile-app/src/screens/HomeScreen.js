@@ -16,11 +16,16 @@ import api, { getBaseUrl } from '../services/api';
 import { loadRotation, runOnLaunch } from '../services/wallpaperRotation';
 import { describeQueueRun, listQueue, processQueue } from '../services/generationQueue';
 import { colors, radii, spacing } from '../theme';
+import { getGallerySource, PHONE as PHONE_SOURCE } from '../services/gallerySource';
+import { localImageCount } from '../services/localGallery';
 
 export default function HomeScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState({ state: 'checking', info: null });
+  // Subtitle for the gallery card. Null means the server wording, which is
+  // derived from the health check below.
+  const [phoneGallerySub, setPhoneGallerySub] = useState(null);
   // Guards the merged wallpaper rotation so it can only fire once per app
   // launch, no matter how often the backend check re-runs (pull-to-refresh).
   const rotationRanRef = useRef(false);
@@ -152,17 +157,36 @@ export default function HomeScreen() {
     }
   }, [runRotationOnce, runQueueOnce]);
 
+  // The gallery source decides what this card advertises: the phone's own store,
+  // or the server's count from the health check.
+  const refreshGallerySub = useCallback(async () => {
+    try {
+      const source = await getGallerySource();
+      if (source !== PHONE_SOURCE) {
+        setPhoneGallerySub(null);
+        return;
+      }
+      const count = await localImageCount();
+      setPhoneGallerySub(count === 1 ? '1 wallpaper on this phone' : `${count} wallpapers on this phone`);
+    } catch (error) {
+      setPhoneGallerySub('Your saved wallpapers');
+    }
+  }, []);
+
   useEffect(() => {
     checkBackend();
     refreshQueueCount();
-  }, [checkBackend, refreshQueueCount]);
+    refreshGallerySub();
+  }, [checkBackend, refreshQueueCount, refreshGallerySub]);
 
   useFocusEffect(
     useCallback(() => {
       refreshQueueCount(); // the user may have queued a prompt on Generate
+      refreshGallerySub(); // and may have imported wallpapers from the SD card
       return () => {};
-    }, [refreshQueueCount])
+    }, [refreshQueueCount, refreshGallerySub])
   );
+
 
   const online = status.state === 'online';
   const checking = status.state === 'checking';
@@ -176,9 +200,11 @@ export default function HomeScreen() {
     {
       label: 'Browse gallery',
       sub:
-        status.info && status.info.images_count !== undefined
-          ? `${status.info.images_count} wallpapers on the server`
-          : 'Your saved wallpapers',
+        phoneGallerySub !== null
+          ? phoneGallerySub
+          : status.info && status.info.images_count !== undefined
+            ? `${status.info.images_count} wallpapers on the server`
+            : 'Your saved wallpapers',
       onPress: () => navigation.navigate('Gallery'),
     },
     {
