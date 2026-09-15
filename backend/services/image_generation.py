@@ -1852,6 +1852,26 @@ def recent_prompts(images_dir, limit=12):
     return LocalFileStorage(images_dir).recent_prompts(limit=limit)
 
 
+def _detect_image_type(data):
+    """Return the extension implied by the bytes, or None.
+
+    Phones hand uploads over with missing, wrong, or unsupported extensions,
+    so the bytes are the only trustworthy signal.
+    """
+    head = bytes(data[:16])
+    if head.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if head.startswith(b"GIF87a") or head.startswith(b"GIF89a"):
+        return ".gif"
+    if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+        return ".webp"
+    if head.startswith(b"BM"):
+        return ".bmp"
+    return None
+
+
 def save_uploaded_image(data, original_filename, images_dir):
     """Validate and persist a user-uploaded image. Returns metadata dict.
 
@@ -1861,14 +1881,18 @@ def save_uploaded_image(data, original_filename, images_dir):
     images_dir.mkdir(parents=True, exist_ok=True)
 
     clean_name = Path(str(original_filename or "")).name
-    extension = Path(clean_name).suffix.lower()
-    if extension not in VALID_EXTENSIONS:
-        allowed = ", ".join(sorted(VALID_EXTENSIONS))
-        raise ValueError(
-            f"Unsupported file type '{extension or '(none)'}'. Allowed: {allowed}."
-        )
     if len(data) == 0:
         raise ValueError("The uploaded file is empty.")
+    # Trust the bytes rather than the name: uploads arrive with no extension,
+    # the wrong extension, or a format the old name check rejected outright.
+    detected = _detect_image_type(data)
+    if detected is None:
+        said = Path(clean_name).suffix.lower() or "no extension"
+        raise ValueError(
+            "That file does not look like an image this app can store "
+            f"(the name said {said}). A JPEG or PNG will work."
+        )
+    extension = detected
     if len(data) > MAX_UPLOAD_BYTES:
         raise ValueError("The uploaded file is larger than 20 MB.")
 

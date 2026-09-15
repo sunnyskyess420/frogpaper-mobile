@@ -18,6 +18,8 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fetch as expoFetch } from 'expo/fetch';
+import { File } from 'expo-file-system';
 
 export const LAN_IP = '192.168.1.168'; // manual fallback - your Windows PC running the backend (check with `ipconfig` if your router reassigns IPs)
 export const EMULATOR_ALIAS = '10.0.2.2'; // Android emulator alias for the host machine
@@ -405,12 +407,10 @@ export const api = {
       const blob = await (await fetch(asset.uri)).blob();
       form.append('file', blob, asset.fileName || 'upload.jpg');
     } else {
-      // native: React Native FormData accepts a uri descriptor
-      form.append('file', {
-        uri: asset.uri,
-        name: asset.fileName || 'upload.jpg',
-        type: asset.mimeType || 'image/jpeg',
-      });
+      // Native: this React Native version rejects the legacy {uri,name,type}
+      // descriptor with "Unsupported FormDataPart implementation", so the form
+      // gets a real File object instead.
+      form.append('file', new File(asset.uri), asset.fileName || 'upload.jpg');
     }
     // NOTE: no Content-Type header - fetch sets the multipart boundary
     const headers = {};
@@ -427,7 +427,8 @@ export const api = {
     if (userReplicateToken) {
       headers['X-Replicate-Token'] = userReplicateToken;
     }
-    const response = await fetch(`${base}/api/gallery/upload`, {
+    // expo/fetch is the implementation that understands a File part.
+    const response = await expoFetch(`${base}/api/gallery/upload`, {
       method: 'POST',
       headers,
       body: form,

@@ -202,7 +202,7 @@ export async function getLocalImage(filename) {
 // `bytes` writes already-held data - a base64 string (the SD import path) or a
 // Uint8Array. Idempotent by filename: saving the same name again overwrites
 // that file instead of adding a second copy.
-export async function saveLocalImage({ bytes, remoteUrl, filename, meta } = {}) {
+export async function saveLocalImage({ bytes, remoteUrl, localUri, filename, meta } = {}) {
   const dir = ensureLocalDir();
   if (!dir) {
     return { ok: false, message: 'This phone cannot keep a local gallery.' };
@@ -223,6 +223,14 @@ export async function saveLocalImage({ bytes, remoteUrl, filename, meta } = {}) 
       } else {
         dest.write(bytes);
       }
+    } else if (localUri) {
+      // A picture that is already on this phone (picked from the library):
+      // copy the file itself - no download, no re-encode, whatever format it is.
+      const source = new File(localUri);
+      if (!source.exists) {
+        return { ok: false, message: "Couldn't read that image from your phone." };
+      }
+      await source.copy(dest);
     } else if (remoteUrl) {
       await File.downloadFileAsync(remoteUrl, dest, { idempotent: true });
     } else {

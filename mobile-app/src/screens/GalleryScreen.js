@@ -201,6 +201,21 @@ export default function GalleryScreen() {
     setUploading(true);
     setError(null);
     try {
+      // Phone mode: adding a picture must not involve the server at all - copy
+      // it straight into this phone's gallery (any format, no rules).
+      if (source === PHONE) {
+        const saved = await saveLocalImage({
+          localUri: asset.uri,
+          filename: asset.fileName || `upload-${Date.now()}.jpg`,
+          meta: { source: PHONE },
+        });
+        if (!saved || !saved.ok) {
+          throw new Error((saved && saved.message) || "Couldn't add that image.");
+        }
+        await load(false);
+        return;
+      }
+
       const uploaded = await api.uploadImage({
         uri: asset.uri,
         fileName: asset.fileName || 'upload.jpg',
