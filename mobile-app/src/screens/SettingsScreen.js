@@ -1314,7 +1314,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.44</Text>
+          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.45</Text>
         </View>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>Backend</Text>
