@@ -44,7 +44,7 @@ python app.py
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
@@ -213,6 +213,65 @@ def _error_response(message, status, details=None):
     return jsonify(body), status
 
 
+# --- image hand-off window ---------------------------------------------------
+# Images are made for the user's phone, not kept for us. A picture has to exist on
+# disk for the seconds it takes the app to collect it (and again when the owner taps
+# "Set as wallpaper"), so each one is kept for a bounded window and then swept.
+# Override with FROGPAPER_HANDOFF_TTL_MINUTES (0 = delete on the next sweep).
+def _handoff_ttl_minutes() -> int:
+    """How long a generated image may sit on the server, in minutes."""
+    raw = os.environ.get("FROGPAPER_HANDOFF_TTL_MINUTES", "").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 60
+    return value if value >= 0 else 60
+
+
+def _handoff_stamp(value):
+    """An entry's created_at as an aware datetime, or None if unreadable."""
+    try:
+        text = str(value or "").replace("Z", "+00:00")
+        stamp = datetime.fromisoformat(text)
+        return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+HANDOFF_TTL_MINUTES = _handoff_ttl_minutes()
+HANDOFF_SWEEP_ENABLED = HANDOFF_TTL_MINUTES >= 0
+
+
+def sweep_handoff_images(now=None):
+    """Delete images older than the hand-off window. Never raises."""
+    if not HANDOFF_SWEEP_ENABLED:
+        return 0
+    try:
+        images = IMAGE_STORAGE.list_images()
+    except Exception as exc:  # noqa: BLE001 - a sweep must never break a request
+        log.warning("Hand-off sweep could not list images: %s", exc)
+        return 0
+
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(minutes=HANDOFF_TTL_MINUTES)
+    removed = 0
+    for entry in images:
+        stamp = _handoff_stamp(entry.get("created_at"))
+        if stamp is None or stamp >= cutoff:
+            continue
+        try:
+            if IMAGE_STORAGE.delete_image(entry.get("filename")):
+                removed += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Hand-off sweep could not delete %s: %s", entry.get("filename"), exc)
+    if removed:
+        log.info(
+            "Hand-off sweep removed %d image(s) older than %d minutes",
+            removed,
+            HANDOFF_TTL_MINUTES,
+        )
+    return removed
+
+
 def _run_provider(generator, **kwargs):
     """Run a provider and publish what it produced into the gallery storage.
 
@@ -286,6 +345,9 @@ def generate():
     seed = data.get("seed")
     if seed is not None:
         seed = _parse_int(seed, 1, 1, 999999999)
+
+    # Clear anything past its hand-off window before making room for this one.
+    sweep_handoff_images()
 
     refresh_provider_statuses()
     provider_id = str(data.get("provider") or default_provider_id()).strip().lower()
