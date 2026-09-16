@@ -554,37 +554,30 @@ async function checkImport() {
 
 // --- 3: gallery source setting ---------------------------------------------
 async function checkSource() {
-  console.log('\nGallery source setting');
+  console.log('\nGallery source (phone only)');
   storage.clear();
 
   const fresh = await gallerySource.getGallerySource();
-  check("a fresh install defaults to 'phone'", fresh === gallerySource.PHONE, fresh);
-  check('the default is persisted', storage.get(gallerySource.GALLERY_SOURCE_KEY) === gallerySource.PHONE);
-  check('a fresh install has no migration notice', (await gallerySource.takeGallerySourceNotice()) === null);
+  check('a fresh install uses the phone', fresh === gallerySource.PHONE, fresh);
+  check('the phone choice is persisted', storage.get(gallerySource.GALLERY_SOURCE_KEY) === gallerySource.PHONE);
 
-  const saved = await gallerySource.setGallerySource(gallerySource.SERVER);
-  check("setGallerySource persists 'server'", saved === gallerySource.SERVER && (await gallerySource.getGallerySource()) === gallerySource.SERVER);
+  // The server list is gone - the owner's rule is that images stay on the phone,
+  // and the server's copy was temporary anyway (a deploy wiped it). Asking for it
+  // must not stick.
+  const askedForServer = await gallerySource.setGallerySource(gallerySource.SERVER);
+  check('asking for the server resolves to the phone', askedForServer === gallerySource.PHONE, String(askedForServer));
+  check('the phone is what ends up stored', (await gallerySource.getGallerySource()) === gallerySource.PHONE);
+
+  storage.set(gallerySource.GALLERY_SOURCE_KEY, gallerySource.SERVER);
+  check('a stored server choice is migrated to the phone', (await gallerySource.getGallerySource()) === gallerySource.PHONE);
+
   const junk = await gallerySource.setGallerySource('nonsense');
-  check('an unknown source is ignored (the stored choice wins)', junk === gallerySource.SERVER && (await gallerySource.getGallerySource()) === gallerySource.SERVER);
+  check(
+    'nonsense also resolves to the phone',
+    junk === gallerySource.PHONE && (await gallerySource.getGallerySource()) === gallerySource.PHONE
+  );
 
-  // Upgrading an install that predates the setting.
-  storage.clear();
-  storage.set('@frogpaper/gallery_cache', JSON.stringify({ images: [{ filename: 'old.png' }] }));
-  const migrated = await gallerySource.getGallerySource();
-  const notice = await gallerySource.takeGallerySourceNotice();
-  const noticeAgain = await gallerySource.takeGallerySourceNotice();
-  check("an existing install is migrated to 'phone'", migrated === gallerySource.PHONE, migrated);
-  check('the migration notice is available once', typeof notice === 'string' && notice.length > 20, String(notice));
-  check('the migration notice is gone after it is taken', noticeAgain === null);
-  check('the notice is not re-armed on the next read', (await (async () => {
-    await gallerySource.getGallerySource();
-    return gallerySource.takeGallerySourceNotice();
-  })()) === null);
-
-  // A fresh install must NOT get the notice.
-  storage.clear();
-  await gallerySource.getGallerySource();
-  check('a fresh install still gets no notice', (await gallerySource.takeGallerySourceNotice()) === null);
+  check('the notice no longer mentions a server', !/server/i.test(gallerySource.NOTICE_TEXT), gallerySource.NOTICE_TEXT);
 }
 
 (async () => {
@@ -592,10 +585,21 @@ async function checkSource() {
     await checkStore();
     await checkImport();
     await checkSource();
+
+  // The gallery is the phone's own store, always. The server choice is gone.
+const sourceService = require(path.join(ROOT, 'src/services/gallerySource.js'));
+const settingsSource = require('fs').readFileSync(
+  path.join(ROOT, 'src/screens/SettingsScreen.js'),
+  'utf8'
+);
+check('the gallery source resolves to the phone', sourceService.PHONE === 'phone' && sourceService.DEFAULT_SOURCE === sourceService.PHONE);
+check('Settings no longer offers the server', !settingsSource.includes('The server'));
+check('Settings still shows the phone count', settingsSource.includes('Where your gallery lives'));
   } catch (err) {
     failures += 1;
     console.log(`${FAIL} unexpected error: ${err && err.stack ? err.stack : err}`);
   }
-  console.log(`\n${passes} passed, ${failures} failed`);
+
+console.log(`\n${passes} passed, ${failures} failed`);
   process.exit(failures === 0 ? 0 : 1);
 })();

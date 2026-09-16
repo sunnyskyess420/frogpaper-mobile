@@ -179,7 +179,13 @@ function main() {
   check('the daily run sends the guard', dailySource.includes('SURPRISE_NEGATIVE'));
   check('the daily run no longer draws from the old idea list', !dailySource.includes('IDEAS'));
 
-  // 9. the rewritten idea list
+  // 9. the Generate screen's dice uses the composer too
+  const generateSource = fs.readFileSync(path.join(ROOT, 'src/screens/GenerateScreen.js'), 'utf8');
+  check('Surprise me composes a prompt', generateSource.includes('surprisePrompt()'));
+  check('Surprise me no longer draws the dice from the ideas list', !/IDEAS\.filter\(\(idea\)/.test(generateSource));
+  check('the ideas list is still there to browse', generateSource.includes('Need inspiration'));
+
+  // 10. the rewritten idea list
   const library = require(path.join(ROOT, 'src/services/promptLibrary.js'));
   check('the idea list has entries', Array.isArray(library.IDEAS) && library.IDEAS.length >= 10, `${library.IDEAS.length}`);
   check('no idea asks for a white background', library.IDEAS.every((idea) => !idea.toLowerCase().includes('white background')));

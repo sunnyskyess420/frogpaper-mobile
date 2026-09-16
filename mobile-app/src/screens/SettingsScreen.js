@@ -1036,44 +1036,14 @@ export default function SettingsScreen() {
 
         <View style={styles.separator} />
 
-        <Text style={styles.inputLabel}>Gallery source</Text>
-        <View style={styles.buttonRow}>
-          <Pressable
-            style={[
-              styles.button,
-              styles.buttonSecondary,
-              gallerySource === PHONE && styles.chipActive,
-            ]}
-            onPress={() => chooseGallerySource(PHONE)}
-          >
-            <Text
-              style={[
-                styles.buttonSecondaryText,
-                gallerySource === PHONE && styles.chipActiveText,
-              ]}
-            >
-              This phone
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.button,
-              styles.buttonSecondary,
-              gallerySource === SERVER && styles.chipActive,
-            ]}
-            onPress={() => chooseGallerySource(SERVER)}
-          >
-            <Text
-              style={[
-                styles.buttonSecondaryText,
-                gallerySource === SERVER && styles.chipActiveText,
-              ]}
-            >
-              The server
-            </Text>
-          </Pressable>
+        <Text style={styles.inputLabel}>Where your gallery lives</Text>
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>This phone</Text>
+          <Text style={styles.aboutValue}>{galleryCount}</Text>
         </View>
-        <Text style={styles.hint}>{gallerySourceHint}</Text>
+        <Text style={styles.hint}>
+          Your wallpapers are kept on this phone only - nothing is uploaded to a server.
+        </Text>
 
         {gallerySource === PHONE && (
           <>

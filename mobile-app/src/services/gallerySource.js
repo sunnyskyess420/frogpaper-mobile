@@ -29,8 +29,7 @@ const EXISTING_INSTALL_KEYS = [
 ];
 
 export const NOTICE_TEXT =
-  'New here: your gallery now shows the wallpapers kept on this phone. ' +
-  'Switch to the server list any time in Settings > Wallpaper > Gallery source.';
+  'New here: your gallery shows the wallpapers kept on this phone.';
 
 async function looksLikeExistingInstall() {
   try {
@@ -47,37 +46,30 @@ async function looksLikeExistingInstall() {
 // setting it persists 'phone' and arms the one-time notice. Always resolves -
 // an unreadable store means the safe default.
 export async function getGallerySource() {
+  // Wallpapers are kept on this phone. The server list is gone: its copy was
+  // temporary by design (a deploy wiped it) and the owner's rule is that images
+  // never live on a server. An install that had chosen 'server' converges here.
   try {
     const raw = await AsyncStorage.getItem(GALLERY_SOURCE_KEY);
-    if (raw === PHONE || raw === SERVER) {
-      return raw;
+    if (raw !== PHONE) {
+      await AsyncStorage.setItem(GALLERY_SOURCE_KEY, PHONE);
     }
-    await AsyncStorage.setItem(GALLERY_SOURCE_KEY, DEFAULT_SOURCE);
-    if (await looksLikeExistingInstall()) {
-      await AsyncStorage.setItem(GALLERY_NOTICE_KEY, '1');
-    }
-    return DEFAULT_SOURCE;
   } catch (err) {
-    return DEFAULT_SOURCE;
+    // unreadable store - the default is the phone anyway
   }
+  return PHONE;
 }
 
-// Persists the choice. Unknown values are ignored, so the stored choice wins -
-// the same "clamp, never corrupt" rule the other setters use.
-export async function setGallerySource(source) {
-  if (source !== PHONE && source !== SERVER) {
-    return getGallerySource();
-  }
+export async function setGallerySource() {
+  // Kept for callers that still ask; the answer is always the phone now.
   try {
-    await AsyncStorage.setItem(GALLERY_SOURCE_KEY, source);
+    await AsyncStorage.setItem(GALLERY_SOURCE_KEY, PHONE);
   } catch (err) {
-    // the UI keeps its optimistic value; the next read falls back to default
+    // best-effort
   }
-  return source;
+  return PHONE;
 }
 
-// The migration notice, once. Returns the one-liner the first time and null
-// afterwards, so the gallery can show it exactly once.
 export async function takeGallerySourceNotice() {
   try {
     const armed = await AsyncStorage.getItem(GALLERY_NOTICE_KEY);

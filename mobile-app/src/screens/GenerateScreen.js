@@ -39,6 +39,7 @@ import ProviderFallbackNotice from '../components/ProviderFallbackNotice';
 import { colors, radii, spacing } from '../theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { IDEAS, FAVORITES_KEY } from '../services/promptLibrary';
+import { surprisePrompt } from '../services/promptComposer';
 
 const SIZE_PRESETS = [
   { id: 'phone', label: 'Phone portrait', width: 1080, height: 1920 },
@@ -251,9 +252,9 @@ export default function GenerateScreen() {
   };
 
   const surpriseMe = () => {
-    const pool = IDEAS.filter((idea) => idea !== prompt.trim());
-    const idea = pool[Math.floor(Math.random() * pool.length)] || IDEAS[0];
-    setPrompt(idea);
+    // Same as the Build screen's Randomise: a full prompt composed from the app's
+    // real vocabulary, rather than one short line from the ideas list.
+    setPrompt(surprisePrompt());
   };
 
   const toggleFavorite = () => {
