@@ -9,6 +9,8 @@ import { colors } from './src/theme';
 import { initSentry } from './src/services/sentry';
 import { initErrorLog } from './src/services/errorLog';
 import { initRecipeStore } from './src/services/recipeStore';
+import { hasSeenWelcome, markWelcomeSeen } from './src/services/firstRun';
+import WelcomeTutorial from './src/components/WelcomeTutorial';
 
 const FrogPaperTheme = {
   ...DarkTheme,
@@ -25,6 +27,9 @@ const FrogPaperTheme = {
 
 export default function App() {
   const [sentryReady, setSentryReady] = useState(false);
+  // The walkthrough is shown once, after the app is up and only on a real
+  // first launch - an install that already has data has seen it.
+  const [showWelcome, setShowWelcome] = useState(false);
 
   // Initialise Sentry before the first render commits. initSentry is a
   // no-op when no DSN is configured, so it's safe to call unconditionally.
@@ -33,6 +38,13 @@ export default function App() {
   useEffect(() => {
     initErrorLog().catch(() => {});
     initRecipeStore().catch(() => {});
+    hasSeenWelcome()
+      .then((seen) => {
+        if (!seen) {
+          setShowWelcome(true);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -61,6 +73,13 @@ export default function App() {
       <NavigationContainer theme={FrogPaperTheme}>
         <AppNavigator />
       </NavigationContainer>
+      <WelcomeTutorial
+        visible={showWelcome}
+        onDone={() => {
+          setShowWelcome(false);
+          markWelcomeSeen().catch(() => {});
+        }}
+      />
     </SafeAreaProvider>
   );
 }

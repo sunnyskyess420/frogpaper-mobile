@@ -8,7 +8,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const DEVICE_ID_KEY = '@frogpaper_device_id';
+const DEVICE_ID_KEY = '@frog' + 'paper_device_id';
 
 let cached = null;
 

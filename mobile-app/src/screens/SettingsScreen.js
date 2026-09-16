@@ -48,6 +48,7 @@ import {
   recordError,
 } from '../services/errorLog';
 import Constants from 'expo-constants';
+import { resetWelcome } from '../services/firstRun';
 import { colors, radii, spacing } from '../theme';
 
 // One source of truth: app.json's version. The About summary used to be a
@@ -174,6 +175,11 @@ export default function SettingsScreen() {
         },
       ]
     );
+  }, []);
+
+  const showWelcomeAgain = useCallback(async () => {
+    await resetWelcome();
+    Alert.alert('Welcome guide', 'It will appear the next time you open FrogPaper.');
   }, []);
 
   const recordTestError = useCallback(async () => {
@@ -1259,6 +1265,16 @@ export default function SettingsScreen() {
               ) : null}
               <Pressable style={[styles.button, styles.buttonSecondary]} onPress={recordTestError}>
                 <Text style={styles.buttonSecondaryText}>Record a test error</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.subBlock}>
+              <Text style={styles.rowValue}>The welcome guide</Text>
+              <Text style={styles.hint}>
+                Shows the short tour again the next time you open FrogPaper.
+              </Text>
+              <Pressable style={[styles.button, styles.buttonSecondary]} onPress={showWelcomeAgain}>
+                <Text style={styles.buttonSecondaryText}>Show it again</Text>
               </Pressable>
             </View>
 
