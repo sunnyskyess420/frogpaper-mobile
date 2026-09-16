@@ -52,6 +52,11 @@ function devHostLanUrl() {
 }
 
 let customServerUrl = null;
+// Ships with the app so a fresh install needs no setup: generating simply
+// works. Honest note: because it travels inside the app, it can be read out of
+// it. It keeps random scanners off the server; it is not real security.
+export const BUILT_IN_ACCESS_KEY = 'frogpaper-dev-secret-2026';
+
 let accessKey = null;
 
 // BYOK keys - cached in memory after first load. Updated by setX() functions.
@@ -61,8 +66,10 @@ let userReplicateToken = null;
 
 export async function setAccessKey(key) {
   if (!key || key.trim() === '') {
+    // Clearing means "go back to the shipped key", not "have no key at all" -
+    // an empty key would make every request fail.
     await AsyncStorage.removeItem(ACCESS_KEY_KEY);
-    accessKey = null;
+    accessKey = BUILT_IN_ACCESS_KEY;
   } else {
     const trimmed = key.trim();
     await AsyncStorage.setItem(ACCESS_KEY_KEY, trimmed);
@@ -75,10 +82,10 @@ export async function getAccessKey() {
     return accessKey;
   }
   try {
-    accessKey = await AsyncStorage.getItem(ACCESS_KEY_KEY);
+    accessKey = (await AsyncStorage.getItem(ACCESS_KEY_KEY)) || BUILT_IN_ACCESS_KEY;
     return accessKey;
   } catch (error) {
-    return null;
+    return BUILT_IN_ACCESS_KEY;
   }
 }
 
