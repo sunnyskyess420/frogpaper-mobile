@@ -186,6 +186,15 @@ async function main() {
   check('display shows the stack', described.includes('line1'));
   check('display tolerates an empty entry', reloaded2.describeErrorEntry(null) === '');
 
+  // 9. the About card stays trimmed and honest
+  const settings = fs.readFileSync(path.join(ROOT, 'src/screens/SettingsScreen.js'), 'utf8');
+  check('no crash-test buttons are offered', !settings.includes('rowValue}>Send test crash<') && !settings.includes('rowValue}>Send test event<'));
+  check('the read-only provider list is gone from About', !settings.includes('state.providers.map'));
+  check('the hidden diagnostics reveal is gone', !settings.includes('state.diagnosticsRevealed && ('));
+  check('the version is not hardcoded in the summary', !/summary="FrogPaper 1\./.test(settings));
+  check('the version comes from app.json', settings.includes('Constants.expoConfig') && settings.includes('APP_VERSION'));
+  check('Recent app errors is still offered', settings.includes('Recent app errors'));
+
   console.log(`\n${passes} passed, ${failures} failed`);
   process.exit(failures === 0 ? 0 : 1);
 }

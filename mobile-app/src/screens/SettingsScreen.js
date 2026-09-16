@@ -48,7 +48,14 @@ import {
   listErrors as listErrorLog,
   recordError,
 } from '../services/errorLog';
+import Constants from 'expo-constants';
 import { colors, radii, spacing } from '../theme';
+
+// One source of truth: app.json's version. The About summary used to be a
+// hardcoded string, which sat at 1.9.39 for several releases after the app had
+// moved on - reading it here means it cannot drift again.
+const APP_VERSION =
+  (Constants.expoConfig && Constants.expoConfig.version) || 'unknown';
 import {
   changeNow as runWallpaperChangeNow,
   loadRotation,
@@ -1303,63 +1310,15 @@ export default function SettingsScreen() {
 
       <SettingsCard
         title="About & diagnostics"
-        summary="FrogPaper 1.9.39"
+        summary={`FrogPaper ${APP_VERSION}`}
         open={openCards.about}
-        onPress={() => {
-          // Keep the hidden 5-tap gesture from the old About heading: a run of
-          // taps still reveals the crash-test buttons for testers.
-          bumpCrashTap();
-          toggleCard('about');
-        }}
+        onPress={() => toggleCard('about')}
       >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>FrogPaper Mobile 1.9.48</Text>
-        </View>
-        <View style={styles.aboutRow}>
-          <Text style={styles.aboutKey}>Backend</Text>
-          <Text style={styles.aboutValue}>
-            {state.health ? `v${state.health.version}` : '-'}
-          </Text>
-        </View>
-        <View style={styles.aboutRow}>
-          <Text style={styles.aboutKey}>Images on server</Text>
-          <Text style={styles.aboutValue}>
-            {state.health ? String(state.health.images_count) : '-'}
-          </Text>
-        </View>
-        <View style={styles.aboutRow}>
-          <Text style={styles.aboutKey}>Crash reporter</Text>
-          <Text
-            style={[
-              styles.aboutValue,
-              state.sentryStatus === 'initialized'
-                ? styles.statusActive
-                : styles.statusInactive,
-            ]}
-          >
-            {state.sentryStatus === 'initialized' ? 'Sentry active' : 'Sentry off'}
-          </Text>
+          <Text style={styles.aboutValue}>{`FrogPaper Mobile ${APP_VERSION}`}</Text>
         </View>
 
-        {state.providers.length > 0 && (
-          <>
-            <Text style={[styles.sectionLabel, styles.subLabel]}>AI provider</Text>
-            {state.providers.map((provider) => (
-              <View key={provider.id} style={styles.subBlock}>
-                <Text style={styles.rowValue}>{provider.name}</Text>
-                <Text style={styles.hint}>{provider.description}</Text>
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaChip}>model: {provider.model}</Text>
-                  <Text style={styles.metaChip}>status: {provider.status}</Text>
-                  <Text style={styles.metaChip}>
-                    api key: {provider.requires_api_key ? 'required' : 'not needed'}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </>
-        )}
 
             <View style={styles.subBlock}>
               <Text style={styles.rowValue}>Recent app errors</Text>
@@ -1394,105 +1353,6 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
 
-        {state.diagnosticsRevealed && (
-          <>
-            <Text style={[styles.sectionLabel, styles.subLabel]}>Diagnostics</Text>
-
-            <Text style={styles.hint}>
-              Paste the Sentry DSN from your project settings; it is safe to ship in
-              client builds because it can only write crash events, never read them.
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="https://examplekey@o123.ingest.sentry.io/456"
-              placeholderTextColor={colors.muted}
-              value={state.sentryDsn}
-              onChangeText={handleSentryDsnChange}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Text style={[styles.hint, { marginTop: spacing.sm }]}>
-              Environment label (e.g. development, production) used to filter events in
-              the Sentry dashboard.
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="development"
-              placeholderTextColor={colors.muted}
-              value={state.sentryEnv}
-              onChangeText={handleSentryEnvChange}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <View style={styles.buttonRow}>
-              <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveSentryConfig}>
-                <Text style={styles.buttonSecondaryText}>Save</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.button, styles.buttonSecondary]}
-                onPress={clearSentryConfig}
-              >
-                <Text style={styles.buttonSecondaryText}>Clear</Text>
-              </Pressable>
-            </View>
-            <View style={styles.statusRow}>
-              <Text style={styles.aboutKey}>Status</Text>
-              <Text style={styles.monoText}>{state.sentryStatus}</Text>
-            </View>
-            <View style={styles.statusRow}>
-              <Text style={styles.aboutKey}>Effective DSN</Text>
-              <Text style={styles.monoText} numberOfLines={1}>
-                {maskDsn(state.sentryEffectiveDsn)}
-              </Text>
-            </View>
-
-            <View style={styles.subBlock}>
-              <Text style={styles.rowValue}>Send test event</Text>
-              <Text style={styles.hint}>
-                Sends a test exception in the background with captureException(); it does
-                not crash the app.
-              </Text>
-              <Pressable
-                style={[styles.button, styles.buttonSecondary]}
-                onPress={sendTestEventNow}
-              >
-                <Text style={styles.buttonSecondaryText}>Send test event</Text>
-              </Pressable>
-              {state.testEventFeedback ? (
-                <View style={styles.feedbackCard}>
-                  <Text style={styles.feedbackText}>{state.testEventFeedback}</Text>
-                </View>
-              ) : null}
-            </View>
-
-
-            <View style={styles.subBlock}>
-              <Text style={styles.rowValue}>Send test crash</Text>
-              <Text style={styles.hint}>
-                Forces a real uncaught crash that Sentry captures - check your dashboard
-                after ~30 seconds.
-              </Text>
-              <View style={styles.buttonRow}>
-                <Pressable
-                  style={[styles.button, styles.buttonDanger]}
-                  onPress={() => confirmTestCrash('throwError')}
-                >
-                  <Text style={styles.buttonText}>JS throw</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.button, styles.buttonDanger]}
-                  onPress={() => confirmTestCrash('nativeCrash')}
-                >
-                  <Text style={styles.buttonText}>Native crash</Text>
-                </Pressable>
-              </View>
-              <Text style={styles.hint}>
-                Native crash needs a dev-client or standalone build - it is a no-op inside
-                Expo Go.
-              </Text>
-            </View>
-          </>
-        )}
       </SettingsCard>
 
       {state.error !== null && (
