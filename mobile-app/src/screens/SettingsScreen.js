@@ -451,7 +451,7 @@ export default function SettingsScreen() {
 
   const confirmClearImages = () => {
     Alert.alert(
-      'Clear cached images?',
+      'Clear saved wallpapers?',
       'Wallpapers saved on this phone for offline viewing are removed. They stay on the server and come back the next time the gallery loads.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -1113,34 +1113,31 @@ export default function SettingsScreen() {
 
       <SettingsCard
         title="Offline"
-        summary={`${offlineState.stats.count} image${
-          offlineState.stats.count === 1 ? '' : 's'
-        } cached · ${offlineState.queue} queued`}
+        summary={`${offlineState.stats.count} saved · ${offlineState.queue} waiting`}
         open={openCards.offline}
         onPress={() => toggleCard('offline')}
       >
         <View style={styles.aboutRow}>
-          <Text style={styles.aboutKey}>Cached images</Text>
+          <Text style={styles.aboutKey}>Saved on this phone</Text>
           <Text style={styles.aboutValue}>
             {offlineState.stats.count} file{offlineState.stats.count === 1 ? '' : 's'} |{' '}
             {formatMegabytes(offlineState.stats.bytes)}
           </Text>
         </View>
         <View style={styles.aboutRow}>
-          <Text style={styles.aboutKey}>Queued generations</Text>
+          <Text style={styles.aboutKey}>Waiting to be made</Text>
           <Text style={styles.aboutValue}>{offlineState.queue}</Text>
         </View>
         <Text style={styles.hint}>
-          The newest wallpapers (up to 60) stay on this phone so the gallery opens with no
-          connection; queued prompts (up to 10, oldest dropped first) are generated when
-          the backend answers - only while the app is open.
+          Your newest wallpapers stay here so the gallery still opens with no signal.
+          Anything that could not be made is tried again later, while the app is open.
         </Text>
         <View style={styles.buttonRow}>
           <Pressable
             style={[styles.button, styles.buttonSecondary]}
             onPress={confirmClearImages}
           >
-            <Text style={styles.buttonSecondaryText}>Clear cached images</Text>
+            <Text style={styles.buttonSecondaryText}>Clear saved wallpapers</Text>
           </Pressable>
           <Pressable
             style={[styles.button, styles.buttonSecondary]}
@@ -1152,10 +1149,12 @@ export default function SettingsScreen() {
       </SettingsCard>
 
       <SettingsCard
-        title="AI keys"
-        summary={`Gemini: ${state.byokStatus.gemini ? 'saved' : 'not set'} · HF: ${
-          state.byokStatus.huggingface ? 'saved' : 'not set'
-        } · Replicate: ${state.byokStatus.replicate ? 'saved' : 'not set'}`}
+        title="Optional AI keys"
+        summary={
+          state.byokStatus.gemini || state.byokStatus.huggingface || state.byokStatus.replicate
+            ? 'Using your own keys'
+            : 'Not needed - the app already works'
+        }
         open={openCards.keys}
         onPress={() => toggleCard('keys')}
       >
@@ -1250,63 +1249,6 @@ export default function SettingsScreen() {
         </Text>
       </SettingsCard>
 
-      <SettingsCard
-        title="Advanced"
-        summary="Server address · access key"
-        open={openCards.advanced}
-        onPress={() => toggleCard('advanced')}
-      >
-        <Text style={styles.inputLabel}>Custom server address</Text>
-        <Text style={styles.hint}>
-          For cloud deployment enter your backend URL (e.g. https://your-app.onrender.com);
-          leave empty to use automatic LAN discovery.
-        </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="https://your-backend-url.com"
-          placeholderTextColor={colors.muted}
-          value={state.customUrl}
-          onChangeText={handleCustomUrlChange}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <View style={styles.buttonRow}>
-          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveCustomUrl}>
-            <Text style={styles.buttonSecondaryText}>Save URL</Text>
-          </Pressable>
-          {state.customUrl && (
-            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearCustomUrl}>
-              <Text style={styles.buttonSecondaryText}>Clear</Text>
-            </Pressable>
-          )}
-        </View>
-
-        <Text style={styles.inputLabel}>Access key</Text>
-        <Text style={styles.hint}>
-          Shared secret sent with API requests; leave empty if your backend does not
-          require authentication.
-        </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter access key"
-          placeholderTextColor={colors.muted}
-          value={state.accessKey}
-          onChangeText={handleAccessKeyChange}
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry
-        />
-        <View style={styles.buttonRow}>
-          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={saveAccessKey}>
-            <Text style={styles.buttonSecondaryText}>Save key</Text>
-          </Pressable>
-          {state.accessKey && (
-            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={clearAccessKey}>
-              <Text style={styles.buttonSecondaryText}>Clear</Text>
-            </Pressable>
-          )}
-        </View>
-      </SettingsCard>
 
       <SettingsCard
         title="About & diagnostics"
