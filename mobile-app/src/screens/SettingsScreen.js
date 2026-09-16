@@ -1132,8 +1132,9 @@ export default function SettingsScreen() {
         onPress={() => toggleCard('keys')}
       >
         <Text style={styles.hint}>
-          Bring your own keys (BYOK): stored only on this phone, sent with each generate
-          request, never logged and never saved on the server.
+          These are your own keys, and they stay on this phone. FrogPaper works fine
+          without them - this is only if you want sharper results - and the app never
+          uses anyone else's keys.
         </Text>
 
         <Pressable style={[styles.button, styles.buttonPrimary]} onPress={openByokHelp}>

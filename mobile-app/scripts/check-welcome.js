@@ -131,6 +131,16 @@ async function main() {
   check('it can be skipped', tutorial.includes('Skip'));
   check('and it says where to find it again', tutorial.includes('Settings'));
 
+  // The tour must be honest about the engines, and the key help must name the real card.
+  check('the tour mentions the free engine', tutorial.includes('free engine'), 'no mention');
+  check('the tour says keys are optional and never anyone else\'s', tutorial.includes('never required') && tutorial.includes("anyone else"), 'ownership line missing');
+
+  const help = fs.readFileSync(path.join(ROOT, 'src/components/ByokHelpModal.js'), 'utf8');
+  check('the key help still walks through Gemini', help.includes('aistudio.google.com/apikey'));
+  check('the key help still walks through Hugging Face', help.includes('huggingface.co/settings/tokens'));
+  check('the key help names the card correctly', help.includes('Optional AI keys') && !help.includes('Your API keys'), 'menu name mismatch');
+  check('the help explains what happens if you skip it', help.toLowerCase().includes('what if i skip'));
+
   console.log(`\n${passes} passed, ${failures} failed`);
   process.exit(failures === 0 ? 0 : 1);
 }

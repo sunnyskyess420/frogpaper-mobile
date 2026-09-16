@@ -19,6 +19,7 @@ const STEPS = [
     lines: [
       'Make wallpapers out of words.',
       'Nothing to set up, no account, and nothing is uploaded anywhere.',
+      'FrogPaper works with the free engine. If you ever want sharper results you can add your own free key in Settings - never required, and never anyone else\'s.',
     ],
   },
   {

@@ -2,7 +2,7 @@
 //
 // Renders step-by-step instructions for getting free API keys from
 // Google Gemini, Hugging Face, and (optionally) Replicate. Opens from
-// the Settings -> Your API keys section. Plain English, no jargon.
+// the Settings -> Optional AI keys section. Plain English, no jargon.
 //
 // The app does NOT bundle a README, so this modal is the only place
 // users learn how to get keys. Keep it self-contained and copy-friendly.
@@ -90,7 +90,7 @@ export default function ByokHelpModal({ visible, onClose }) {
           <Text style={styles.step}>3. Sign in with any Google account (your Gmail works).</Text>
           <Text style={styles.step}>4. Tap the "Create API key" button.</Text>
           <Text style={styles.step}>5. Copy the long string it shows you.</Text>
-          <Text style={styles.step}>6. Come back to FrogPaper, Settings → Your API keys → Google Gemini key → paste → Save.</Text>
+          <Text style={styles.step}>6. Come back to FrogPaper, Settings → Optional AI keys → Google Gemini key → paste → Save.</Text>
 
           {/* Hugging Face */}
           <Text style={styles.sectionTitle}>2. Hugging Face (free monthly credit)</Text>
@@ -105,7 +105,7 @@ export default function ByokHelpModal({ visible, onClose }) {
           <Text style={styles.step}>4. Tap "New token".</Text>
           <Text style={styles.step}>5. Name: type "frogpaper" (any name works). Type: pick "Read".</Text>
           <Text style={styles.step}>6. Tap "Create" and copy the long string that appears (starts with hf_).</Text>
-          <Text style={styles.step}>7. Come back to FrogPaper, Settings → Your API keys → Hugging Face token → paste → Save.</Text>
+          <Text style={styles.step}>7. Come back to FrogPaper, Settings → Optional AI keys → Hugging Face token → paste → Save.</Text>
 
           {/* Replicate */}
           <Text style={styles.sectionTitle}>3. Replicate (paid, optional)</Text>
@@ -120,7 +120,7 @@ export default function ByokHelpModal({ visible, onClose }) {
           <Text style={styles.step}>3. Sign up and add a credit card.</Text>
           <Text style={styles.step}>4. Go to <Link url="https://replicate.com/accounts">replicate.com/accounts</Link>.</Text>
           <Text style={styles.step}>5. Tap "Create token" and copy the string (starts with r8_).</Text>
-          <Text style={styles.step}>6. Come back to FrogPaper, Settings → Your API keys → Replicate token → paste → Save.</Text>
+          <Text style={styles.step}>6. Come back to FrogPaper, Settings → Optional AI keys → Replicate token → paste → Save.</Text>
 
           {/* What if I don't add keys */}
           <Text style={styles.sectionTitle}>What if I skip all of this?</Text>
@@ -152,7 +152,7 @@ export default function ByokHelpModal({ visible, onClose }) {
           {/* Troubleshooting */}
           <Text style={styles.sectionTitle}>Troubleshooting</Text>
           <Text style={styles.body}>
-            <Text style={styles.bold}>"No Gemini API key"</Text> — the key wasn't saved. Go back to Settings → Your API keys, paste again, tap Save.
+            <Text style={styles.bold}>"No Gemini API key"</Text> — the key wasn't saved. Go back to Settings → Optional AI keys, paste again, tap Save.
           </Text>
           <Text style={styles.body}>
             <Text style={styles.bold}>"Google rejected the API key"</Text> — the key is wrong, expired, or has extra spaces around it. Re-copy it from aistudio.google.com/apikey and try again.
