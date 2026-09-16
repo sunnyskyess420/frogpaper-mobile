@@ -21,6 +21,9 @@ import { recordError } from './errorLog';
 import { getDeviceId } from './deviceId';
 
 export const EMULATOR_ALIAS = '10.0.2.2'; // Android emulator alias for the host machine
+// The backend every install talks to unless the owner saves their own address.
+// Without this a shipped build has nothing that can reach a server at all.
+export const CLOUD_SERVER_URL = 'https://frogpaper-mobile.onrender.com';
 const PORT = 5000;
 const CUSTOM_SERVER_KEY = '@frogpaper_custom_server_url';
 const ACCESS_KEY_KEY = '@frogpaper_access_key';
@@ -241,14 +244,18 @@ function candidateBaseUrls() {
     return [`http://localhost:${PORT}`];
   }
   if (Platform.OS === 'android') {
+    // LAN first (development), then the emulator, then the real backend. The
+    // cloud entry is last so a dev machine still prefers its own server, but it
+    // is always present - a shipped app must never end up with no candidate.
     return [
       devHostLanUrl(),
       `http://${EMULATOR_ALIAS}:${PORT}`,
       `http://localhost:${PORT}`,
+      CLOUD_SERVER_URL,
     ].filter(Boolean);
   }
   // iOS
-  return [devHostLanUrl(), `http://localhost:${PORT}`].filter(Boolean);
+  return [devHostLanUrl(), `http://localhost:${PORT}`, CLOUD_SERVER_URL].filter(Boolean);
 }
 
 let baseUrl = null;
@@ -275,8 +282,10 @@ export async function discoverBaseUrl(timeoutMs = 2500) {
   for (const candidate of candidates) {
     // the custom URL usually points at a cloud host that may be waking from
     // sleep - give it a much more patient timeout than the LAN probes
-    const isCustom = customServerUrl && candidate === customServerUrl;
-    const timeout = isCustom ? Math.max(timeoutMs * 4, 10000) : timeoutMs;
+    // The owner's own address, and the cloud backend, may be waking from sleep;
+    // a LAN probe should stay quick.
+    const isPatient = candidate === customServerUrl || candidate === CLOUD_SERVER_URL;
+    const timeout = isPatient ? Math.max(timeoutMs * 4, 10000) : timeoutMs;
     const reachable = await probe(candidate, timeout);
     if (reachable) {
       baseUrl = candidate;
@@ -293,14 +302,17 @@ export async function discoverBaseUrl(timeoutMs = 2500) {
       return baseUrl;
     }
   }
-  // Fall back to the first candidate so callers get a meaningful error.
-  baseUrl = candidates[0];
+  // Nothing answered. Hand back the cloud backend rather than the first
+  // candidate: a retry against a real server is useful, a retry against
+  // localhost never is.
+  baseUrl = CLOUD_SERVER_URL;
   return baseUrl;
 }
 
 export function getBaseUrl() {
   if (!baseUrl) {
-    baseUrl = candidateBaseUrls()[0];
+    const candidates = candidateBaseUrls();
+    baseUrl = candidates[candidates.length - 1] || CLOUD_SERVER_URL;
   }
   return baseUrl;
 }

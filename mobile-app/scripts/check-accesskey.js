@@ -162,6 +162,35 @@ async function main() {
   const settingsSource = fs.readFileSync(path.join(ROOT, 'src/screens/SettingsScreen.js'), 'utf8');
   check('and none in Settings either', !settingsSource.includes('192.168.1.'));
 
+  // 7. a shipped build must always have a reachable backend.
+  // Regression guard: the candidates used to be dev-host, emulator and localhost
+  // only, so a fresh install had nothing that could reach the real server.
+  const fresh3 = freshApi();
+  check('a cloud backend is part of the app', typeof fresh3.CLOUD_SERVER_URL === 'string' && fresh3.CLOUD_SERVER_URL.startsWith('https://'), String(fresh3.CLOUD_SERVER_URL));
+  check('it is the real server', fresh3.CLOUD_SERVER_URL.includes('frogpaper'), fresh3.CLOUD_SERVER_URL);
+  check('with nothing discovered, the base url is the cloud', fresh3.getBaseUrl() === fresh3.CLOUD_SERVER_URL, fresh3.getBaseUrl());
+
+  // Even with every probe failing, discovery must hand back something real.
+  const realFetch = global.fetch;
+  global.fetch = async () => {
+    throw new Error('no route to host');
+  };
+  const failing = freshApi();
+  const discovered = await failing.discoverBaseUrl(50);
+  check('a dead network still resolves to the cloud', discovered === failing.CLOUD_SERVER_URL, String(discovered));
+  check('and never to localhost', !String(discovered).includes('localhost') && !String(discovered).includes('10.0.2.2'), String(discovered));
+
+  // The owner's own address still wins.
+  global.fetch = async (url) => {
+    const ok = String(url).startsWith('https://my-own-server.test');
+    return { ok, status: ok ? 200 : 500, json: async () => ({}) };
+  };
+  const custom = freshApi();
+  await custom.setCustomServerUrl('my-own-server.test');
+  const chosen = await custom.discoverBaseUrl(50);
+  check('a saved server address still wins', String(chosen).includes('my-own-server.test'), String(chosen));
+  global.fetch = realFetch;
+
   console.log(`\n${passes} passed, ${failures} failed`);
   process.exit(failures === 0 ? 0 : 1);
 }
