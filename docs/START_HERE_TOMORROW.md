@@ -72,6 +72,41 @@ versions are in the git history).
 - Paid services of any kind - free options only.
 - The app syncing anything to the PC - phone and server only.
 
+## Release signing (done 2026-09-15)
+
+Release builds are signed with FrogPaper's own key, not the debug key. Created on this
+PC; nothing about it is in the repository.
+
+| Where | What |
+|---|---|
+| `C:\FrogPaperBackups\keys\frogpaper-release.keystore` | the key itself (keep this folder) |
+| `C:\FrogPaperBackups\keys\READ-ME-FIRST.txt` | the password, and what losing it means |
+| `mobile-app/android/keystore.properties` | how the build finds it (android/ is gitignored) |
+| `mobile-app/android/app/frogpaper-release.keystore` | the working copy the build signs with |
+
+Signature of the release APK (check with `apksigner verify --print-certs`):
+
+    CN=FrogPaper, OU=Mobile, O=FrogPaper, L=Edmonton, ST=Alberta, C=CA
+    SHA-256: f59a1728b2c14921358137277d596125845b0a83f7e45aaf9c54137307bc0644
+
+**The rule: never lose the backup folder.** If the key is lost, the app can never be
+updated for anyone who already installed it - they would have to uninstall and install
+again. Keep a second copy somewhere offline.
+
+Building a signed release is unchanged:
+
+    cd mobile-app\android
+    $env:ANDROID_HOME='C:\Users\alive\AppData\Local\Android\Sdk'
+    .\gradlew.bat assembleRelease
+
+With no `keystore.properties` (a fresh clone, another machine) the build falls back to
+the debug key and still succeeds.
+
+**One consequence to remember:** switching from the old debug-signed installs to this
+key means Android sees a different app. Every existing install - including the owner's
+phone - must be uninstalled and installed again. Save anything worth keeping to the
+phone gallery first; the SD-folder import can bring them back afterwards.
+
 ## Sharing the app - the plan (agreed 2026-09-13)
 
 Distribution is **GitHub Releases**, not a store (no fees, no listing). The repo
