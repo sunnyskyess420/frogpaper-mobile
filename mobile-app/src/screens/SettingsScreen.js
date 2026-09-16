@@ -10,6 +10,7 @@ import {
   Text,
   TextInput,
   View,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -49,6 +50,7 @@ import {
 } from '../services/errorLog';
 import Constants from 'expo-constants';
 import { resetWelcome } from '../services/firstRun';
+import { checkForUpdate, RELEASES_URL, runningVersion } from '../services/updateCheck';
 import { colors, radii, spacing } from '../theme';
 
 // One source of truth: app.json's version. The About summary used to be a
@@ -123,6 +125,15 @@ export default function SettingsScreen() {
   // Kept separate from the big settings state object: the error log is
   // read-mostly and its failures must never disturb the rest of the screen.
   const [errorLog, setErrorLog] = useState({ count: 0, entries: [], show: false });
+
+  // The update check is manual on purpose: nothing runs on its own.
+  const [updateState, setUpdateState] = useState({ state: 'idle', checking: false });
+
+  const runUpdateCheck = useCallback(async () => {
+    setUpdateState({ state: 'idle', checking: true });
+    const result = await checkForUpdate();
+    setUpdateState({ ...result, checking: false });
+  }, []);
 
   const refreshErrorLog = useCallback(async () => {
     try {
@@ -1267,6 +1278,45 @@ export default function SettingsScreen() {
               <Pressable style={[styles.button, styles.buttonSecondary]} onPress={recordTestError}>
                 <Text style={styles.buttonSecondaryText}>Record a test error</Text>
               </Pressable>
+            </View>
+
+            <View style={styles.subBlock}>
+              <Text style={styles.rowValue}>App updates</Text>
+              <Text style={styles.hint}>
+                {updateState.checking
+                  ? 'Checking...'
+                  : updateState.state === 'update'
+                  ? `Version ${updateState.latest} is ready - you have ${updateState.current}.`
+                  : updateState.state === 'current'
+                  ? `You are on the newest version (${updateState.current}).`
+                  : updateState.state === 'none'
+                  ? 'No version has been published for download yet.'
+                  : updateState.state === 'offline'
+                  ? 'Could not reach the download page. Check your internet and try again.'
+                  : `You have ${runningVersion()}. Tap to see if a newer one is out.`}
+              </Text>
+              <View style={styles.buttonRow}>
+                <Pressable
+                  style={[styles.button, styles.buttonSecondary]}
+                  onPress={runUpdateCheck}
+                  disabled={updateState.checking}
+                >
+                  <Text style={styles.buttonSecondaryText}>
+                    {updateState.checking ? 'Checking...' : 'Check for updates'}
+                  </Text>
+                </Pressable>
+                {updateState.state === 'update' ? (
+                  <Pressable
+                    style={[styles.button, styles.buttonSecondary]}
+                    onPress={() => {
+                      const url = updateState.url || RELEASES_URL;
+                      Linking.openURL(url).catch(() => {});
+                    }}
+                  >
+                    <Text style={styles.buttonSecondaryText}>Download it</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
 
             <View style={styles.subBlock}>
