@@ -219,3 +219,24 @@ python backend/scripts/backup_gallery.py --url https://frogpaper-backend.onrende
   S3 half uses [`moto`](https://github.com/getmoto/moto) (a test-only
   dependency; install it in a throwaway venv, never in the repo) and is
   skipped with a clear message when moto is missing.
+
+## Hand-off window (images do not stay)
+
+A generated image is written to the store only so the app can collect it, and is
+deleted automatically once it is older than the hand-off window:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `FROGPAPER_HANDOFF_TTL_MINUTES` | `60` | Minutes an image may sit on the server |
+
+The sweep runs at the start of every `/api/generate` request, so a busy app keeps the
+store nearly empty with no cron or background worker (a free instance has neither).
+Failures are logged and ignored - a sweep must never break a request.
+
+Why a window instead of deleting immediately: the app fetches the picture a second
+time when the owner taps *Set as wallpaper* or *Save to device*, and that can happen
+well after generating. A few minutes would break those taps; an hour covers a realistic
+session while leaving nothing behind afterwards.
+
+Images the owner keeps live on the phone (`mobile-app/src/services/localGallery.js`),
+which is the only gallery the app reads.

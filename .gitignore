@@ -32,3 +32,6 @@ backend/static/images/*
 
 # Screenshots of the app on the owner's phone - personal, stay local.
 docs/screenshots/
+
+# Personal working notes - never publish these
+docs/WHERE_WE_STAND_*.md
