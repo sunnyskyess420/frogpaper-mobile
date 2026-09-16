@@ -44,6 +44,7 @@ python app.py
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -74,7 +75,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.9.43"
+APP_VERSION = "1.9.44"
 
 # Access key for API authentication (shared secret between app and backend)
 # Set via the FROGPAPER_ACCESS_KEY environment variable (Render), or fall back
@@ -242,6 +243,54 @@ HANDOFF_TTL_MINUTES = _handoff_ttl_minutes()
 HANDOFF_SWEEP_ENABLED = HANDOFF_TTL_MINUTES >= 0
 
 
+def _request_device_id() -> str:
+    """Which install is asking, as a short opaque id (or '' when absent)."""
+    try:
+        value = (request.headers.get("X-Device-Id") or request.args.get("device") or "").strip()
+        if not value or len(value) > 64:
+            return ""
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]+", value):
+            return ""
+        return value
+    except Exception:  # noqa: BLE001 - an unreadable id is simply no id
+        return ""
+
+
+def _remember_device(filename, device_id) -> None:
+    """Record which install an image belongs to, so only it can collect it."""
+    if not device_id or not filename:
+        return
+    try:
+        metadata = IMAGE_STORAGE.read_sidecar(filename) or {}
+    except Exception:  # noqa: BLE001
+        metadata = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    metadata["device"] = device_id
+    try:
+        IMAGE_STORAGE.write_sidecar(filename, metadata)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not record the owning install for %s: %s", filename, exc)
+
+
+def _owns_image(filename, device_id) -> bool:
+    """True only when this install made that image.
+
+    An image with no recorded owner (made before this rule) is not claimable -
+    it is deleted within the hand-off window anyway.
+    """
+    if not filename or not device_id:
+        return False
+    try:
+        metadata = IMAGE_STORAGE.read_sidecar(filename) or {}
+    except Exception:  # noqa: BLE001
+        return False
+    if not isinstance(metadata, dict):
+        return False
+    owner = str(metadata.get("device") or "").strip()
+    return bool(owner) and owner == device_id
+
+
 def sweep_handoff_images(now=None):
     """Delete images older than the hand-off window. Never raises."""
     if not HANDOFF_SWEEP_ENABLED:
@@ -283,6 +332,8 @@ def _run_provider(generator, **kwargs):
     with IMAGE_STORAGE.staging() as staging:
         image = generator(images_dir=staging, **kwargs)
         stored_name = IMAGE_STORAGE.publish_from(staging, image["filename"])
+    # Remember which install asked for it, so nobody else can collect it.
+    _remember_device(stored_name, _request_device_id())
     if stored_name != image["filename"]:
         # Remote storage had to rename it (timestamped name already taken).
         image["filename"] = stored_name
@@ -514,7 +565,14 @@ def gallery():
     limit = _parse_int(request.args.get("limit"), 200, 1, 500)
     offset = _parse_int(request.args.get("offset"), 0, 0, 100000)
 
-    images = IMAGE_STORAGE.list_images()
+    # Only this install's own pictures, so the shared gallery is not a window
+    # into what anyone else has been making.
+    device_id = _request_device_id()
+    images = [
+        entry
+        for entry in IMAGE_STORAGE.list_images()
+        if _owns_image(entry.get("filename"), device_id)
+    ]
     total = len(images)
     page = images[offset : offset + limit]
     return jsonify(
@@ -531,6 +589,8 @@ def gallery():
 @app.get("/api/gallery/<path:filename>")
 def gallery_detail(filename):
     """Metadata for a single gallery image."""
+    if not _owns_image(Path(filename).name, _request_device_id()):
+        return _error_response("Image not found.", 404)
     entry = IMAGE_STORAGE.find_image(filename)
     if entry is None:
         return _error_response(f"Image '{Path(filename).name}' not found.", 404)
@@ -597,6 +657,10 @@ def serve_image(filename):
     the backend so the bucket stays private and the access-key gate applies.
     """
     safe_name = Path(filename).name  # neutralise any path traversal
+    # Only the install that made a picture may fetch it: the shared app key stops
+    # strangers, but not a curious friend using the same app.
+    if not _owns_image(safe_name, _request_device_id()):
+        return _error_response(f"Image '{safe_name}' not found.", 404)
     local_root = IMAGE_STORAGE.local_root
     if local_root is not None:
         if not IMAGE_STORAGE.exists(safe_name):

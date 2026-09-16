@@ -27,7 +27,6 @@ import api, {
   getReplicateToken,
   setReplicateToken,
   getByokSnapshot,
-  LAN_IP,
 } from '../services/api';
 import {
   forceTestCrash,
@@ -834,8 +833,6 @@ export default function SettingsScreen() {
         </View>
         <Text style={styles.monoText}>{getBaseUrl()}</Text>
         <Text style={styles.hint}>
-          Emulators use 10.0.2.2 and phones use the LAN IP ({LAN_IP}) - both are tried
-          automatically. To change it, edit LAN_IP in src/services/api.js.
         </Text>
         <Pressable style={styles.button} onPress={refresh} disabled={state.loading}>
           {state.loading ? (

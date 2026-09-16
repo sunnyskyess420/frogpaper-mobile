@@ -3,24 +3,23 @@
 // Backend URL resolution is automatic per platform:
 //   - web            -> http://localhost:5000
 //   - Android device -> tries the Expo Go dev-host LAN IP (auto-detected),
-//                       then emulator alias 10.0.2.2, then LAN_IP, then localhost
-//   - iOS device     -> tries the Expo Go dev-host LAN IP (auto-detected),
-//                       then LAN_IP, then localhost
+//                       then emulator alias 10.0.2.2, then localhost
+//   - iOS device     -> tries the Expo Go dev-host LAN IP (auto-detected)
 //
 // The auto-detected IP comes from Expo Go itself: when the phone loads the app
 // from the dev server it already knows the PC's LAN address (expoConfig.hostUri,
 // e.g. "192.168.1.20:8081"). The backend lives on the same PC, just on port 5000.
 //
-// LAN_IP is only a manual fallback: if auto-detection fails (e.g. production
-// build), set it to your PC's LAN IP (run `ipconfig` on Windows and look for
-// the IPv4 Address of your Wi-Fi adapter).
+// No address is hardcoded anywhere: a shipped build talks to the cloud backend
+// (or a server the owner typed in), and only a development build can discover the
+// PC it was loaded from.
 
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { recordError } from './errorLog';
+import { getDeviceId } from './deviceId';
 
-export const LAN_IP = '192.168.1.168'; // manual fallback - your Windows PC running the backend (check with `ipconfig` if your router reassigns IPs)
 export const EMULATOR_ALIAS = '10.0.2.2'; // Android emulator alias for the host machine
 const PORT = 5000;
 const CUSTOM_SERVER_KEY = '@frogpaper_custom_server_url';
@@ -58,6 +57,8 @@ let customServerUrl = null;
 export const BUILT_IN_ACCESS_KEY = 'frogpaper-dev-secret-2026';
 
 let accessKey = null;
+// Cached so the synchronous imageUrl() can include it.
+let deviceId = null;
 
 // BYOK keys - cached in memory after first load. Updated by setX() functions.
 let userGeminiKey = null;
@@ -92,6 +93,16 @@ export async function getAccessKey() {
 // Load access key on startup. Kept as a named promise so the first request of
 // the session can wait for the AsyncStorage read instead of racing it.
 const accessKeyPreloadPromise = getAccessKey().catch(() => {});
+
+// Loaded at startup too, and ordered after the key so an id is in place before
+// the first image URL is built.
+const deviceIdPreloadPromise = accessKeyPreloadPromise
+  .then(() => getDeviceId())
+  .then((id) => {
+    deviceId = id;
+    return id;
+  })
+  .catch(() => {});
 
 // --- BYOK (Bring Your Own Key) helpers -------------------------------------
 // These functions store the user's personal API keys on this device only.
@@ -232,15 +243,12 @@ function candidateBaseUrls() {
   if (Platform.OS === 'android') {
     return [
       devHostLanUrl(),
-      `http://${LAN_IP}:${PORT}`,
       `http://${EMULATOR_ALIAS}:${PORT}`,
       `http://localhost:${PORT}`,
     ].filter(Boolean);
   }
   // iOS
-  return [devHostLanUrl(), `http://${LAN_IP}:${PORT}`, `http://localhost:${PORT}`].filter(
-    Boolean,
-  );
+  return [devHostLanUrl(), `http://localhost:${PORT}`].filter(Boolean);
 }
 
 let baseUrl = null;
@@ -333,12 +341,19 @@ async function request(path, options = {}) {
   // the image URLs built from the same cached key afterwards) still carry
   // the key on a server where it is armed.
   await accessKeyPreloadPromise;
+  // Wait for the id too: the very first generate must already be attributable.
+  await deviceIdPreloadPromise;
   const { signal, timeoutMs, ...fetchOptions } = options;
   const headers = { 'Content-Type': 'application/json' };
 
   // Add access key to headers if configured
   if (accessKey) {
     headers['X-Access-Key'] = accessKey;
+  }
+
+  // Identifies this install, so only this phone can collect the pictures it made.
+  if (deviceId) {
+    headers['X-Device-Id'] = deviceId;
   }
 
   // Attach BYOK keys (if the user has set any). The backend uses these
@@ -436,6 +451,10 @@ export const api = {
     if (accessKey) {
       headers['X-Access-Key'] = accessKey;
     }
+    const uploadDeviceId = deviceId || (await getDeviceId());
+    if (uploadDeviceId) {
+      headers['X-Device-Id'] = uploadDeviceId;
+    }
     // Attach BYOK keys on upload too (consistent with all other requests).
     if (userGeminiKey) {
       headers['X-Gemini-Key'] = userGeminiKey;
@@ -459,7 +478,14 @@ export const api = {
   // as ?key=... on /api/images/* only. With no key set the URL is unchanged.
   imageUrl: (filename) => {
     const url = `${getBaseUrl()}/api/images/${encodeURIComponent(filename)}`;
-    return accessKey ? `${url}?key=${encodeURIComponent(accessKey)}` : url;
+    const parts = [];
+    if (accessKey) {
+      parts.push(`key=${encodeURIComponent(accessKey)}`);
+    }
+    if (deviceId) {
+      parts.push(`device=${encodeURIComponent(deviceId)}`);
+    }
+    return parts.length ? `${url}?${parts.join('&')}` : url;
   },
   slideshowConfig: () => request('/api/slideshow/config'),
   setSlideshowConfig: (config) =>

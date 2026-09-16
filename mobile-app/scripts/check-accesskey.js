@@ -144,6 +144,24 @@ async function main() {
   check('image urls carry the key', source.includes('?key=') && source.includes('encodeURIComponent'));
   check('requests send the key header', source.includes('X-Access-Key'));
 
+  // 6. this install's id, and the address that must never come back
+  const devicePath = path.join(ROOT, 'src/services/deviceId.js');
+  delete require.cache[require.resolve(devicePath)];
+  const deviceModule = require(devicePath);
+  const firstId = await deviceModule.getDeviceId();
+  check('an install id is created', typeof firstId === 'string' && firstId.startsWith('dev_') && firstId.length >= 12, String(firstId));
+  check('it is stable across calls', (await deviceModule.getDeviceId()) === firstId);
+  delete require.cache[require.resolve(devicePath)];
+  const deviceAgain = require(devicePath);
+  check('it survives a restart', (await deviceAgain.getDeviceId()) === firstId, String(await deviceAgain.getDeviceId()));
+
+  const apiSource = fs.readFileSync(apiPath, 'utf8');
+  check('requests send the install id', apiSource.includes("headers['X-Device-Id']"));
+  check('image urls carry the install id', apiSource.includes('device=${encodeURIComponent'));
+  check('no private network address is baked into the api layer', !apiSource.includes("export const LAN_IP") && !apiSource.includes("'192.168.1.168'"), 'a hardcoded LAN address is present');
+  const settingsSource = fs.readFileSync(path.join(ROOT, 'src/screens/SettingsScreen.js'), 'utf8');
+  check('and none in Settings either', !settingsSource.includes('192.168.1.'));
+
   console.log(`\n${passes} passed, ${failures} failed`);
   process.exit(failures === 0 ? 0 : 1);
 }
