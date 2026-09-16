@@ -75,7 +75,7 @@ IMAGES_DIR = BASE_DIR / "static" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "FrogPaper Mobile"
-APP_VERSION = "1.9.44"
+APP_VERSION = "1.9.45"
 
 # Access key for API authentication (shared secret between app and backend)
 # Set via the FROGPAPER_ACCESS_KEY environment variable (Render), or fall back
@@ -631,6 +631,8 @@ def gallery_upload():
         with IMAGE_STORAGE.staging() as staging:
             image = save_uploaded_image(data, file.filename, staging)
             stored_name = IMAGE_STORAGE.publish_from(staging, image["filename"])
+            # An upload belongs to whoever sent it, exactly like a generated picture.
+            _remember_device(stored_name, _request_device_id())
     except ValueError as exc:
         return _error_response(str(exc), 400)
     if stored_name != image["filename"]:

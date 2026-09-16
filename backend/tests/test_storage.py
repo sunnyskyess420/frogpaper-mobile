@@ -194,7 +194,13 @@ os.environ["FROGPAPER_ACCESS_KEY"] = ACCESS_KEY
 import app as flask_app  # noqa: E402
 
 client = flask_app.app.test_client()
-headers = {"X-Access-Key": ACCESS_KEY}
+DEVICE_ID = "dev_teststoragesuite000001"
+
+headers = {
+    "X-Access-Key": ACCESS_KEY,
+    # The gallery is per install, so the suite identifies itself like the app does.
+    "X-Device-Id": DEVICE_ID,
+}
 
 check("app picked up FROGPAPER_IMAGES_DIR",
       flask_app.IMAGE_STORAGE.local_root == app_root.resolve(),
@@ -243,8 +249,8 @@ check("gallery entry carries original_name", resp.json["images"][0].get("origina
 
 resp = client.get(f"/api/images/{uploaded_name}")
 check("/api/images 401 without a key", resp.status_code == 401, str(resp.status_code))
-resp = client.get(f"/api/images/{uploaded_name}?key={ACCESS_KEY}")
-check("/api/images 200 with ?key=", resp.status_code == 200, str(resp.status_code))
+resp = client.get(f"/api/images/{uploaded_name}?device=dev_teststoragesuite000001&key={ACCESS_KEY}")
+check("/api/images 200 with ?device=dev_teststoragesuite000001&key=", resp.status_code == 200, str(resp.status_code))
 check("/api/images bytes match", resp.data == PNG_1X1)
 check("/api/images cache header", resp.headers.get("Cache-Control") == "public, max-age=86400",
       str(resp.headers.get("Cache-Control")))
@@ -420,7 +426,8 @@ else:
             s3_name = (resp.json or {}).get("image", {}).get("filename")
             check("uploaded object is in the bucket", s3_store.exists(s3_name) is True, str(s3_name))
             check("uploaded sidecar is in the bucket",
-                  s3_store.read_sidecar(s3_name) == {"original_name": "in-the-bucket.png"},
+                  (s3_store.read_sidecar(s3_name) or {}).get("original_name") == "in-the-bucket.png"
+                  and (s3_store.read_sidecar(s3_name) or {}).get("device") == DEVICE_ID,
                   str(s3_store.read_sidecar(s3_name)))
             check("nothing was written to the local gallery dir",
                   list(app_root.iterdir()) == [], str(list(app_root.iterdir())))
@@ -433,8 +440,8 @@ else:
 
             resp = s3_client.get(f"/api/images/{s3_name}")
             check("/api/images 401 without a key (S3)", resp.status_code == 401)
-            resp = s3_client.get(f"/api/images/{s3_name}?key={ACCESS_KEY}")
-            check("/api/images streams from S3 with ?key=", resp.status_code == 200,
+            resp = s3_client.get(f"/api/images/{s3_name}?device=dev_teststoragesuite000001&key={ACCESS_KEY}")
+            check("/api/images streams from S3 with ?device=dev_teststoragesuite000001&key=", resp.status_code == 200,
                   str(resp.status_code))
             check("streamed bytes match", resp.data == PNG_1X1)
             check("streamed mimetype from the object",
