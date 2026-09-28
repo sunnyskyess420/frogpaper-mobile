@@ -6,12 +6,23 @@
 //   we detect the missing module and degrade gracefully with guidance
 //   instead of crashing. After `npx expo prebuild` (development build) the
 //   direct wallpaper path becomes fully functional.
+//
+// Target: `target` chooses which surface to paint - 'home' (the default, and
+// what every older build did), 'lock', or 'both'. The native module reads it and
+// passes the matching WallpaperManager flag. A build that predates this option
+// simply ignores the extra key and sets the home screen, so passing it is safe.
 import { NativeModules } from 'react-native';
 import { saveToDevice, downloadToCache } from './nativeSave';
 
 export { saveToDevice };
 
-export async function setAsWallpaper(remoteUrl) {
+export const WALLPAPER_TARGETS = ['home', 'lock', 'both'];
+
+function normalizeTarget(target) {
+  return WALLPAPER_TARGETS.includes(target) ? target : 'home';
+}
+
+export async function setAsWallpaper(remoteUrl, target = 'home') {
   const nativeModule = NativeModules.WallPaperManager;
   if (!nativeModule || typeof nativeModule.setWallpaper !== 'function') {
     return {
@@ -22,13 +33,15 @@ export async function setAsWallpaper(remoteUrl) {
     };
   }
 
+  const which = normalizeTarget(target);
   let cachedFile = null;
   try {
     cachedFile = await downloadToCache(remoteUrl);
-    const WallpaperManager = require('react-native-wallpaper-manager');
+    // Call the native module directly (not through the library's JS wrapper) so
+    // the `target` key reaches our WallPaperManager.java untouched.
     const result = await new Promise((resolve) => {
       try {
-        WallpaperManager.setWallpaper({ uri: cachedFile.uri }, (response) =>
+        nativeModule.setWallpaper({ uri: cachedFile.uri, target: which }, (response) =>
           resolve(response)
         );
       } catch (callError) {
@@ -38,7 +51,7 @@ export async function setAsWallpaper(remoteUrl) {
     if (result && result.error) {
       throw new Error(`Wallpaper error: ${result.error}`);
     }
-    return { ok: true };
+    return { ok: true, target: which };
   } finally {
     if (cachedFile) {
       try {
@@ -55,4 +68,7 @@ export const capabilities = {
   // The button is shown on Android; if the native module is missing
   // (Expo Go) setAsWallpaper returns a clear explanation instead.
   canSetWallpaper: true,
+  // Whether the lock/home choice is offered. The native build honours it; an
+  // older build degrades to the home screen.
+  wallpaperTargets: WALLPAPER_TARGETS,
 };

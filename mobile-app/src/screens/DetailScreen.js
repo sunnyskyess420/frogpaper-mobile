@@ -27,10 +27,12 @@ import * as Clipboard from 'expo-clipboard';
 import api from '../services/api';
 import { loadGalleryFilenames } from '../services/galleryCache';
 import { deleteLocalImage, listLocalImages } from '../services/localGallery';
+import { isImageFavorite, toggleImageFavorite } from '../services/imageFavorites';
 import WallpaperImage from '../components/WallpaperImage';
 import ProviderFallbackNotice from '../components/ProviderFallbackNotice';
 import { capabilities, setAsWallpaper } from '../services/deviceMedia';
 import { saveWallpaper } from '../services/saveTarget';
+import { shareWallpaper } from '../services/share';
 import { colors, radii, spacing } from '../theme';
 
 function formatBytes(bytes) {
@@ -52,6 +54,15 @@ const SOURCE_LABELS = {
   imported: 'Added to gallery',
   phone: 'Kept on this phone',
 };
+
+// The surface a "Set as wallpaper" action paints. The native build maps these
+// to Android's home / lock / both flags; an older build sets the home screen.
+const WALLPAPER_TARGETS = [
+  { id: 'home', label: 'Home screen' },
+  { id: 'lock', label: 'Lock screen' },
+  { id: 'both', label: 'Both' },
+];
+const TARGET_LABEL = { home: 'home screen', lock: 'lock screen', both: 'home and lock screen' };
 
 const MAX_SCALE = 5;
 const IMAGE_HEIGHT = 420;
@@ -154,6 +165,10 @@ export default function DetailScreen() {
   const [wallpaperBusy, setWallpaperBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [copiedSeed, setCopiedSeed] = useState(false);
+  // ★ state for the picture on screen, and which surface "Set as wallpaper"
+  // paints. Both follow a swipe to a neighbour / a re-open.
+  const [favorite, setFavorite] = useState(false);
+  const [wallpaperTarget, setWallpaperTarget] = useState('home');
 
   // --- Full-screen zoom viewer (Modal) ----------------------------------------
   // Animated values are native-driven, so panning never jitters.
@@ -449,6 +464,29 @@ export default function DetailScreen() {
     setNotice(null);
   }, [route.params?.generationNonce]);
 
+  // Read this image's star whenever the visible picture changes (including a
+  // swipe to a neighbour), and expose the toggle.
+  useEffect(() => {
+    let alive = true;
+    isImageFavorite(filename)
+      .then((value) => {
+        if (alive) setFavorite(value);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [filename]);
+
+  const toggleFavorite = async () => {
+    try {
+      const { favorite: next } = await toggleImageFavorite(filename);
+      setFavorite(next);
+    } catch (err) {
+      // starring is best-effort - never block the screen over it
+    }
+  };
+
   const doSave = async () => {
     setSaving(true);
     setNotice(null);
@@ -471,16 +509,31 @@ export default function DetailScreen() {
     }
   };
 
+  const doShare = async () => {
+    setNotice(null);
+    try {
+      const result = await shareWallpaper(
+        isLocal && localUri ? localUri : api.imageUrl(filename)
+      );
+      if (!result.ok) {
+        setNotice({ kind: 'error', text: result.message || 'Could not share that image.' });
+      }
+    } catch (err) {
+      setNotice({ kind: 'error', text: err.message || 'Could not share that image.' });
+    }
+  };
+
   const doWallpaper = async () => {
     setWallpaperBusy(true);
     setNotice(null);
     try {
       const result = await setAsWallpaper(
-        isLocal && localUri ? localUri : api.imageUrl(filename)
+        isLocal && localUri ? localUri : api.imageUrl(filename),
+        wallpaperTarget
       );
       setNotice(
         result.ok
-          ? { kind: 'ok', text: 'Wallpaper updated.' }
+          ? { kind: 'ok', text: `Wallpaper updated (${TARGET_LABEL[wallpaperTarget] || 'home screen'}).` }
           : { kind: 'error', text: result.message || 'Could not set the wallpaper.' }
       );
     } catch (err) {
@@ -593,6 +646,19 @@ export default function DetailScreen() {
                 </Text>
               </View>
             )}
+            <Pressable
+              style={styles.starButton}
+              onPress={toggleFavorite}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={
+                favorite ? 'Remove this wallpaper from favourites' : 'Star this wallpaper as a favourite'
+              }
+            >
+              <Text style={[styles.starButtonText, favorite && styles.starButtonTextOn]}>
+                {favorite ? '\u2605' : '\u2606'}
+              </Text>
+            </Pressable>
           </View>
           <Text style={styles.gestureHint}>
             Swipe to flip  |  Pinch with two fingers to zoom
@@ -690,6 +756,30 @@ export default function DetailScreen() {
           </Pressable>
 
           {capabilities.canSetWallpaper && (
+            <View style={styles.targetBlock}>
+              <Text style={styles.targetLabel}>Set wallpaper on</Text>
+              <View style={styles.targetRow}>
+                {WALLPAPER_TARGETS.map((option) => {
+                  const active = wallpaperTarget === option.id;
+                  return (
+                    <Pressable
+                      key={option.id}
+                      style={[styles.targetChip, active && styles.targetChipActive]}
+                      onPress={() => setWallpaperTarget(option.id)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                    >
+                      <Text style={[styles.targetChipText, active && styles.targetChipTextActive]}>
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {capabilities.canSetWallpaper && (
             <Pressable
               style={[styles.wallpaperButton, (saving || wallpaperBusy) && styles.buttonBusy]}
               onPress={doWallpaper}
@@ -702,6 +792,10 @@ export default function DetailScreen() {
               )}
             </Pressable>
           )}
+
+          <Pressable style={styles.shareButton} onPress={doShare}>
+            <Text style={styles.shareButtonText}>Share</Text>
+          </Pressable>
 
           {/* Only offered for an image the owner just generated AND that has a
               stored prompt: without one there is nothing to re-run, so the
@@ -983,6 +1077,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
+  // Share sits alongside Save / Set as wallpaper, same control look.
+  shareButton: {
+    backgroundColor: colors.control,
+    borderColor: colors.controlBorder,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  shareButtonText: {
+    color: '#EAF7F1',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   // Same control fill + border pair as the other secondary controls, with a
   // light centred label.
   generateAgainButton: {
@@ -1071,5 +1181,58 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.danger,
     fontSize: 14,
+  },
+  // ★ overlay on the image stage (top-left, mirrored to the position badge).
+  starButton: {
+    position: 'absolute',
+    top: spacing.sm,
+    left: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  starButtonText: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    lineHeight: 24,
+  },
+  starButtonTextOn: {
+    color: colors.warn,
+  },
+  // Home / Lock / Both chooser above the Set-as-wallpaper button.
+  targetBlock: {
+    marginTop: spacing.md,
+  },
+  targetLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    marginBottom: spacing.xs,
+  },
+  targetRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  targetChip: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  targetChipActive: {
+    backgroundColor: colors.control,
+    borderColor: colors.accent,
+  },
+  targetChipText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  targetChipTextActive: {
+    color: colors.accent,
   },
 });

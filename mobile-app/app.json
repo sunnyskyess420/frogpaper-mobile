@@ -2,7 +2,7 @@
   "expo": {
     "name": "FrogPaper Mobile",
     "slug": "frogpaper-mobile",
-    "version": "1.9.58",
+    "version": "1.10.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.frogpaper.mobile",
-      "versionCode": 47,
+      "versionCode": 48,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -45,7 +45,8 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "./src/plugins/WallpaperManagerFix"
+      "./src/plugins/WallpaperManagerFix",
+      "expo-sharing"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

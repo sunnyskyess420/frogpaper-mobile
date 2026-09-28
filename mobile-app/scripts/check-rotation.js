@@ -16,9 +16,9 @@
  *   2. The frequency gate: 'off' never acts, 'open' acts on every launch,
  *      'daily' acts once per calendar day and again the next day, and
  *      changeNow() acts regardless of the frequency.
- *   3. Source routing: 'gallery' goes to the random-gallery path, while
- *      'surprise' and 'favorites' both go to the generate path; an empty
- *      favourites list falls back to surprise and says so.
+ *   3. Source routing: 'gallery' and 'favorites' both set an existing image
+ *      (favourites draws from the starred pool, falling back to the whole
+ *      gallery when nothing is starred); only 'surprise' generates.
  *   4. Failures never throw: a failed wallpaper set, a thrown native error and
  *      an offline request all resolve to { ok: false, message }.
  *
@@ -391,32 +391,31 @@ async function checkRouting() {
   );
   check('the surprise result names the surprise pool', /surprise idea/.test(result.message), result.message);
 
-  // favourites (saved) -> generate
+  // favourites -> random starred image (gallery path, never generates)
   storage.set(R, JSON.stringify({ frequency: 'open', source: 'favorites' }));
-  storage.set('@frogpaper/favorite_prompts', JSON.stringify(['a starred prompt']));
+  storage.set('@frogpaper/favorite_images', JSON.stringify(['gallery-one.png']));
   fetchLog.length = 0;
   result = await rotation.runOnLaunch();
   check(
-    "source 'favorites' uses the generate path only",
-    result.ok === true && countGenerate() === 1 && countGallery() === 0,
+    "source 'favorites' uses the gallery path only",
+    result.ok === true && countGallery() === 1 && countGenerate() === 0,
     JSON.stringify({ result, gallery: countGallery(), generate: countGenerate() })
   );
   check('the favourites result names the favourites', /favourites/.test(result.message), result.message);
 
-  // favourites empty -> fall back to surprise, and say so
+  // favourites empty -> still sets one (falls back to the whole gallery), and says so
   storage.set(R, JSON.stringify({ frequency: 'open', source: 'favorites' }));
-  storage.delete('@frogpaper/favorite_prompts');
+  storage.delete('@frogpaper/favorite_images');
   fetchLog.length = 0;
   result = await rotation.runOnLaunch();
   check(
-    'empty favourites still generates (fallback to surprise)',
-    result.ok === true && countGenerate() === 1,
+    'no starring yet still sets a gallery wallpaper',
+    result.ok === true && countGallery() === 1 && countGenerate() === 0,
     JSON.stringify(result)
   );
   check(
-    'the message says it fell back to a surprise idea',
-    /no favourite prompts saved/.test(result.message) &&
-      /surprise idea was used instead/.test(result.message),
+    'the message says it fell back to the gallery',
+    /No starred wallpapers yet/.test(result.message),
     result.message
   );
 }

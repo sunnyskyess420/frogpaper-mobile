@@ -25,6 +25,9 @@ export default function WallpaperImage({
   filename,
   preferCache = false,
   localUri = null,
+  // An explicit local file to show instead of the full image - the gallery grid
+  // passes a cached thumbnail here. Null means "use the normal source".
+  overrideUri = null,
   style,
   resizeMode = 'cover',
   ...imageProps
@@ -37,6 +40,12 @@ export default function WallpaperImage({
   useEffect(() => {
     stageRef.current = STAGE_REMOTE;
     setDead(false);
+    // A thumbnail (or any explicit file) wins: it is already local and small.
+    if (overrideUri) {
+      stageRef.current = STAGE_LOCAL;
+      setUri(overrideUri);
+      return;
+    }
     // A phone-gallery image is already a local file: show it straight away and
     // never bother the server (there is no server copy to prefer).
     if (localUri) {
@@ -60,7 +69,7 @@ export default function WallpaperImage({
       }
     }
     setUri(remoteUri);
-  }, [filename, preferCache, remoteUri, localUri]);
+  }, [filename, preferCache, remoteUri, localUri, overrideUri]);
 
   const handleError = useCallback(async () => {
     if (stageRef.current === STAGE_DEAD || stageRef.current === STAGE_FETCHING) {

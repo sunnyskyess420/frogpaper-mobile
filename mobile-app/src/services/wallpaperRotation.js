@@ -12,8 +12,8 @@
 //   frequency: 'off'    nothing ever happens automatically,
 //              'open'   change once on every app launch,
 //              'daily'  change once on the first launch of each calendar day.
-//   source:    'surprise'  generate a new wallpaper from the surprise ideas,
-//              'favorites' generate a new wallpaper from a saved favourite,
+//   source:    'surprise'  generate a brand-new wallpaper from the surprise ideas,
+//              'favorites' set a random picture you starred with the ★ button,
 //              'gallery'   set a random image already in the gallery.
 //
 // The download / set / generate work stays in the two older services - they
@@ -144,8 +144,9 @@ export async function setSource(source) {
   return next;
 }
 
-// How many favourite prompts are saved - used by Settings to warn that
-// "My favourites" will fall back to surprises while the list is empty.
+// How many favourite *prompts* are saved (the Generate screen's stars). Kept for
+// callers that still ask; wallpaper rotation's "My favourites" now means starred
+// pictures, ranked by imageFavorites.js, not saved prompts.
 export async function savedFavoriteCount() {
   try {
     return (await readFavorites()).length;
@@ -157,8 +158,10 @@ export async function savedFavoriteCount() {
 // One source's action, normalised to { ok, message }. Never throws.
 async function performSource(source) {
   try {
-    if (source === 'gallery') {
-      const result = await shuffleWallpaperOnce();
+    // Both 'gallery' and 'favorites' set an existing picture; favourites only
+    // draws from the starred ones. Neither generates anything.
+    if (source === 'gallery' || source === 'favorites') {
+      const result = await shuffleWallpaperOnce({ favoritesOnly: source === 'favorites' });
       const ok = !!(result && result.ok);
       return {
         ok,
@@ -166,22 +169,14 @@ async function performSource(source) {
       };
     }
 
-    let effective = source === 'favorites' ? 'favorites' : 'surprise';
-    let fallbackNote = '';
-    if (effective === 'favorites' && (await savedFavoriteCount()) === 0) {
-      effective = 'surprise';
-      fallbackNote =
-        ' You have no favourite prompts saved yet, so a surprise idea was used instead.';
-    }
-
-    const result = await runDailyWallpaper({ force: true, source: effective });
+    // 'surprise' -> paint a brand-new wallpaper from the surprise idea pool.
+    const result = await runDailyWallpaper({ force: true, source: 'surprise' });
     if (result && result.kind === 'ok') {
-      const label = effective === 'favorites' ? 'one of your favourites' : 'a surprise idea';
       const savedNote = result.saved ? ' It was also saved to your device.' : '';
-      return { ok: true, message: `New wallpaper set from ${label}.${savedNote}${fallbackNote}` };
+      return { ok: true, message: `New wallpaper set from a surprise idea.${savedNote}` };
     }
     const failure = (result && result.message) || 'Could not create a new wallpaper.';
-    return { ok: false, message: `${failure}${fallbackNote}` };
+    return { ok: false, message: failure };
   } catch (err) {
     return { ok: false, message: (err && err.message) || 'Could not change the wallpaper.' };
   }

@@ -40,6 +40,11 @@
 //   the LAN backend speaks http://. Phone browser worked (browsers may
 //   use cleartext), app failed. Fix: withAndroidManifest mod sets
 //   android:usesCleartextTraffic="true" on the MAIN app manifest.
+//
+// Round 5 (feature): setWallpaper now honours an optional `target` key
+//   ('home' | 'lock' | 'both') and passes the matching WallpaperManager
+//   flag to setBitmap(). Omitting the key keeps the old home-screen
+//   behaviour, so older JS callers are unaffected.
 const { withDangerousMod, withAndroidManifest } = require('expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
@@ -111,8 +116,11 @@ public class WallPaperPackage implements ReactPackage {
 `;
 
 // Glide-free drop-in replacement for WallPaperManager.java.
-// Same JS contract: setWallpaper({uri, headers?}, callback) -> callback
-// receives {status: "success"|"error", msg, url}. Handles the exact source
+// Same JS contract: setWallpaper({uri, headers?, target?}, callback) -> callback
+// receives {status: "success"|"error", msg, url}. `target` is 'home' (default),
+// 'lock' or 'both' and maps to the matching WallpaperManager flag; an older
+// build that ignores the key simply keeps setting the home screen.
+// Handles the exact source
 // types the original supported: base64 data URIs, bundled drawable names,
 // file:// and content:// URIs, plain paths, and http(s) URLs with optional
 // headers. Decoding runs on a background thread; the decoded bitmap is then
@@ -182,6 +190,7 @@ public class WallPaperManager extends ReactContextBaseJavaModule {
     public void setWallpaper(final ReadableMap params, final Callback callback) {
         final String source = params.hasKey("uri") ? params.getString("uri") : null;
         final ReadableMap headers = params.hasKey("headers") ? params.getMap("headers") : null;
+        final String target = params.hasKey("target") ? params.getString("target") : "home";
 
         if (rctCallback != null) {
             WritableMap map = Arguments.createMap();
@@ -205,7 +214,15 @@ public class WallPaperManager extends ReactContextBaseJavaModule {
                     // No pre-crop here: Android scales the bitmap to the
                     // real wallpaper surface itself. The old center-crop
                     // re-zoomed tall wallpapers back to 16:9.
-                    wallpaperManager.setBitmap(decoded);
+                    // which: FLAG_SYSTEM = home, FLAG_LOCK = lock screen,
+                    // both for "both". (API 24+, our minSdk.)
+                    int which = WallpaperManager.FLAG_SYSTEM;
+                    if ("lock".equals(target)) {
+                        which = WallpaperManager.FLAG_LOCK;
+                    } else if ("both".equals(target)) {
+                        which = WallpaperManager.FLAG_SYSTEM | WallpaperManager.FLAG_LOCK;
+                    }
+                    wallpaperManager.setBitmap(decoded, null, true, which);
                     sendMessage("success", "Set Wallpaper Success", source);
                 } catch (Throwable t) {
                     Log.w(TAG, "setWallpaper failed", t);

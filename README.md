@@ -4,11 +4,33 @@ AI wallpaper studio for Android. Generate phone wallpapers from a text prompt or
 build them from dropdowns, keep them on the phone where they cannot be lost, and
 rotate them as your wallpaper.
 
-**Versions:** app **1.9.39** (versionCode 29) · backend **1.9.28**.
+**Versions:** app **1.10.0** (versionCode 48) · backend **1.9.28**.
 They move independently - the backend version changes when the API changes, the
 app version when the APK changes.
 
 ## What it does
+
+### New in 1.10.0
+
+- **Star wallpapers** - a `★` button on an image and a `★` badge on gallery tiles.
+  Rotation's "My favourites" now means your **starred pictures**, not prompts.
+- **Search, sort & filter the gallery** - search by name **or prompt**, sort
+  (newest / oldest / favourites first / A-Z), a favourites-only filter, and a
+  name-vs-prompt caption toggle. Your sort and filter are remembered.
+- **Long-press action sheet** - set wallpaper / star / save / share / delete from
+  the grid, and **Delete is undoable for 5 seconds**.
+- **Prompt history screen** - every prompt your wallpapers were made from, built
+  from the phone's own gallery (so it works offline), with "Make again" / "Edit".
+- **Share & bulk actions** - share an image through the system share sheet;
+  multi-select to save or delete several at once.
+- **Faster gallery** - cached 360px thumbnails plus list tuning.
+- **Engine status** in Settings - which AI engines are ready right now.
+- **Storage view & Clear cache** - gallery / thumbnails / cache sizes with a
+  one-tap cache clear that never touches your wallpapers.
+- **Searchable filenames** (backend) - generated files carry a prompt slug, e.g.
+  `pollinations_20260927-1502_lily-pond-at-dawn.png`.
+- **Home / Lock / Both** choice when setting a wallpaper (Android).
+- **"New wallpaper now"** button and a first-run long-press tip.
 
 - **Generate** from a prompt, or **build** one from dropdowns (see below). 7 size
   presets (inside *More options*), a seed (same seed + prompt = same image), a
@@ -140,6 +162,8 @@ Plain Python and Node scripts - no pytest, no test runner to install.
 | `npm run check:engine` | engine preference persistence (46) |
 | `npm run check:rotation` | wallpaper rotation + legacy migration (38) |
 | `npm run check:offline` | offline cache + generation queue (29) |
+| `npm run check:favorites` | starred pictures + remembered update answer (21) |
+| `python backend/tests/test_filenames.py` | searchable filename slugs (17) |
 | `python backend/tests/test_subject_enhancer.py` | prompt building + frog variety (98) |
 | `python backend/tests/test_storage.py` | storage layer, routes, S3 via a fake bucket (131) |
 | `python backend/tests/test_provider_chain.py` | provider wiring + fallbacks (17) |
@@ -148,12 +172,14 @@ Plain Python and Node scripts - no pytest, no test runner to install.
 The two provider/wallpaper scripts talk to the *running* server paths and need
 `backend/access_key.txt` moved aside temporarily (they do not send the key).
 
-## Verified (2026-09-13)
+## Verified (2026-09-27)
 
 | Check | Result |
 |-------|--------|
-| App checks (the six `check:*` suites) | PASS - 353 checks |
-| Release APK builds and installs (S9, Android 10) | PASS - 1.9.39 / versionCode 29 |
+| App checks (the `check:*` suites) | PASS - 13 suites, 593 checks |
+| Backend checks (offline) | PASS - subject enhancer 98 + filenames 17 |
+| Release APK builds and installs (S9, Android 10) | PASS - 1.10.0 / versionCode 48 |
+| Web bundle compiles (`npx expo export --platform web`) | PASS |
 | Access key gate | PASS - `/api/gallery` 401 without the key, 200 with it |
 | Offline gallery + generation queue | PASS - verified in airplane mode on the device |
 | Phone gallery + SD import | PASS - imported 8 wallpapers from the owner's folder on the device |

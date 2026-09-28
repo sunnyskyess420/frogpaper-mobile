@@ -1,14 +1,25 @@
 # START HERE NEXT TIME
 
-Last updated: **2026-09-13, end of night** (this file replaces earlier notes; older
+Last updated: **2026-09-27** (this file replaces earlier notes; older
 versions are in the git history).
 
 ## Where things stand
 
-- **App 1.9.39** (versionCode 29) installed on the Galaxy S9.
-- **Backend 1.9.28** live on Render (auto-deploys on push to `main`).
-- **353 app checks + 295 backend checks** passing; everything committed and pushed.
-- The owner's gallery now reads from **the phone**, so server wipes no longer matter.
+- **App 1.10.0** (versionCode 48) installed on the Galaxy S9.
+- **Backend 1.9.28** live on Render (auto-deploys on push to `main`); the new
+  prompt-slug filenames take effect on the next deploy / local run.
+- **593 app checks across 13 suites, plus backend (98 + 17)** passing. **Not
+  pushed yet** - every change is local on the PC + phone.
+- The owner's gallery reads from **the phone**, so server wipes no longer matter.
+
+## What shipped in 1.10.0 (2026-09-27)
+
+Starred pictures, gallery search/sort/favourites with remembered prefs, a
+long-press action sheet, 5-second undo, share, bulk select, cached thumbnails,
+prompt history (built from the phone's own gallery), an engine-status panel, a
+storage view + clear cache, Home/Lock/Both, a "New wallpaper now" button, a
+first-run long-press tip, and backend prompt-slug filenames. Full detail:
+`docs/RELEASE_NOTES-v1.10.0.md`.
 
 ## What shipped today (in order)
 

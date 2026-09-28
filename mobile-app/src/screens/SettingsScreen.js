@@ -50,7 +50,8 @@ import {
 } from '../services/errorLog';
 import Constants from 'expo-constants';
 import { resetWelcome } from '../services/firstRun';
-import { checkForUpdate, RELEASES_URL, runningVersion } from '../services/updateCheck';
+import { RELEASES_URL, runningVersion } from '../services/updateCheck';
+import { refreshUpdateIfStale } from '../services/updateState';
 import { colors, radii, spacing } from '../theme';
 
 // One source of truth: app.json's version. The About summary used to be a
@@ -61,10 +62,10 @@ const APP_VERSION =
 import {
   changeNow as runWallpaperChangeNow,
   loadRotation,
-  savedFavoriteCount,
   setFrequency,
   setSource,
 } from '../services/wallpaperRotation';
+import { favoriteImageCount } from '../services/imageFavorites';
 import {
   FOLDER,
   chooseSaveFolder,
@@ -83,7 +84,9 @@ import {
   describeImport,
   importFromFolder,
   localImageCount,
+  getLocalGalleryStats,
 } from '../services/localGallery';
+import { getThumbnailStats, clearThumbnails } from '../services/thumbnails';
 import ByokHelpModal from '../components/ByokHelpModal';
 
 function formatMegabytes(bytes) {
@@ -126,13 +129,36 @@ export default function SettingsScreen() {
   // read-mostly and its failures must never disturb the rest of the screen.
   const [errorLog, setErrorLog] = useState({ count: 0, entries: [], show: false });
 
-  // The update check is manual on purpose: nothing runs on its own.
+  // The update check is manual here (Home checks quietly once a day). Force a
+  // fresh lookup and remember the answer so Home's dot stays in sync.
   const [updateState, setUpdateState] = useState({ state: 'idle', checking: false });
 
   const runUpdateCheck = useCallback(async () => {
     setUpdateState({ state: 'idle', checking: true });
-    const result = await checkForUpdate();
+    const result = await refreshUpdateIfStale({ maxAgeMs: 0 });
     setUpdateState({ ...result, checking: false });
+  }, []);
+
+  // ---- Engine status (which AI engines are ready right now) ---------------
+  const [engines, setEngines] = useState({ loading: true, active: null, list: [], error: null });
+
+  const refreshEngines = useCallback(async () => {
+    try {
+      const response = await api.providers();
+      setEngines({
+        loading: false,
+        active: response.active || null,
+        list: response.providers || [],
+        error: null,
+      });
+    } catch (err) {
+      setEngines({
+        loading: false,
+        active: null,
+        list: [],
+        error: (err && err.message) || 'Could not reach the backend.',
+      });
+    }
   }, []);
 
   const refreshErrorLog = useCallback(async () => {
@@ -330,7 +356,7 @@ export default function SettingsScreen() {
     try {
       const [rotation, favorites] = await Promise.all([
         loadRotation(),
-        savedFavoriteCount(),
+        favoriteImageCount(),
       ]);
       setRotationState({
         frequency: rotation.frequency,
@@ -343,14 +369,15 @@ export default function SettingsScreen() {
     }
   }, []);
 
-  // Re-read on focus: the user may have just starred a prompt on Generate,
-  // which changes the "My favourites" prerequisite hint.
+  // Re-read on focus: the user may have just starred a picture in the gallery,
+  // which changes the "My favourites" rotation hint.
   useFocusEffect(
     useCallback(() => {
       refreshErrorLog();
       refreshRotation();
+      refreshEngines();
       return () => {};
-    }, [refreshRotation])
+    }, [refreshRotation, refreshEngines])
   );
 
   const chooseFrequency = async (frequency) => {
@@ -450,16 +477,45 @@ export default function SettingsScreen() {
   };
 
   // ---- Offline storage (cached images + queued generations) --------------
-  const [offlineState, setOfflineState] = useState({ stats: { count: 0, bytes: 0 }, queue: 0 });
+  const [offlineState, setOfflineState] = useState({
+    stats: { count: 0, bytes: 0 },
+    queue: 0,
+    gallery: { count: 0, bytes: 0 },
+    thumbs: { count: 0, bytes: 0 },
+  });
 
   const refreshOfflineState = useCallback(async () => {
     try {
-      const [stats, queue] = await Promise.all([getCacheStats(), listQueue()]);
-      setOfflineState({ stats, queue: queue.length });
+      const [stats, queue, gallery, thumbs] = await Promise.all([
+        getCacheStats(),
+        listQueue(),
+        getLocalGalleryStats(),
+        getThumbnailStats(),
+      ]);
+      setOfflineState({ stats, queue: queue.length, gallery, thumbs });
     } catch (err) {
       // the numbers are informational - never block Settings on them
     }
   }, []);
+
+  // Clears the reusable copies + thumbnails - never the wallpapers themselves.
+  const confirmClearCache = useCallback(() => {
+    Alert.alert(
+      'Clear cache?',
+      'Removes the cached copies and thumbnails used to speed the gallery up. The wallpapers on this phone are not touched.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await Promise.all([clearCache(), clearThumbnails()]);
+            await refreshOfflineState();
+          },
+        },
+      ]
+    );
+  }, [refreshOfflineState]);
 
   useEffect(() => {
     refreshOfflineState();
@@ -532,10 +588,8 @@ export default function SettingsScreen() {
       ? 'A brand-new wallpaper painted from the surprise idea pool.'
       : rotationState.source === 'favorites'
         ? rotationState.favorites > 0
-          ? `A brand-new wallpaper painted from one of your ${rotationState.favorites} saved favourite prompt${
-              rotationState.favorites === 1 ? '' : 's'
-            }.`
-          : 'You have no favourites saved yet, so this falls back to the surprise idea pool. Star a prompt on the Generate screen to use your own.'
+          ? `A random wallpaper you starred with the \u2605 button - ${rotationState.favorites} starred so far.`
+          : 'You have not starred any pictures yet, so this falls back to a random wallpaper from your gallery. Tap \u2606 on an image to star it.'
         : 'A random wallpaper already in your gallery - nothing new is generated.';
   const gallerySourceHint =
     gallerySource === PHONE
@@ -1112,6 +1166,17 @@ export default function SettingsScreen() {
           <Text style={styles.aboutKey}>Waiting to be made</Text>
           <Text style={styles.aboutValue}>{offlineState.queue}</Text>
         </View>
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>Wallpapers on this phone</Text>
+          <Text style={styles.aboutValue}>
+            {offlineState.gallery.count} file{offlineState.gallery.count === 1 ? '' : 's'} |{' '}
+            {formatMegabytes(offlineState.gallery.bytes)}
+          </Text>
+        </View>
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>Thumbnails</Text>
+          <Text style={styles.aboutValue}>{formatMegabytes(offlineState.thumbs.bytes)}</Text>
+        </View>
         <Text style={styles.hint}>
           Your newest wallpapers stay here so the gallery still opens with no signal.
           Anything that could not be made is tried again later, while the app is open.
@@ -1122,6 +1187,12 @@ export default function SettingsScreen() {
             onPress={confirmClearImages}
           >
             <Text style={styles.buttonSecondaryText}>Clear saved wallpapers</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.button, styles.buttonSecondary]}
+            onPress={confirmClearCache}
+          >
+            <Text style={styles.buttonSecondaryText}>Clear cache</Text>
           </Pressable>
           <Pressable
             style={[styles.button, styles.buttonSecondary]}
@@ -1232,6 +1303,34 @@ export default function SettingsScreen() {
           Get free keys at: aistudio.google.com/apikey (Gemini), huggingface.co/settings/tokens (HF),
           replicate.com/accounts (Replicate, paid).
         </Text>
+
+        <View style={styles.subBlock}>
+          <Text style={styles.rowValue}>Engine status</Text>
+          <Text style={styles.hint}>
+            {engines.loading
+              ? 'Checking which engines are ready...'
+              : engines.error
+                ? `Could not reach the backend (${engines.error}).`
+                : 'Ready engines are used automatically. Add your own key above to turn a paid engine on.'}
+          </Text>
+          {!engines.loading && !engines.error
+            ? engines.list.map((provider) => (
+                <View key={provider.id} style={styles.aboutRow}>
+                  <Text style={styles.aboutKey} numberOfLines={2}>
+                    {provider.name}
+                    {engines.active === provider.id ? ' (default)' : ''}
+                  </Text>
+                  <Text style={styles.aboutValue}>
+                    {provider.status === 'active'
+                      ? 'Ready'
+                      : provider.requires_api_key
+                        ? 'Needs a key'
+                        : 'Unavailable'}
+                  </Text>
+                </View>
+              ))
+            : null}
+        </View>
       </SettingsCard>
 
 

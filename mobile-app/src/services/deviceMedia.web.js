@@ -32,7 +32,8 @@ function fileNameFrom(url) {
   }
 }
 
-export async function setAsWallpaper(_remoteUrl) {
+// Accepted for a consistent cross-platform signature; ignored here.
+export async function setAsWallpaper(_remoteUrl, _target = 'home') {
   return {
     ok: false,
     reason: 'unsupported',
@@ -44,4 +45,5 @@ export async function setAsWallpaper(_remoteUrl) {
 export const capabilities = {
   canSave: true,
   canSetWallpaper: false,
+  wallpaperTargets: [],
 };

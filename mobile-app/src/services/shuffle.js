@@ -4,8 +4,9 @@ import api from './api';
 import { setAsWallpaper } from './deviceMedia';
 import { PHONE, getGallerySource } from './gallerySource';
 import { listLocalImages } from './localGallery';
+import { favoriteImageNames } from './imageFavorites';
 
-const SHUFFLE_ON_OPEN_KEY = '@frogpaper_shuffle_on_open';
+const SHUFFLE_ON_OPEN_KEY = '@frogp…open';
 
 export async function getShuffleOnOpen() {
   try {
@@ -28,10 +29,30 @@ export async function setShuffleOnOpen(enabled) {
   }
 }
 
+// Narrows a pool of images to the ones the owner has starred. Returns the pool
+// unchanged (and a note) when nothing in it is starred, so an automatic change
+// never goes dead just because a star was not set yet.
+function starredOnly(pool, starredSet) {
+  const starred = pool.filter((img) => starredSet.has(img.filename));
+  if (starred.length > 0) {
+    return { pool: starred, note: '' };
+  }
+  return {
+    pool,
+    note: ' No starred wallpapers yet, so a random one from your gallery was used.',
+  };
+}
+
 // Picks a random gallery image and sets it as the wallpaper.
+//   favoritesOnly: draw only from the owner's starred pictures (falling back to
+//                  the whole gallery when none are starred).
 // Returns { ok, message } - never throws.
-export async function shuffleWallpaperOnce() {
+export async function shuffleWallpaperOnce({ favoritesOnly = false } = {}) {
   try {
+    const starredSet = favoritesOnly
+      ? new Set(await favoriteImageNames())
+      : null;
+
     const source = await getGallerySource();
     if (source === PHONE) {
       // The phone's own gallery is what the owner is looking at, so draw from
@@ -39,10 +60,12 @@ export async function shuffleWallpaperOnce() {
       // automatic change never goes dead on a fresh phone.
       const locals = await listLocalImages();
       if (locals.length > 0) {
-        const pick = locals[Math.floor(Math.random() * locals.length)];
+        const narrowed = favoritesOnly ? starredOnly(locals, starredSet) : { pool: locals, note: '' };
+        const pick = narrowed.pool[Math.floor(Math.random() * narrowed.pool.length)];
         const result = await setAsWallpaper(pick.uri);
         if (result && result.ok) {
-          return { ok: true, message: 'Wallpaper set: ' + pick.filename };
+          const label = favoritesOnly ? 'Wallpaper set from your favourites: ' : 'Wallpaper set: ';
+          return { ok: true, message: `${label}${pick.filename}${narrowed.note}` };
         }
         return {
           ok: false,
@@ -55,10 +78,12 @@ export async function shuffleWallpaperOnce() {
     if (images.length === 0) {
       return { ok: false, message: 'No wallpapers in the gallery yet.' };
     }
-    const pick = images[Math.floor(Math.random() * images.length)];
+    const narrowed = favoritesOnly ? starredOnly(images, starredSet) : { pool: images, note: '' };
+    const pick = narrowed.pool[Math.floor(Math.random() * narrowed.pool.length)];
     const result = await setAsWallpaper(api.imageUrl(pick.filename));
     if (result && result.ok) {
-      return { ok: true, message: 'Wallpaper set: ' + pick.filename };
+      const label = favoritesOnly ? 'Wallpaper set from your favourites: ' : 'Wallpaper set: ';
+      return { ok: true, message: `${label}${pick.filename}${narrowed.note}` };
     }
     return {
       ok: false,

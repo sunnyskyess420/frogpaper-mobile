@@ -14,6 +14,7 @@ import os
 import random
 import re
 import time
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -736,10 +737,50 @@ def delete_sidecar(images_dir, filename):
         log.warning("Could not delete sidecar for %s: %s", sidecar.name, exc)
 
 
-def _save_image(data: bytes, images_dir: Path, extension: str, provider: str = "pollinations") -> str:
-    """Write bytes to the gallery dir with a unique timestamped filename."""
+_SLUG_MAX_WORDS = 6
+_SLUG_MAX_LEN = 40
+# Words skipped at the start of a slug so it leads with something descriptive
+# ("a serene frog..." -> "serene-frog-...").
+_SLUG_STOPWORDS = {"a", "an", "the", "of", "with", "in", "on", "at", "to", "for"}
+
+
+def slugify_prompt(text, max_words: int = _SLUG_MAX_WORDS, max_len: int = _SLUG_MAX_LEN) -> str:
+    """A short, filename-safe slug built from a prompt.
+
+    Lower-cases, strips accents, keeps [a-z0-9] runs joined by dashes, drops a
+    leading article, and caps the length. Returns "" when there is nothing
+    usable, so callers fall back to the plain provider_timestamp name.
+    """
+    if not text:
+        return ""
+    normalized = unicodedata.normalize("NFKD", str(text))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii").lower()
+    words = re.findall(r"[a-z0-9]+", ascii_text)
+    while words and words[0] in _SLUG_STOPWORDS:
+        words.pop(0)
+    slug = "-".join(words[:max_words])
+    if len(slug) > max_len:
+        slug = slug[:max_len].rstrip("-")
+    return slug
+
+
+def _save_image(
+    data: bytes,
+    images_dir: Path,
+    extension: str,
+    provider: str = "pollinations",
+    prompt: str = None,
+) -> str:
+    """Write bytes to the gallery dir with a unique, *searchable* filename.
+
+    Shape: ``{provider}_{YYYYMMDD-HHMMSS}_{prompt-slug}{ext}`` - or the old
+    ``{provider}_{YYYYMMDD-HHMMSS}{ext}`` when there is no prompt. The provider
+    prefix stays first (the storage classifier keys off it) and the slug makes a
+    file recognisable - and searchable - by what it depicts.
+    """
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    base = f"{provider}_{stamp}"
+    slug = slugify_prompt(prompt)
+    base = f"{provider}_{stamp}_{slug}" if slug else f"{provider}_{stamp}"
     candidate = f"{base}{extension}"
     counter = 1
     while (images_dir / candidate).exists():
@@ -884,7 +925,7 @@ def generate_image(
                         "Provider returned %s - enhanced to %dx%d",
                         upscale_note, width, height,
                     )
-                filename = _save_image(data, images_dir, extension)
+                filename = _save_image(data, images_dir, extension, prompt=prompt)
                 dimensions = _read_dimensions(data) or {}
                 saved_path = images_dir / filename
                 stat = saved_path.stat()
@@ -1076,7 +1117,7 @@ def _finish_gemini_image(response, prompt, negative_prompt, seed, model, width, 
         raise GenerationError("Google returned a suspiciously small image payload.")
 
     extension = _extension_for(mime_type)
-    filename = _save_image(image_bytes, images_dir, extension, provider="gemini")
+    filename = _save_image(image_bytes, images_dir, extension, provider="gemini", prompt=prompt)
     dimensions = _read_dimensions(image_bytes) or {}
     saved_path = images_dir / filename
     stat = saved_path.stat()
@@ -1364,7 +1405,7 @@ def _finish_huggingface_image(
         )
 
     filename = _save_image(
-        image_bytes, images_dir, extension, provider="huggingface"
+        image_bytes, images_dir, extension, provider="huggingface", prompt=prompt
     )
     dimensions = _read_dimensions(image_bytes) or {}
     saved_path = images_dir / filename
@@ -1676,7 +1717,7 @@ def _finish_replicate_image(
         log.info("Replicate render enhanced to %dx%d", width, height)
 
     filename = _save_image(
-        image_bytes, images_dir, extension, provider="replicate"
+        image_bytes, images_dir, extension, provider="replicate", prompt=prompt
     )
     dimensions = _read_dimensions(image_bytes) or {}
     saved_path = images_dir / filename
@@ -1907,7 +1948,8 @@ def save_uploaded_image(data, original_filename, images_dir):
             raise ValueError("The file does not contain a valid image.") from exc
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    base = f"uploaded_{stamp}"
+    upload_slug = slugify_prompt(Path(clean_name).stem)
+    base = f"uploaded_{stamp}_{upload_slug}" if upload_slug else f"uploaded_{stamp}"
     candidate = f"{base}{extension}"
     counter = 1
     while (images_dir / candidate).exists():

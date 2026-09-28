@@ -18,6 +18,8 @@ import { describeQueueRun, listQueue, processQueue } from '../services/generatio
 import { colors, radii, spacing } from '../theme';
 import { getGallerySource, PHONE as PHONE_SOURCE } from '../services/gallerySource';
 import { localImageCount } from '../services/localGallery';
+import { readCachedUpdate, refreshUpdateIfStale } from '../services/updateState';
+import { shuffleWallpaperOnce } from '../services/shuffle';
 
 export default function HomeScreen() {
   const navigation = useNavigation();
@@ -29,6 +31,11 @@ export default function HomeScreen() {
   // Guards the merged wallpaper rotation so it can only fire once per app
   // launch, no matter how often the backend check re-runs (pull-to-refresh).
   const rotationRanRef = useRef(false);
+
+  // A newer FrogPaper release has been seen (a small dot on the Settings card).
+  const [updateReady, setUpdateReady] = useState(false);
+  // Result text for the "New wallpaper now" button.
+  const [shuffleNotice, setShuffleNotice] = useState(null);
 
   // ---- Queued generations (saved while the backend was unreachable) -------
   const [queueCount, setQueueCount] = useState(0);
@@ -179,10 +186,39 @@ export default function HomeScreen() {
     refreshGallerySub();
   }, [checkBackend, refreshQueueCount, refreshGallerySub]);
 
+  // Ask GitHub at most once a day whether a newer FrogPaper is out. Quiet,
+  // best-effort and never blocks startup; the answer is remembered on the device
+  // so the launch after a check is instant.
+  useEffect(() => {
+    let alive = true;
+    refreshUpdateIfStale()
+      .then((state) => {
+        if (alive) setUpdateReady(!!state && state.state === 'update');
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // One-tap "set a random wallpaper now".
+  const shuffleNow = useCallback(async () => {
+    setShuffleNotice('Setting a random wallpaper...');
+    const result = await shuffleWallpaperOnce().catch((err) => ({
+      ok: false,
+      message: (err && err.message) || 'Could not change the wallpaper.',
+    }));
+    setShuffleNotice(result.message);
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       refreshQueueCount(); // the user may have queued a prompt on Generate
       refreshGallerySub(); // and may have imported wallpapers from the SD card
+      // Reflect an update the Settings card may have just found.
+      readCachedUpdate()
+        .then((cached) => setUpdateReady(!!cached && cached.state === 'update'))
+        .catch(() => {});
       return () => {};
     }, [refreshQueueCount, refreshGallerySub])
   );
@@ -208,8 +244,21 @@ export default function HomeScreen() {
       onPress: () => navigation.navigate('Gallery'),
     },
     {
+      label: 'New wallpaper now',
+      sub: shuffleNotice || 'Set a random wallpaper from your gallery',
+      onPress: shuffleNow,
+    },
+    {
+      label: 'Prompt history',
+      sub: 'Reuse a prompt you have used before',
+      onPress: () => navigation.navigate('History'),
+    },
+    {
       label: 'Settings',
-      sub: 'Connection and provider details',
+      sub: updateReady
+        ? 'A new version of FrogPaper is ready - open Settings to get it'
+        : 'Connection and provider details',
+      badge: updateReady,
       onPress: () => navigation.navigate('Settings'),
     },
   ];
@@ -332,7 +381,10 @@ export default function HomeScreen() {
             onPress={action.onPress}
             activeOpacity={0.8}
           >
-            <Text style={styles.actionLabel}>{action.label}</Text>
+            <View style={styles.actionLabelRow}>
+              <Text style={styles.actionLabel}>{action.label}</Text>
+              {action.badge ? <View style={styles.updateDot} /> : null}
+            </View>
             <Text style={styles.actionSub}>{action.sub}</Text>
           </TouchableOpacity>
         ))}
@@ -470,6 +522,18 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 17,
     fontWeight: '700',
+  },
+  actionLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  // The small "update ready" dot beside the Settings label.
+  updateDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.accent,
   },
   actionSub: {
     color: colors.muted,

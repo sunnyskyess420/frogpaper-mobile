@@ -8,6 +8,7 @@ import HomeScreen from '../screens/HomeScreen';
 import PromptBuilderScreen from '../screens/PromptBuilderScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import SlideshowScreen from '../screens/SlideshowScreen';
+import HistoryScreen from '../screens/HistoryScreen';
 import { colors } from '../theme';
 
 const Stack = createNativeStackNavigator();
@@ -28,6 +29,7 @@ export default function AppNavigator() {
       <Stack.Screen name="Generate" component={GenerateScreen} options={{ title: 'Generate' }} />
       <Stack.Screen name="Build" component={PromptBuilderScreen} options={{ title: 'Build' }} />
       <Stack.Screen name="Gallery" component={GalleryScreen} options={{ title: 'Gallery' }} />
+      <Stack.Screen name="History" component={HistoryScreen} options={{ title: 'Prompt history' }} />
       <Stack.Screen name="Detail" component={DetailScreen} options={{ title: 'Detail' }} />
       <Stack.Screen name="Slideshow" component={SlideshowScreen} options={{ title: 'Slideshow' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />

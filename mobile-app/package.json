@@ -13,8 +13,10 @@
     "expo-clipboard": "57.0.1",
     "expo-constants": "~57.0.17",
     "expo-file-system": "~57.0.6",
+    "expo-image-manipulator": "~57.0.20",
     "expo-image-picker": "~57.0.16",
     "expo-media-library": "~57.0.4",
+    "expo-sharing": "~57.0.22",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -42,7 +44,8 @@
     "check:accesskey": "node scripts/check-accesskey.js",
     "check:versions": "node scripts/check-versions.js",
     "check:welcome": "node scripts/check-welcome.js",
-    "check:update": "node scripts/check-update.js"
+    "check:update": "node scripts/check-update.js",
+    "check:favorites": "node scripts/check-favorites.js"
   },
   "private": true
 }

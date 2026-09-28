@@ -151,6 +151,17 @@ function describe(file, meta) {
   if (info && Number.isFinite(info.height)) {
     descriptor.height = info.height;
   }
+  // Carried through so the gallery can search by what the picture is, not only
+  // by its filename (the filename also embeds a prompt slug for newer images).
+  if (info && typeof info.prompt === 'string') {
+    descriptor.prompt = info.prompt;
+  }
+  if (info && typeof info.negativePrompt === 'string') {
+    descriptor.negativePrompt = info.negativePrompt;
+  }
+  if (info && typeof info.provider === 'string') {
+    descriptor.provider = info.provider;
+  }
   return descriptor;
 }
 
@@ -177,6 +188,24 @@ export async function localImageCount() {
     return 0;
   }
   return listImages(dir).length;
+}
+
+// How many wallpapers this phone holds and how much space they use.
+export async function getLocalGalleryStats() {
+  const dir = localDir();
+  if (!dir || !dir.exists) {
+    return { count: 0, bytes: 0 };
+  }
+  try {
+    const files = listImages(dir);
+    let bytes = 0;
+    for (const file of files) {
+      bytes += file.size || 0;
+    }
+    return { count: files.length, bytes };
+  } catch (err) {
+    return { count: 0, bytes: 0 };
+  }
 }
 
 // One image plus whatever the sidecar knew (used by the Detail screen).
@@ -461,6 +490,7 @@ export default {
   ensureLocalDir,
   listLocalImages,
   localImageCount,
+  getLocalGalleryStats,
   getLocalImage,
   saveLocalImage,
   deleteLocalImage,
