@@ -672,9 +672,9 @@ export default function DetailScreen() {
           )}
 
           <View style={styles.infoCard}>
-            <View style={styles.infoRow}>
+            <View style={styles.fileBlock}>
               <Text style={styles.infoKey}>File</Text>
-              <Text style={styles.infoValue} numberOfLines={1}>
+              <Text style={styles.fileValue} selectable>
                 {detail.filename}
               </Text>
             </View>
@@ -996,6 +996,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     maxWidth: '50%',
+  },
+  // The file name can be long, so it gets its own full-width, wrapping line
+  // (and is selectable, so it can be copied).
+  fileBlock: {
+    paddingVertical: 7,
+  },
+  fileValue: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
+    lineHeight: 20,
   },
   copyButton: {
     backgroundColor: colors.cardAlt,

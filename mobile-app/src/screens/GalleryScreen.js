@@ -620,7 +620,7 @@ export default function GalleryScreen() {
             </Text>
           </Pressable>
         )}
-        <Text style={styles.cellCaption} numberOfLines={captionMode === 'prompt' ? 2 : 1}>
+        <Text style={styles.cellCaption} numberOfLines={2}>
           {caption}
         </Text>
       </Pressable>
