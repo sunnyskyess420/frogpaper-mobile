@@ -2,11 +2,11 @@
   "expo": {
     "name": "FrogPaper Mobile",
     "slug": "frogpaper-mobile",
-    "version": "1.10.0",
+    "version": "1.11.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#0B1220",
+    "backgroundColor": "#140D1C",
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.frogpaper.mobile",
-      "versionCode": 48,
+      "versionCode": 49,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -31,7 +31,7 @@
         "android.permission.SET_WALLPAPER_HINTS"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#0B1220",
+        "backgroundColor": "#140D1C",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"

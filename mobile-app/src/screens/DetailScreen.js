@@ -1039,7 +1039,7 @@ const styles = StyleSheet.create({
     color: colors.muted,
   },
   noticeCard: {
-    backgroundColor: '#12291B',
+    backgroundColor: colors.noticeBg,
     borderColor: colors.accent,
     borderWidth: 1,
     borderRadius: radii.md,

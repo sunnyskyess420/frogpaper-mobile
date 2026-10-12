@@ -4,11 +4,23 @@ AI wallpaper studio for Android. Generate phone wallpapers from a text prompt or
 build them from dropdowns, keep them on the phone where they cannot be lost, and
 rotate them as your wallpaper.
 
-**Versions:** app **1.10.0** (versionCode 48) · backend **1.9.28**.
+**Versions:** app **1.11.0** (versionCode 49) · backend **1.9.28**.
 They move independently - the backend version changes when the API changes, the
 app version when the APK changes.
 
 ## What it does
+
+### New in 1.11.0 - Halloween Edition
+
+- **Halloween theme** - for this release the app wears its costume: pumpkin
+  orange on a haunted purple night (buttons, notices, cards, every surface).
+  The frog-green look is one line away (`EDITION` in `src/theme.js`); the next
+  release flips it back.
+- **Full file name on the image screen** - the detail view shows the complete
+  file name, wrapped and selectable; gallery captions wrap to two lines.
+- **Palette check** - `npm run check:theme` keeps both palettes
+  interchangeable: same tokens, same contrast thresholds, no brand colours
+  leaking into screens.
 
 ### New in 1.10.0
 

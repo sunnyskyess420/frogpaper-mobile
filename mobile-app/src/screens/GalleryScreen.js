@@ -1276,7 +1276,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   noticeBar: {
-    backgroundColor: '#12291B',
+    backgroundColor: colors.noticeBg,
     borderColor: colors.accent,
     borderWidth: 1,
   },

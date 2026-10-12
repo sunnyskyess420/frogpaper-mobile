@@ -52,7 +52,7 @@ import Constants from 'expo-constants';
 import { resetWelcome } from '../services/firstRun';
 import { RELEASES_URL, runningVersion } from '../services/updateCheck';
 import { refreshUpdateIfStale } from '../services/updateState';
-import { colors, radii, spacing } from '../theme';
+import { colors, EDITION_NAME, radii, spacing } from '../theme';
 
 // One source of truth: app.json's version. The About summary used to be a
 // hardcoded string, which sat at 1.9.39 for several releases after the app had
@@ -1342,7 +1342,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>{`FrogPaper Mobile ${APP_VERSION}`}</Text>
+          <Text style={styles.aboutValue}>{`FrogPaper Mobile ${APP_VERSION}${EDITION_NAME ? ` · ${EDITION_NAME}` : ''}`}</Text>
         </View>
 
 
