@@ -23,6 +23,10 @@
  *      qualityLead early and qualityClose last, and composeSelection() hands back
  *      that mode's negative list. With no mode the composition and the empty
  *      negative are unchanged from before modes changed the writing.
+ *   7. Custom typed values: every option sheet has a "type your own" field, so
+ *      any row (or recipe slot) may hold text that is not in its list. The
+ *      composer treats selections as plain strings, so custom values flow
+ *      through unchanged - these checks pin that down.
  *
  * How it loads the app code: same trick as check-offline.js - the app modules
  * are plain ESM, so this script transpiles them to CommonJS on the fly (babel,
@@ -469,6 +473,49 @@ function checkModes() {
   );
 }
 
+// --- 8: custom typed values -----------------------------------------------
+// Every option sheet has a "type your own" field, so any row may hold a value
+// that is not in its list. The composer is selection-agnostic (all strings),
+// which is what makes that safe - these checks pin the behaviour down.
+function checkCustomValues() {
+  console.log('\nCustom values');
+
+  checkComposes(
+    'a custom subject (e.g. "halloween") composes like any other',
+    { subject: 'halloween' },
+    'A halloween'
+  );
+
+  checkComposes(
+    'custom values work across several rows at once',
+    { subject: 'haunted pumpkin patch', style: 'spooky oil painting', mood: 'eerie' },
+    'A haunted pumpkin patch, spooky oil painting style, eerie mood'
+  );
+
+  checkComposes(
+    'a typed mode with no real mode data falls back to the plain sentence',
+    { subject: 'frog', mode: 'Halloween' },
+    'A frog, halloween'
+  );
+
+  check(
+    'a custom setting still gets its place preposition',
+    composePrompt({ setting: 'haunted castle' }) === 'In a haunted castle',
+    composePrompt({ setting: 'haunted castle' })
+  );
+
+  const withMode = composeSelection({
+    subject: 'frog',
+    mode: 'Cinematic',
+    atmosphere: 'trick-or-treat fog',
+  });
+  check(
+    'a custom atmosphere survives composition with a real mode',
+    withMode.prompt.includes('trick-or-treat fog'),
+    withMode.prompt
+  );
+}
+
 (async () => {
   try {
     checkComposer();
@@ -478,6 +525,7 @@ function checkModes() {
     checkDeterminism();
     checkNoModeFidelity();
     checkModes();
+    checkCustomValues();
   } catch (err) {
     failures += 1;
     console.log(`${FAIL} unexpected error: ${err && err.stack ? err.stack : err}`);

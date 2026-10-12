@@ -98,6 +98,9 @@ export default function PromptBuilderScreen() {
   // Which picker sheet is open: { kind: 'row' | 'slot', key } or null.
   const [sheet, setSheet] = useState(null);
   const [settingOpen, setSettingOpen] = useState(false);
+  // The sheet's "type your own" field - every row (and recipe slot) accepts a
+  // typed value that is not in its list, like the desktop's editable dropdowns.
+  const [customText, setCustomText] = useState('');
   // Recipe mode. null means the normal seven rows; picking a recipe swaps the
   // rows and the preview for that recipe's slots and template. The normal
   // selection is left untouched, so leaving recipe mode restores it instead of
@@ -217,6 +220,35 @@ export default function PromptBuilderScreen() {
       clear: () => clearRecipeValue(sheet.key),
     };
   })();
+
+  // The custom field starts empty; if the row already holds a value that is not
+  // in its list (something typed earlier), it starts as that value so it can be
+  // edited in place.
+  useEffect(() => {
+    if (!sheet) {
+      setCustomText('');
+      return;
+    }
+    const current = sheet.kind === 'row' ? selection[sheet.key] : recipeValues[sheet.key] || '';
+    const options =
+      sheet.kind === 'row'
+        ? (ROWS.find((item) => item.key === sheet.key) || {}).options
+        : recipe && recipe.variables
+        ? recipe.variables[sheet.key]
+        : null;
+    const isCustom =
+      Boolean(current) && Array.isArray(options) && !options.includes(current);
+    setCustomText(isCustom ? current : '');
+  }, [sheet]);
+
+  const submitCustom = () => {
+    const value = customText.trim();
+    if (!value || !activeSheet) {
+      return;
+    }
+    activeSheet.pick(value);
+    setSheet(null);
+  };
 
   const randomise = () => setSelection(randomCombo());
   const rollAll = () => setRecipeValues(rollRecipe(recipe));
@@ -351,8 +383,8 @@ export default function PromptBuilderScreen() {
       >
         <Text style={styles.intro}>
           {recipe
-            ? 'Pick a value for each slot, or roll them all. Anything you leave unset simply drops out of the sentence.'
-            : 'Tap a row to choose. Anything left unset is simply left out of the prompt.'}
+            ? 'Pick a value for each slot, type your own, or roll them all. Anything you leave unset simply drops out of the sentence.'
+            : 'Tap a row to choose, or type your own value in the sheet. Anything left unset is simply left out of the prompt.'}
         </Text>
 
 
@@ -504,6 +536,26 @@ export default function PromptBuilderScreen() {
             {activeSheet && (
               <>
                 <Text style={styles.sheetTitle}>{activeSheet.title}</Text>
+                <View style={styles.customEntry}>
+                  <TextInput
+                    style={styles.customInput}
+                    value={customText}
+                    onChangeText={setCustomText}
+                    placeholder="Or type your own value…"
+                    placeholderTextColor={colors.muted}
+                    maxLength={80}
+                    returnKeyType="done"
+                    onSubmitEditing={submitCustom}
+                    blurOnSubmit={false}
+                  />
+                  <Pressable
+                    style={[styles.customUse, !customText.trim() && styles.customUseDisabled]}
+                    onPress={submitCustom}
+                    disabled={!customText.trim()}
+                  >
+                    <Text style={styles.customUseText}>Use</Text>
+                  </Pressable>
+                </View>
                 <FlatList
                   data={activeSheet.options}
                   keyExtractor={(item) => item}
@@ -758,6 +810,39 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.sm,
+  },
+  // The "type your own" row at the top of every option sheet.
+  customEntry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  customInput: {
+    flex: 1,
+    backgroundColor: colors.control,
+    borderColor: colors.controlBorder,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    color: colors.text,
+    fontSize: 15,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+  },
+  customUse: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 12,
+  },
+  customUseDisabled: {
+    opacity: 0.4,
+  },
+  customUseText: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '800',
   },
   clearEntry: {
     paddingHorizontal: spacing.lg,

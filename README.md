@@ -4,11 +4,21 @@ AI wallpaper studio for Android. Generate phone wallpapers from a text prompt or
 build them from dropdowns, keep them on the phone where they cannot be lost, and
 rotate them as your wallpaper.
 
-**Versions:** app **1.11.0** (versionCode 49) · backend **1.9.28**.
+**Versions:** app **1.11.1** (versionCode 50) · backend **1.9.28**.
 They move independently - the backend version changes when the API changes, the
 app version when the APK changes.
 
 ## What it does
+
+### New in 1.11.1
+
+- **Type your own value in any Build-screen option** - every row's picker
+  (mode, subject, setting, style, lighting, colour, mood, atmosphere, and
+  recipe slots) now has a text field at the top: type anything, tap **Use**,
+  and it lands in the prompt exactly as typed. Values you typed show up
+  selected, and opening the sheet again starts from your text so it can be
+  edited. Built on the composer being selection-agnostic - five new builder
+  checks pin the behaviour down.
 
 ### New in 1.11.0 - Halloween Edition
 
