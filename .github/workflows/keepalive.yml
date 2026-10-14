@@ -1,0 +1,14 @@
+name: Keep backend awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/health
+        run: |
+          curl -sS -m 60 --retry 2 -o /dev/null -w "HTTP %{http_code} in %{time_total}s\n" https://frogpaper-mobile.onrender.com/api/health
