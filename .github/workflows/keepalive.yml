@@ -1,8 +1,13 @@
 name: Keep backend awake
 
+# Pings /api/health every ~10 min so the free Render backend does not fall
+# asleep. Daytime only: about 7:00-23:00 Edmonton time. GitHub cron is UTC,
+# so the window below (13:00-23:59 and 00:00-04:59 UTC) = 7:00-22:50 MDT;
+# it shifts by an hour if daylight saving changes - adjust if ever needed.
+
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/10 13-23,0-4 * * *"
   workflow_dispatch:
 
 jobs:
