@@ -33,6 +33,9 @@ import {
   readFavorites,
   runDailyWallpaper,
 } from './dailyWallpaper';
+import { readLastChange, writeLastChange } from './rotationHistory';
+
+export { LAST_CHANGE_KEY } from './rotationHistory';
 
 export const ROTATION_KEY = '@frogpaper/rotation';
 
@@ -155,7 +158,11 @@ export async function savedFavoriteCount() {
   }
 }
 
-// One source's action, normalised to { ok, message }. Never throws.
+// One source's action, normalised to { ok, message, engine }. Never throws.
+// `engine` is the provider id a generated wallpaper was actually sent to,
+// or null when no generation happened (gallery / favourites sources) or when
+// the surprise run fell back to the backend's free default. Callers that
+// only need ok/message can ignore it.
 async function performSource(source) {
   try {
     // Both 'gallery' and 'favorites' set an existing picture; favourites only
@@ -165,6 +172,7 @@ async function performSource(source) {
       const ok = !!(result && result.ok);
       return {
         ok,
+        engine: null,
         message: (result && result.message) || (ok ? 'Wallpaper changed.' : 'Could not set the wallpaper.'),
       };
     }
@@ -173,12 +181,16 @@ async function performSource(source) {
     const result = await runDailyWallpaper({ force: true, source: 'surprise' });
     if (result && result.kind === 'ok') {
       const savedNote = result.saved ? ' It was also saved to your device.' : '';
-      return { ok: true, message: `New wallpaper set from a surprise idea.${savedNote}` };
+      return {
+        ok: true,
+        engine: result.engine || null,
+        message: `New wallpaper set from a surprise idea.${savedNote}`,
+      };
     }
     const failure = (result && result.message) || 'Could not create a new wallpaper.';
-    return { ok: false, message: failure };
+    return { ok: false, engine: null, message: failure };
   } catch (err) {
-    return { ok: false, message: (err && err.message) || 'Could not change the wallpaper.' };
+    return { ok: false, engine: null, message: (err && err.message) || 'Could not change the wallpaper.' };
   }
 }
 
@@ -219,11 +231,31 @@ export async function runOnLaunch() {
       return { ok: true, acted: false, frequency, source, reason: 'already-run' };
     }
     if (gate.lastFail && Date.now() - gate.lastFail < FAIL_COOLDOWN_MS) {
-      return { ok: true, acted: false, frequency, source, reason: 'cooldown' };
+      // A real time the user can plan around, instead of the old "next time
+      // you open the app" wording that was wrong: the cooldown is two hours,
+      // not "next open".
+      return {
+        ok: true,
+        acted: false,
+        frequency,
+        source,
+        reason: 'cooldown',
+        retryAt: gate.lastFail + FAIL_COOLDOWN_MS,
+      };
     }
   }
 
   const outcome = await performSource(source);
+  // Every actual attempt (success or failure) leaves a persisted trace so
+  // Settings > Wallpaper can show what happened after the Home card fades.
+  // Best-effort: a storage failure here must never break the change itself.
+  await writeLastChange({
+    at: Date.now(),
+    ok: outcome.ok,
+    source,
+    engine: outcome.engine,
+    message: outcome.message,
+  });
   if (frequency === 'daily') {
     if (outcome.ok) {
       await markDailyRun();
@@ -237,6 +269,10 @@ export async function runOnLaunch() {
     frequency,
     source,
     reason: outcome.ok ? 'done' : 'failed',
+    // On a fresh failure the cooldown starts now, so the next possible
+    // automatic attempt is FAIL_COOLDOWN_MS away. The Home card shows this
+    // as a real local time so the owner can stop watching the screen.
+    retryAt: outcome.ok ? undefined : Date.now() + FAIL_COOLDOWN_MS,
     message: outcome.message,
   };
 }

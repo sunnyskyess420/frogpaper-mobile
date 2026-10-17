@@ -25,6 +25,11 @@
  *      Generate screen, skips the run (never falling back to Pollinations) when
  *      that engine is gone, and rejects a backend fallback image instead of
  *      setting it. With nothing saved the request carries no provider at all.
+ *   6. Retry time and last-change record: a failed run returns retryAt
+ *      (lastFail + FAIL_COOLDOWN_MS), the cooldown result carries the same
+ *      retryAt, every attempted outcome is persisted to
+ *      @frogpaper/rotation_last_change with the engine that was sent to
+ *      /api/generate, and a malformed record reads back as null.
  *
  * How it loads the app code: the app modules are plain ESM, so this script
  * transpiles them to CommonJS on the fly (babel, no config files) and stubs the
@@ -185,6 +190,7 @@ fetchHandler = defaultFetch;
 const rotation = require(path.join(ROOT, 'src/services/wallpaperRotation.js'));
 const daily = require(path.join(ROOT, 'src/services/dailyWallpaper.js'));
 const enginePreference = require(path.join(ROOT, 'src/services/enginePreference.js'));
+const rotationHistory = require(path.join(ROOT, 'src/services/rotationHistory.js'));
 
 const countGallery = () => fetchLog.filter((url) => url.includes('/api/gallery')).length;
 const countGenerate = () => fetchLog.filter((url) => url.includes('/api/generate')).length;
@@ -637,6 +643,173 @@ async function checkErrors() {
   deviceState.fail = false;
 }
 
+// --- 6: retryAt and the last-change record --------------------------------
+// The old cooldown card said "FrogPaper will try again next time you open
+// the app", which was wrong (the real rule is a 2-hour cooldown) and was the
+// only trace of a failed 7 a.m. run. Now runOnLaunch returns retryAt, and
+// every attempted outcome is persisted so Settings can show it after the
+// Home card disappears.
+async function checkRetryAndHistory() {
+  console.log('\nRetry time and last-change record');
+  const R = rotation.ROTATION_KEY;
+  const LASTFAIL = '@frogpaper/daily_lastfail';
+  const LC = rotationHistory.LAST_CHANGE_KEY;
+  const lastChange = async () => {
+    const raw = storage.get(LC);
+    return raw ? JSON.parse(raw) : null;
+  };
+
+  // (a) the cooldown result carries retryAt = lastFail + FAIL_COOLDOWN_MS
+  storage.clear();
+  deviceState.fail = true;
+  fetchHandler = defaultFetch;
+  clock = new RealDate('2026-09-15T07:00:00').getTime();
+  storage.set(R, JSON.stringify({ frequency: 'daily', source: 'gallery' }));
+  const firstFailure = await rotation.runOnLaunch();
+  check(
+    'a failed run returns retryAt roughly 2 hours ahead (fake clock)',
+    typeof firstFailure.retryAt === 'number' &&
+      firstFailure.retryAt - clock === daily.FAIL_COOLDOWN_MS,
+    JSON.stringify({ retryAt: firstFailure.retryAt, clock })
+  );
+
+  // The lastFail the cooldown branch sees was just written by the failed
+  // run above, so the cooldown result's retryAt must equal that stored
+  // lastFail + FAIL_COOLDOWN_MS.
+  const storedLastFail = parseInt(storage.get(LASTFAIL) || '0', 10);
+  const cooling = await rotation.runOnLaunch();
+  check(
+    'the cooldown result carries retryAt equal to lastFail + FAIL_COOLDOWN_MS',
+    cooling.acted === false &&
+      cooling.reason === 'cooldown' &&
+      typeof cooling.retryAt === 'number' &&
+      cooling.retryAt === storedLastFail + daily.FAIL_COOLDOWN_MS,
+    JSON.stringify({ cooling, storedLastFail })
+  );
+
+  // (b) a successful surprise run writes a record with ok:true and the engine
+  // that was actually sent to /api/generate.
+  storage.clear();
+  deviceState.fail = false;
+  deviceState.throw = false;
+  fetchHandler = defaultFetch;
+  providersPayload = providersPayload.map((p) =>
+    p.id === 'huggingface' ? { ...p, status: 'active' } : { ...p, status: 'inactive' }
+  );
+  await enginePreference.saveEnginePreference('huggingface');
+  clock = new RealDate('2026-09-16T07:00:00').getTime();
+  fetchLog.length = 0;
+  generateBodies.length = 0;
+  storage.set(R, JSON.stringify({ frequency: 'daily', source: 'surprise' }));
+  const success = await rotation.runOnLaunch();
+  check(
+    'a successful surprise run reports ok:true',
+    success.ok === true && success.acted === true,
+    JSON.stringify(success)
+  );
+  check(
+    'the request carried the saved engine id',
+    generateBodies.length === 1 && generateBodies[0].provider === 'huggingface',
+    JSON.stringify(generateBodies)
+  );
+  const okRecord = await lastChange();
+  check(
+    'a successful run writes a last-change record with ok:true',
+    !!okRecord && okRecord.ok === true && okRecord.source === 'surprise',
+    JSON.stringify(okRecord)
+  );
+  check(
+    "the success record's engine matches the engine that was sent to /api/generate",
+    !!okRecord && okRecord.engine === 'huggingface',
+    JSON.stringify(okRecord)
+  );
+  check(
+    'the success record carries the at timestamp as a number',
+    !!okRecord && typeof okRecord.at === 'number' && okRecord.at === clock,
+    JSON.stringify(okRecord)
+  );
+
+  // (c) a failed run writes ok:false and keeps the last failure message.
+  storage.clear();
+  deviceState.fail = true;
+  fetchHandler = defaultFetch;
+  clock = new RealDate('2026-09-17T07:00:00').getTime();
+  storage.set(R, JSON.stringify({ frequency: 'daily', source: 'gallery' }));
+  const failRun = await rotation.runOnLaunch();
+  const errRecord = await lastChange();
+  check(
+    'a failed run writes a last-change record with ok:false',
+    !!errRecord && errRecord.ok === false && errRecord.source === 'gallery',
+    JSON.stringify(errRecord)
+  );
+  check(
+    'the failure record keeps the run message',
+    !!errRecord && typeof errRecord.message === 'string' && errRecord.message === failRun.message,
+    JSON.stringify({ errRecord, failRun })
+  );
+  check(
+    'the failure record has engine:null (no generation happened)',
+    !!errRecord && errRecord.engine === null,
+    JSON.stringify(errRecord)
+  );
+
+  // (d) source 'gallery' / 'favorites' records carry no engine.
+  storage.clear();
+  deviceState.fail = false;
+  fetchHandler = defaultFetch;
+  storage.set(R, JSON.stringify({ frequency: 'open', source: 'favorites' }));
+  storage.set('@frogpaper/favorite_images', JSON.stringify(['gallery-one.png']));
+  const favRun = await rotation.runOnLaunch();
+  const favRecord = await lastChange();
+  check(
+    "a favourites run records ok:true and source:'favorites'",
+    favRun.ok === true && !!favRecord && favRecord.ok === true && favRecord.source === 'favorites',
+    JSON.stringify({ favRun, favRecord })
+  );
+  check(
+    'a favourites record carries no engine',
+    !!favRecord && favRecord.engine === null,
+    JSON.stringify(favRecord)
+  );
+
+  // (e) a malformed persisted record reads back as null, never crashes.
+  storage.set(LC, '{not json');
+  const malformed = await rotationHistory.readLastChange();
+  check(
+    'a malformed last-change record reads back as null',
+    malformed === null,
+    JSON.stringify(malformed)
+  );
+
+  // (f) writeLastChange never throws, even when AsyncStorage is fine.
+  storage.delete(LC);
+  await rotationHistory.writeLastChange({
+    at: clock,
+    ok: true,
+    source: 'surprise',
+    engine: 'pollinations',
+    message: 'ok',
+  });
+  const written = await lastChange();
+  check(
+    'writeLastChange persists a valid record',
+    !!written && written.engine === 'pollinations' && written.ok === true,
+    JSON.stringify(written)
+  );
+
+  // (g) an invalid record shape is silently dropped (no write, no throw).
+  storage.delete(LC);
+  await rotationHistory.writeLastChange({ at: 'no', ok: 'maybe', source: 'weird' });
+  const dropped = await lastChange();
+  check(
+    'writeLastChange drops an invalid record instead of persisting garbage',
+    dropped === null,
+    JSON.stringify(dropped)
+  );
+
+  deviceState.fail = false;
+}
+
 (async () => {
   try {
     await checkMigration();
@@ -644,6 +817,7 @@ async function checkErrors() {
     await checkRouting();
     await checkSavedEngine();
     await checkErrors();
+    await checkRetryAndHistory();
   } catch (err) {
     failures += 1;
     console.log(`${FAIL} unexpected error: ${err && err.stack ? err.stack : err}`);

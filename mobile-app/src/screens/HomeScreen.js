@@ -21,6 +21,25 @@ import { localImageCount } from '../services/localGallery';
 import { readCachedUpdate, refreshUpdateIfStale } from '../services/updateState';
 import { shuffleWallpaperOnce } from '../services/shuffle';
 
+// Formats retryAt as a local-time "Retrying after 3:40 PM" sentence, or
+// returns an empty string when there is no concrete time to show. The
+// device's own locale and timezone drive the format so the user reads a
+// time that matches their clock, not a UTC value.
+function retryAfterText(retryAt, prefix = 'Retrying after ') {
+  if (typeof retryAt !== 'number' || !Number.isFinite(retryAt)) {
+    return '';
+  }
+  try {
+    const formatted = new Date(retryAt).toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return `${prefix}${formatted}.`;
+  } catch (err) {
+    return '';
+  }
+}
+
 export default function HomeScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -128,7 +147,11 @@ export default function HomeScreen() {
 
     if (result.acted) {
       if (!result.ok) {
-        setRotation({ phase: 'failed', message: result.message });
+        setRotation({
+          phase: 'failed',
+          message: result.message,
+          retryAt: typeof result.retryAt === 'number' ? result.retryAt : null,
+        });
       } else if (generates) {
         setRotation({ phase: 'done' });
       } else {
@@ -141,7 +164,10 @@ export default function HomeScreen() {
       return;
     }
     if (result.reason === 'cooldown') {
-      setRotation({ phase: 'cooldown' });
+      setRotation({
+        phase: 'cooldown',
+        retryAt: typeof result.retryAt === 'number' ? result.retryAt : null,
+      });
       return;
     }
     setRotation({ phase: 'hidden' });
@@ -364,8 +390,10 @@ export default function HomeScreen() {
                     : rotation.phase === 'already-run'
                       ? 'FrogPaper changes it once a day - come back tomorrow.'
                       : rotation.phase === 'cooldown'
-                        ? 'FrogPaper will try again next time you open the app.'
-                        : rotation.message || 'Check your connection and try again.'}
+                        ? retryAfterText(rotation.retryAt)
+                        : rotation.message
+                          ? `${rotation.message}${retryAfterText(rotation.retryAt, 'Retrying after ')}`
+                          : `Check your connection and try again.${retryAfterText(rotation.retryAt, ' Retrying after ')}`}
                 </Text>
               </View>
             </>

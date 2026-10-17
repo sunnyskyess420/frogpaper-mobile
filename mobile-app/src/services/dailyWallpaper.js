@@ -271,7 +271,10 @@ export async function runDailyWallpaper({ force = false, source: sourceOverride 
 
     await AsyncStorage.setItem(DAILY_LASTRUN_KEY, localDateKey());
     await AsyncStorage.removeItem(DAILY_LASTFAIL_KEY);
-    return { kind: 'ok', filename: image.filename, prompt, saved };
+    // The provider that actually rendered this wallpaper. Null when nothing
+    // was saved (the backend's free default) so the rotation history can
+    // distinguish "no engine chosen" from "engine chosen but unknown".
+    return { kind: 'ok', filename: image.filename, prompt, saved, engine: provider || null };
   } catch (err) {
     await AsyncStorage.setItem(DAILY_LASTFAIL_KEY, String(Date.now()));
     return {

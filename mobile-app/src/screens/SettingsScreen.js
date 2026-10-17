@@ -65,6 +65,7 @@ import {
   setFrequency,
   setSource,
 } from '../services/wallpaperRotation';
+import { readLastChange } from '../services/rotationHistory';
 import { favoriteImageCount } from '../services/imageFavorites';
 import {
   FOLDER,
@@ -91,6 +92,62 @@ import ByokHelpModal from '../components/ByokHelpModal';
 
 function formatMegabytes(bytes) {
   return `${((bytes || 0) / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Friendly name for the provider id stored on a rotation record. Kept local
+// for now - Fix 3 hoists the same labels into src/services/providerInfo.js
+// and this lookup will switch to importing from there, so the two places
+// cannot drift.
+const ENGINE_LABELS = {
+  pollinations: 'Pollinations',
+  gemini: 'Google Gemini',
+  huggingface: 'Hugging Face',
+  replicate: 'Replicate',
+};
+function engineLabel(id) {
+  if (!id || typeof id !== 'string') {
+    return null;
+  }
+  return ENGINE_LABELS[id] || id;
+}
+
+// Short label for the rotation record's source, in the same plain English
+// the rest of the card uses.
+const SOURCE_LABELS = {
+  surprise: 'Surprise me',
+  favorites: 'My favourites',
+  gallery: 'Random from gallery',
+};
+function sourceLabel(source) {
+  return SOURCE_LABELS[source] || source;
+}
+
+// One-line summary of the persisted last-change record. Empty when no
+// automatic change has happened yet so the row can render the quiet
+// fallback instead of a half-built sentence.
+function describeLastChange(record) {
+  if (!record) {
+    return null;
+  }
+  let when;
+  try {
+    when = new Date(record.at).toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch (err) {
+    when = 'unknown time';
+  }
+  const engine = engineLabel(record.engine);
+  const source = sourceLabel(record.source);
+  const outcome = record.ok ? 'succeeded' : 'failed';
+  const parts = [when, source, outcome];
+  if (engine) {
+    parts.splice(2, 0, `engine: ${engine}`);
+  }
+  return parts.join(' - ');
 }
 
 // One collapsible Settings card: a tappable header (uppercase label, one-line
@@ -351,12 +408,18 @@ export default function SettingsScreen() {
   });
   const [rotating, setRotating] = useState(false);
   const [rotationNotice, setRotationNotice] = useState(null);
+  // The persisted last-automatic-change record. Null until the first read
+  // finishes; once read it survives a restart so the owner can see what the
+  // 7 a.m. run did at lunch. Read on focus so a fresh run done while the
+  // card was open is reflected without leaving Settings.
+  const [lastChange, setLastChange] = useState(null);
 
   const refreshRotation = useCallback(async () => {
     try {
-      const [rotation, favorites] = await Promise.all([
+      const [rotation, favorites, last] = await Promise.all([
         loadRotation(),
         favoriteImageCount(),
+        readLastChange(),
       ]);
       setRotationState({
         frequency: rotation.frequency,
@@ -364,6 +427,7 @@ export default function SettingsScreen() {
         favorites,
         ready: true,
       });
+      setLastChange(last);
     } catch (err) {
       setRotationState((prev) => ({ ...prev, ready: true })); // never block Settings
     }
@@ -1073,6 +1137,34 @@ export default function SettingsScreen() {
             ]}
           >
             {rotationNotice.text}
+          </Text>
+        )}
+
+        <View style={styles.separator} />
+
+        {/* Last automatic change: a persisted record so the owner can see what
+            the 7 a.m. run did at lunch, or after a restart. The card reads
+            this on focus so a fresh run done while Settings was open is
+            reflected without leaving the screen. With no record yet the row
+            stays quiet. */}
+        <View style={styles.aboutRow}>
+          <Text style={styles.aboutKey}>Last automatic change</Text>
+          <Text
+            style={[styles.aboutValue, styles.aboutValueShrink]}
+            numberOfLines={2}
+          >
+            {describeLastChange(lastChange) || 'No automatic change yet.'}
+          </Text>
+        </View>
+        {lastChange && lastChange.message ? (
+          <Text style={styles.hint} numberOfLines={3}>
+            {lastChange.ok ? 'OK: ' : 'Failed: '}
+            {lastChange.message}
+          </Text>
+        ) : (
+          <Text style={styles.hint}>
+            FrogPaper records the most recent automatic wallpaper change here,
+            including the engine that made it when one was used.
           </Text>
         )}
 
