@@ -199,10 +199,12 @@ Plain Python and Node scripts - no pytest, no test runner to install.
 | `npm run check:local-gallery` (in `mobile-app/`) | phone gallery store, SD import bridge (36) |
 | `npm run check:recipes` | recipes, variable slots, negative presets (117) |
 | `npm run check:builder` | prompt builder, modes, composition (92) |
-| `npm run check:engine` | engine preference persistence (46) |
-| `npm run check:rotation` | wallpaper rotation + legacy migration + saved engine (49) |
+| `npm run check:engine` | engine preference persistence + provider info labels & filename prefixes (64) |
+| `npm run check:rotation` | wallpaper rotation, cooldown retryAt, last-change record, legacy migration, saved engine (64) |
 | `npm run check:offline` | offline cache + generation queue (29) |
 | `npm run check:favorites` | starred pictures + remembered update answer (21) |
+| `npm run check:update` | version compare, offline / no-releases states, one-time update prompt decision (35) |
+| `npm run check:theme` | both palettes interchangeable, no brand colours leak (16) |
 | `python backend/tests/test_filenames.py` | searchable filename slugs (17) |
 | `python backend/tests/test_subject_enhancer.py` | prompt building + frog variety (98) |
 | `python backend/tests/test_storage.py` | storage layer, routes, S3 via a fake bucket (131) |
@@ -212,11 +214,11 @@ Plain Python and Node scripts - no pytest, no test runner to install.
 The two provider/wallpaper scripts talk to the *running* server paths and need
 `backend/access_key.txt` moved aside temporarily (they do not send the key).
 
-## Verified (2026-10-17)
+## Verified (2026-10-18)
 
 | Check | Result |
 |-------|--------|
-| App checks (the `check:*` suites) | PASS - 15 suites, 646 checks (`check:sentry` still needs a Sentry DSN; `check:versions` needs a generated `android/` dir) |
+| App checks (the `check:*` suites) | PASS - 15 suites, 693 checks (`check:sentry` still needs a Sentry DSN; `check:versions` needs a generated `android/` dir) |
 | Backend checks (offline) | PASS - subject enhancer 98 + filenames 17 |
 | Release APK builds and is release-key signed | PASS - 1.11.2 / versionCode 51 (`apksigner verify`) |
 | Web bundle compiles (`npx expo export --platform web`) | PASS |
@@ -225,8 +227,8 @@ The two provider/wallpaper scripts talk to the *running* server paths and need
 | Phone gallery + SD import | PASS - imported 8 wallpapers from the owner's folder on the device |
 | Frog variety | PASS - 17 frog + 5 toad breeds, different species across live generations |
 | Engine choice persistence | PASS - survives screen changes and a full app restart |
-| Automatic wallpaper engine | PASS - saved engine sent, fallback rejected, 46 + 49 rotation/engine checks |
-| Launch screen + icon | PASS - dark launch screen, frog icon on the app-navy background |
+| Automatic wallpaper engine | PASS - saved engine sent, fallback rejected, 64 + 64 rotation/engine checks |
+| Locked-engine help + bottom tabs + update prompt | PASS - new in this revision (locked-engine BYOK sheet, 4-destination tab bar, one-time-per-version modal, Detail 'Made with' row, Settings 'Last automatic change' row) |
 
 ## Troubleshooting
 

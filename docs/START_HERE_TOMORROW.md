@@ -1,18 +1,69 @@
 # START HERE NEXT TIME
 
-Last updated: **2026-10-17** (this file replaces earlier notes; older
+Last updated: **2026-10-18** (this file replaces earlier notes; older
 versions are in the git history).
 
 ## Where things stand
 
 - **App 1.11.2** (versionCode 51) built and released; 1.11.1 is what is installed
-  on the Galaxy S9 until the new APK is sideloaded.
+  on the Galaxy S9 until the new APK is sideloaded. The five UX fixes from the
+  2026-10-18 sweep (locked-engine BYOK sheet, honest cooldown + last-change
+  record, Detail "Made with" row, bottom tabs, one-time update prompt) are
+  committed on top of 1.11.2 and pending the next release.
 - **Backend 1.9.45** live on Render (auto-deploys on push to `main`); the new
   prompt-slug filenames take effect on the next deploy / local run.
-- **646 app checks across 15 suites** passing (rotation 49, engine 46, versions 6);
-  only `check:sentry` is skipped, because no Sentry DSN is configured.
-  Everything is pushed to `main` and published as release v1.11.2.
+- **693 app checks across 15 suites** passing (rotation 64, engine 64,
+  update 35, theme 16, versions 6); only `check:sentry` is skipped, because
+  no Sentry DSN is configured, and `check:versions` needs the generated
+  `android/` directory.
+  Everything through the five UX fixes is pushed to `main` (local commits
+  ahead of `origin/main`).
 - The owner's gallery reads from **the phone**, so server wipes no longer matter.
+
+## What shipped in the 2026-10-18 UX sweep (in commit order)
+
+1. **Generate: tapping a locked engine explains how to add a key.** A greyed
+   engine chip on Generate now opens the BYOK help sheet instead of
+   swallowing the tap; the sheet gains an "Open Settings" button that lands
+   on Settings with the Optional AI keys card already expanded. A short
+   hint under the chips names the behaviour.
+2. **Rotation: honest cooldown time and a persistent last-change record.**
+   Home now says "Retrying after 3:40 PM" (a real local time) on a failed
+   or cooldown card instead of the misleading "next time you open the app".
+   Every attempted outcome is persisted under
+   `@frogpaper/rotation_last_change` (at, ok, source, engine, message), so
+   Settings > Wallpaper gains a "Last automatic change" row that survives a
+   restart and names the engine when the source was a generated wallpaper.
+3. **Detail: show which engine made an image.** A new `providerInfo.js`
+   module turns the `<id>_` prefix in a generated filename back into a
+   label; Detail shows "Made with: Hugging Face" / "Pollinations" / etc.
+   right after Source. Older imports (IMG_1234.jpg) simply omit the row.
+   The labels moved out of `ProviderFallbackNotice.js` into `providerInfo`
+   so the Generate fallback notice, Detail, and Settings' last-change row
+   share one source of truth.
+4. **Navigation: bottom tabs for the four daily destinations.**
+   `@react-navigation/bottom-tabs` ^7.21.0 is now installed. The four daily
+   screens (Home, Generate, Gallery, Settings) live in a bottom tab bar;
+   Build, Detail, Slideshow, History push on top of the tabs so Back returns
+   to whichever tab the user came from. Tab icons are plain Unicode glyphs
+   (house, palette, picture frame, gear) - no second icon dependency. Every
+   tab has a `tabBarAccessibilityLabel`.
+5. **Home: a one-time update prompt per release version.** A new pure helper
+   `shouldPromptUpdate(record, dismissedVersion)` decides when to show a
+   modal: update + the latest version differs from the dismissed one. The
+   dismissed version is stored under `@frogpaper/update_prompt_dismissed`,
+   so the same release prompts once and a newer release later re-prompts.
+   "Get update" is the only path that opens the browser; "Later" just
+   dismisses. Never shown during the welcome walkthrough, or for current /
+   offline / no-releases states.
+
+## What shipped in 1.11.2 (2026-10-15)
+
+Automatic wallpapers use the engine saved on the Generate screen (Hugging
+Face, Gemini, Replicate or Pollinations) instead of always using the free
+default. With no engine ever saved, a fresh install behaves exactly as
+before. If the saved engine is gone or the backend paints a fallback
+image, the run is skipped and the normal 2-hour cooldown applies.
 
 ## What shipped in 1.10.0 (2026-09-27)
 
