@@ -36,6 +36,7 @@ import { appendPreset, clearPresetText } from '../services/negativePresets';
 import NEGATIVE_PRESETS from '../data/negativePresets.json';
 import WallpaperImage from '../components/WallpaperImage';
 import ProviderFallbackNotice from '../components/ProviderFallbackNotice';
+import ByokHelpModal from '../components/ByokHelpModal';
 import { colors, radii, spacing } from '../theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { IDEAS, FAVORITES_KEY } from '../services/promptLibrary';
@@ -71,6 +72,9 @@ export default function GenerateScreen() {
   // Set when a saved engine could not be honoured (gone, or a paid engine with
   // no saved key): one sentence explaining the free engine in use instead.
   const [engineNotice, setEngineNotice] = useState(null);
+  // The BYOK help sheet is the only in-app place that explains how to obtain
+  // keys. A locked engine chip opens it instead of swallowing the tap.
+  const [byokHelpVisible, setByokHelpVisible] = useState(false);
   // null until a providers request fails: { offline }. Kept next to the list so
   // the AI Engine section can explain an empty list instead of just being blank.
   const [providersError, setProvidersError] = useState(null);
@@ -591,37 +595,49 @@ export default function GenerateScreen() {
         <Text style={styles.sectionLabel}>AI Engine</Text>
         {providers.length > 0 ? (
           <View style={styles.presets}>
-            {providers.map((provider) => (
-              <Pressable
-                key={provider.id}
-                onPress={() => {
-                  if (!isUsable(provider)) {
-                    return;
-                  }
-                  setProviderId(provider.id);
-                  // A deliberate tap answers any earlier "we used the free
-                  // engine instead" note, and is remembered for next time.
-                  setEngineNotice(null);
-                  saveEnginePreference(provider.id);
-                }}
-                style={[
-                  styles.presetChip,
-                  providerId === provider.id && styles.presetChipActive,
-                  !isUsable(provider) && styles.presetChipDisabled,
-                ]}
-                disabled={!isUsable(provider)}
-              >
-                <Text
+            {providers.map((provider) => {
+              const usable = isUsable(provider);
+              return (
+                <Pressable
+                  key={provider.id}
+                  onPress={() => {
+                    if (!usable) {
+                      // A locked engine explains itself instead of eating the
+                      // tap. The selected engine is unchanged and the saved
+                      // preference is left alone - this is help, not a
+                      // silent downgrade.
+                      setByokHelpVisible(true);
+                      return;
+                    }
+                    setProviderId(provider.id);
+                    // A deliberate tap answers any earlier "we used the free
+                    // engine instead" note, and is remembered for next time.
+                    setEngineNotice(null);
+                    saveEnginePreference(provider.id);
+                  }}
                   style={[
-                    styles.presetText,
-                    providerId === provider.id && styles.presetTextActive,
-                    !isUsable(provider) && styles.presetTextDisabled,
+                    styles.presetChip,
+                    providerId === provider.id && styles.presetChipActive,
+                    !usable && styles.presetChipDisabled,
                   ]}
+                  accessibilityLabel={
+                    usable
+                      ? `Use ${provider.name} engine`
+                      : `${provider.name} engine needs your own key - tap to see how`
+                  }
                 >
-                  {provider.name}
-                </Text>
-              </Pressable>
-            ))}
+                  <Text
+                    style={[
+                      styles.presetText,
+                      providerId === provider.id && styles.presetTextActive,
+                      !usable && styles.presetTextDisabled,
+                    ]}
+                  >
+                    {provider.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
         ) : providersError ? (
           <View style={styles.engineErrorCard}>
@@ -648,6 +664,11 @@ export default function GenerateScreen() {
         ) : null}
         {providers.length > 0 && engineNotice && (
           <Text style={styles.engineNotice}>{engineNotice}</Text>
+        )}
+        {providers.length > 0 && providers.some((p) => !isUsable(p)) && (
+          <Text style={styles.engineHint}>
+            Greyed engines need your own key - tap one to see how.
+          </Text>
         )}
         {selectedProvider && (
           <Text style={styles.providerHint}>
@@ -982,6 +1003,19 @@ export default function GenerateScreen() {
           </View>
         )}
       </View>
+
+      {/* The BYOK help sheet is opened from a locked engine chip. "Open
+          Settings" closes the sheet and lands on Settings with the Optional
+          AI keys card already expanded, so the user does not have to hunt
+          for the right card after the help text told them where to paste. */}
+      <ByokHelpModal
+        visible={byokHelpVisible}
+        onClose={() => setByokHelpVisible(false)}
+        onOpenSettings={() => {
+          setByokHelpVisible(false);
+          navigation.navigate('Settings', { openCard: 'keys' });
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -1153,6 +1187,15 @@ const styles = StyleSheet.create({
   // chips, in the same warning tone the engine error card uses.
   engineNotice: {
     color: colors.warn,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: spacing.sm,
+  },
+  // Quiet one-liner naming the locked-chip behaviour. Sits between the
+  // engineNotice and the provider description, so it never competes with a
+  // real warning.
+  engineHint: {
+    color: colors.muted,
     fontSize: 12,
     lineHeight: 18,
     marginBottom: spacing.sm,

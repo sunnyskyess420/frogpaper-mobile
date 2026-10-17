@@ -37,7 +37,12 @@ function Link({ url, children }) {
   );
 }
 
-export default function ByokHelpModal({ visible, onClose }) {
+// Optional `onOpenSettings`: when provided, the sheet gains a secondary
+// "Open Settings" button in the header. This is how a locked engine chip on
+// the Generate screen points the user at the keys card without leaving the
+// help text behind. When omitted (the Settings screen itself), the sheet
+// keeps its original header - that screen is already where the keys live.
+export default function ByokHelpModal({ visible, onClose, onOpenSettings }) {
   const insets = useSafeAreaInsets();
   return (
     <Modal
@@ -49,6 +54,11 @@ export default function ByokHelpModal({ visible, onClose }) {
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Text style={styles.title}>How to get your API keys</Text>
+          {onOpenSettings ? (
+            <Pressable style={styles.openSettingsButton} onPress={onOpenSettings}>
+              <Text style={styles.openSettingsText}>Open Settings</Text>
+            </Pressable>
+          ) : null}
           <Pressable style={styles.closeButton} onPress={onClose}>
             <Text style={styles.closeButtonText}>Close</Text>
           </Pressable>
@@ -202,6 +212,22 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
     borderColor: colors.border,
     borderWidth: 1,
+  },
+  // Sits to the left of Close in the header when the modal was opened from
+  // the Generate screen. Tinted with the accent so it reads as the
+  // primary action ("take me to the keys") rather than another neutral
+  // button.
+  openSettingsButton: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.sm,
+    marginRight: spacing.sm,
+  },
+  openSettingsText: {
+    color: colors.bg,
+    fontSize: 14,
+    fontWeight: '700',
   },
   closeButtonText: {
     color: colors.text,

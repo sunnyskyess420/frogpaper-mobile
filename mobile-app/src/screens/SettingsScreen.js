@@ -1,5 +1,5 @@
 // Settings - backend connection info, provider details, about, diagnostics.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +13,7 @@ import {
   Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 import api, {
   discoverBaseUrl,
   getBaseUrl,
@@ -606,6 +606,23 @@ export default function SettingsScreen() {
     advanced: false,
     about: false,
   });
+
+  // The Generate screen's locked-engine help sheet sends `openCard: 'keys'`
+  // so the user lands on the right card without hunting. This runs once per
+  // param value: if the user collapses the card afterwards the choice is
+  // respected and a re-render will not flip it back open.
+  const route = useRoute();
+  const openedCardRef = useRef(null);
+  useEffect(() => {
+    const target = route.params?.openCard;
+    if (!target || openedCardRef.current === target) {
+      return;
+    }
+    if (target === 'keys') {
+      setOpenCards((prev) => (prev.keys ? prev : { ...prev, keys: true }));
+      openedCardRef.current = target;
+    }
+  }, [route.params?.openCard]);
 
   const toggleCard = (key) => {
     setOpenCards((prev) => ({ ...prev, [key]: !prev[key] }));
