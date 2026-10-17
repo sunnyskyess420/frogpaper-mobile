@@ -21,6 +21,12 @@
  *      Nothing saved selects the free default with no note (today's behaviour).
  *   3. The free-first default order is unchanged, and the paid/free usability
  *      rule (backend "active", or a saved BYOK key) is exactly the old one.
+ *   4. providerInfo: providerFromFilename() recognises every known engine id
+ *      prefix (pollinations_, gemini_, huggingface_, replicate_), returns
+ *      null for names with no prefix, names with a legacy/unknown prefix,
+ *      and non-string / null / undefined input. providerLabel() returns the
+ *      display name for a known id and null for an unknown one (no fallback
+ *      to the raw id), so a "Made with" row never shows garbage.
  *
  * How it loads the app code: same trick as check-offline.js - the service is
  * plain ESM, so this script transpiles it to CommonJS on the fly (babel, no
@@ -89,6 +95,7 @@ Module._extensions['.js'] = function (mod, filename) {
 };
 
 const engine = require(path.join(ROOT, 'src/services/enginePreference.js'));
+const providerInfo = require(path.join(ROOT, 'src/services/providerInfo.js'));
 const KEY = engine.ENGINE_PREFERENCE_KEY;
 
 // --- assertion helpers -----------------------------------------------------
@@ -417,12 +424,121 @@ async function checkEndToEnd() {
   );
 }
 
+// --- 5: providerInfo (engine id <-> label <-> filename) -------------------
+// Generated filenames carry the provider id as a prefix, so the engine that
+// painted an image is recoverable from its name alone. DetailScreen shows
+// "Made with: <label>" only when the prefix is one we know - an older
+// imported image (IMG_1234.jpg) silently omits the row instead of printing
+// "unknown".
+async function checkProviderInfo() {
+  console.log('\nProvider info');
+
+  // (a) every known prefix is recognised.
+  check(
+    "providerFromFilename() recognises 'pollinations_'",
+    providerInfo.providerFromFilename('pollinations_20260927-1502_lily-pond.png') === 'pollinations',
+    String(providerInfo.providerFromFilename('pollinations_20260927-1502_lily-pond.png'))
+  );
+  check(
+    "providerFromFilename() recognises 'gemini_'",
+    providerInfo.providerFromFilename('gemini_20260927-1502_pond.png') === 'gemini',
+    String(providerInfo.providerFromFilename('gemini_20260927-1502_pond.png'))
+  );
+  check(
+    "providerFromFilename() recognises 'huggingface_'",
+    providerInfo.providerFromFilename('huggingface_20260927-1502_pond.png') === 'huggingface',
+    String(providerInfo.providerFromFilename('huggingface_20260927-1502_pond.png'))
+  );
+  check(
+    "providerFromFilename() recognises 'replicate_'",
+    providerInfo.providerFromFilename('replicate_20260927-1502_pond.png') === 'replicate',
+    String(providerInfo.providerFromFilename('replicate_20260927-1502_pond.png'))
+  );
+
+  // (b) filenames with no known provider prefix return null. IMG_1234.jpg
+  // has an underscore but the prefix 'IMG' is not a known provider; a plain
+  // wallpaper.png has no underscore at all and also returns null.
+  check(
+    "an imported filename with an unknown prefix ('IMG_') returns null",
+    providerInfo.providerFromFilename('IMG_1234.jpg') === null,
+    String(providerInfo.providerFromFilename('IMG_1234.jpg'))
+  );
+  check(
+    'a filename with no underscore at all returns null',
+    providerInfo.providerFromFilename('wallpaper.png') === null,
+    String(providerInfo.providerFromFilename('wallpaper.png'))
+  );
+
+  // (c) a name with a prefix that is not a known provider -> null (legacy
+  // engines, alternate ids, anything we don't ship).
+  check(
+    'a legacy/unknown prefix returns null',
+    providerInfo.providerFromFilename('dalle_20260101-1200_pond.png') === null,
+    String(providerInfo.providerFromFilename('dalle_20260101-1200_pond.png'))
+  );
+  check(
+    'a near-miss prefix (pollinationsai_) returns null',
+    providerInfo.providerFromFilename('pollinationsai_20260101-1200_pond.png') === null,
+    String(providerInfo.providerFromFilename('pollinationsai_20260101-1200_pond.png'))
+  );
+
+  // (d) non-string inputs: null, undefined, numbers, objects
+  check('null input returns null', providerInfo.providerFromFilename(null) === null);
+  check('undefined input returns null', providerInfo.providerFromFilename(undefined) === null);
+  check('an empty string returns null', providerInfo.providerFromFilename('') === null);
+  check('a number returns null', providerInfo.providerFromFilename(123) === null);
+  check('an object returns null', providerInfo.providerFromFilename({}) === null);
+
+  // (e) the label map covers all four known ids and falls back to null for
+  // an unknown one (NOT the raw id - a "Made with: dalle" row would be worse
+  // than no row at all).
+  check(
+    'PROVIDER_LABELS includes pollinations, gemini, huggingface, replicate',
+    providerInfo.PROVIDER_LABELS.pollinations === 'Pollinations' &&
+      providerInfo.PROVIDER_LABELS.gemini === 'Gemini' &&
+      providerInfo.PROVIDER_LABELS.huggingface === 'Hugging Face' &&
+      providerInfo.PROVIDER_LABELS.replicate === 'Replicate',
+    JSON.stringify(providerInfo.PROVIDER_LABELS)
+  );
+  check(
+    'providerLabel() returns the display name for a known id',
+    providerInfo.providerLabel('huggingface') === 'Hugging Face' &&
+      providerInfo.providerLabel('pollinations') === 'Pollinations',
+    JSON.stringify({
+      hf: providerInfo.providerLabel('huggingface'),
+      pol: providerInfo.providerLabel('pollinations'),
+    })
+  );
+  check(
+    'providerLabel() returns null for an unknown id (no raw-id fallback)',
+    providerInfo.providerLabel('dalle') === null,
+    String(providerInfo.providerLabel('dalle'))
+  );
+  check(
+    'providerLabel() returns null for null/undefined/non-string input',
+    providerInfo.providerLabel(null) === null &&
+      providerInfo.providerLabel(undefined) === null &&
+      providerInfo.providerLabel(123) === null,
+    JSON.stringify({
+      n: providerInfo.providerLabel(null),
+      u: providerInfo.providerLabel(undefined),
+      num: providerInfo.providerLabel(123),
+    })
+  );
+  check(
+    'providerLabel() returns null for an empty string',
+    providerInfo.providerLabel('') === null,
+    String(providerInfo.providerLabel(''))
+  );
+}
+
 (async () => {
   try {
     await checkPersistence();
     await checkResolve();
     await checkDefaultAndUsability();
     await checkEndToEnd();
+    await checkProviderInfo();
   } catch (err) {
     failures += 1;
     console.log(`${FAIL} unexpected error: ${err && err.stack ? err.stack : err}`);

@@ -5,14 +5,12 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../theme';
+import { PROVIDER_LABELS } from '../services/providerInfo';
 
-// The backend reports the original provider as an id (e.g. "huggingface").
-const PROVIDER_LABELS = {
-  replicate: 'Replicate',
-  gemini: 'Gemini',
-  huggingface: 'Hugging Face',
-};
-
+// The fallback notice echoes the provider id the user actually picked. The
+// display names live in providerInfo so DetailScreen's "Made with" row and
+// Settings' last-change row use the same labels - this module no longer
+// keeps its own copy that could drift.
 export function providerFallbackText(providerId) {
   const label = PROVIDER_LABELS[providerId] || providerId;
   return `${label} was unavailable — used the free Pollinations engine.`;

@@ -66,6 +66,7 @@ import {
   setSource,
 } from '../services/wallpaperRotation';
 import { readLastChange } from '../services/rotationHistory';
+import { providerLabel } from '../services/providerInfo';
 import { favoriteImageCount } from '../services/imageFavorites';
 import {
   FOLDER,
@@ -94,25 +95,10 @@ function formatMegabytes(bytes) {
   return `${((bytes || 0) / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Friendly name for the provider id stored on a rotation record. Kept local
-// for now - Fix 3 hoists the same labels into src/services/providerInfo.js
-// and this lookup will switch to importing from there, so the two places
-// cannot drift.
-const ENGINE_LABELS = {
-  pollinations: 'Pollinations',
-  gemini: 'Google Gemini',
-  huggingface: 'Hugging Face',
-  replicate: 'Replicate',
-};
-function engineLabel(id) {
-  if (!id || typeof id !== 'string') {
-    return null;
-  }
-  return ENGINE_LABELS[id] || id;
-}
-
 // Short label for the rotation record's source, in the same plain English
-// the rest of the card uses.
+// the rest of the card uses. Engine labels come from providerInfo so the
+// wording cannot drift from DetailScreen's "Made with" row or
+// ProviderFallbackNotice.
 const SOURCE_LABELS = {
   surprise: 'Surprise me',
   favorites: 'My favourites',
@@ -140,7 +126,7 @@ function describeLastChange(record) {
   } catch (err) {
     when = 'unknown time';
   }
-  const engine = engineLabel(record.engine);
+  const engine = providerLabel(record.engine);
   const source = sourceLabel(record.source);
   const outcome = record.ok ? 'succeeded' : 'failed';
   const parts = [when, source, outcome];

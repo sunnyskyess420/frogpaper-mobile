@@ -30,6 +30,7 @@ import { deleteLocalImage, listLocalImages } from '../services/localGallery';
 import { isImageFavorite, toggleImageFavorite } from '../services/imageFavorites';
 import WallpaperImage from '../components/WallpaperImage';
 import ProviderFallbackNotice from '../components/ProviderFallbackNotice';
+import { providerFromFilename, providerLabel } from '../services/providerInfo';
 import { capabilities, setAsWallpaper } from '../services/deviceMedia';
 import { saveWallpaper } from '../services/saveTarget';
 import { shareWallpaper } from '../services/share';
@@ -684,6 +685,25 @@ export default function DetailScreen() {
                 {SOURCE_LABELS[detail.source] || detail.source}
               </Text>
             </View>
+            {(() => {
+              // Generated filenames carry the provider id as a prefix, so the
+              // engine that actually painted the image is recoverable from the
+              // name alone. Older imports (IMG_1234.jpg) and any filename
+              // without a known prefix simply omit the row - we never print
+              // "unknown" because the detail screen has no other source of
+              // truth for an older image.
+              const provider = providerFromFilename(detail.filename);
+              const label = provider ? providerLabel(provider) : null;
+              if (!provider || !label) {
+                return null;
+              }
+              return (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoKey}>Made with</Text>
+                  <Text style={styles.infoValue}>{label}</Text>
+                </View>
+              );
+            })()}
             <View style={styles.infoRow}>
               <Text style={styles.infoKey}>Dimensions</Text>
               <Text style={styles.infoValue}>
