@@ -1,15 +1,17 @@
 # START HERE NEXT TIME
 
-Last updated: **2026-09-27** (this file replaces earlier notes; older
+Last updated: **2026-10-17** (this file replaces earlier notes; older
 versions are in the git history).
 
 ## Where things stand
 
-- **App 1.10.0** (versionCode 48) installed on the Galaxy S9.
-- **Backend 1.9.28** live on Render (auto-deploys on push to `main`); the new
+- **App 1.11.2** (versionCode 51) built and released; 1.11.1 is what is installed
+  on the Galaxy S9 until the new APK is sideloaded.
+- **Backend 1.9.45** live on Render (auto-deploys on push to `main`); the new
   prompt-slug filenames take effect on the next deploy / local run.
-- **593 app checks across 13 suites, plus backend (98 + 17)** passing. **Not
-  pushed yet** - every change is local on the PC + phone.
+- **646 app checks across 15 suites** passing (rotation 49, engine 46, versions 6);
+  only `check:sentry` is skipped, because no Sentry DSN is configured.
+  Everything is pushed to `main` and published as release v1.11.2.
 - The owner's gallery reads from **the phone**, so server wipes no longer matter.
 
 ## What shipped in 1.10.0 (2026-09-27)
@@ -65,7 +67,9 @@ first-run long-press tip, and backend prompt-slug filenames. Full detail:
 
 ## Open - not built
 
-1. **Release prep + first GitHub Release** - see *Sharing the app* below.
+1. **Device check of the automatic-engine fix** - sideload 1.11.2 on the S9,
+   pick Hugging Face, then let a daily rotation run and confirm the result came
+   from that engine.
 2. **Crash log** (JS-only error history in Settings -> Diagnostics). Approved, small
    (~20 min), not started. Catches JS errors, not native crashes.
 3. **Keyword bank** from the desktop (`keywords.json`: 49 subjects, 27 styles,
@@ -118,43 +122,36 @@ key means Android sees a different app. Every existing install - including the o
 phone - must be uninstalled and installed again. Save anything worth keeping to the
 phone gallery first; the SD-folder import can bring them back afterwards.
 
-## Sharing the app - the plan (agreed 2026-09-13)
+## Sharing the app
 
-Distribution is **GitHub Releases**, not a store (no fees, no listing). The repo
-already has zero tags and zero releases, so the first one starts clean.
+Distribution is **GitHub Releases**, not a store (no fees, no listing). Releases
+through **v1.11.2** are published, each with the signed
+`FrogPaper-release-signed.apk` attached; the stable link is
+`https://github.com/sunnyskyess420/frogpaper-mobile/releases/latest`.
 
-When the owner says "cut a release":
+The landing page offers the same link in its Android section:
+`https://sunnyskyess420.github.io/frogpaper-website/`, and `downloads.html`
+reads download counts from the public releases API.
 
-1. Bump the version in `mobile-app/app.json`, `mobile-app/android/app/build.gradle`
-   and the Settings About string; run every `check:*` suite; build the release APK.
-2. Tag the commit (`v<version>`) and push the tag.
-3. GitHub -> repo -> **Releases -> Draft a new release**: pick the tag, title
-   `FrogPaper Mobile <version>`, attach `app-release.apk`, publish.
-   Stable link afterwards: `https://github.com/sunnyskyess420/frogpaper-mobile/releases/latest`
-4. Release notes should carry: what's new, **Android 7.0+**, the
-   allow-unknown-apps install steps, the file checksum, and the honest backend
-   caveat (generation needs a backend).
+When cutting a release:
 
-**Settled already:** the APK can be offered on the owner's website by linking to
-the release; friends can install it directly. `C:\FrogPaperBackups\SEND-TO-A-FRIEND.txt`
-already contains hand-off instructions (and `FrogPaper-1.9.39.apk` sits next to it).
+1. Bump `mobile-app/app.json` (`version`, `android.versionCode`) and
+   `mobile-app/android/app/build.gradle` (`versionName`, `versionCode`); run
+   every runnable `check:*` suite.
+2. Build the signed APK (below) and verify with `apksigner verify --print-certs`
+   that it still carries `CN=FrogPaper` / SHA-256
+   `f59a1728b2c14921358137277d596125845b0a83f7e45aaf9c54137307bc0644`.
+3. Commit + push `main`, tag `v<version>`, then publish with
+   `gh release create v<version> --notes-file docs/RELEASE_NOTES-v<version>.md`
+   and attach the APK as **FrogPaper-release-signed.apk**. The asset name
+   matters: the website and the app update check both assume it.
+4. Release notes carry: what is new, **Android 7.0+**, the allow-unknown-apps
+   install steps, the APK SHA-256, and the backend caveat (generation needs a
+   reachable backend).
 
-**To decide / do before strangers install it:**
-
-- **Signing** - the APK is signed with this PC's *debug* keystore. Fine for friends
-  and for updates built here, but a proper release keystore is safer for public
-  distribution, and it must be backed up: lose it and nobody can update over an
-  existing install (they would have to uninstall first).
-- **Backend for other people** - everyone needs one to generate. Pointing them all
-  at the current Render server means free-tier rate limits and handing out the
-  access key as a shared secret. The cleaner model is bring-your-own-keys (already
-  supported) or each user running their own backend.
-- **In-app update check** - the app can read
-  `https://api.github.com/repos/sunnyskyess420/frogpaper-mobile/releases/latest`
-  (public, no auth) and offer "version X is out - tap to download". That restores
-  the auto-update a store would have given.
-- **Download page** - optional: a small page on the owner's site with the version,
-  install steps and a Download button pointing at the release link.
+The in-app update check is built (Settings -> About, manual button) and reads
+the same public releases API. There is no release automation in `.github` - a
+release is the four steps above.
 
 ## Where everything lives
 

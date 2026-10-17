@@ -21,6 +21,10 @@
  *      gallery when nothing is starred); only 'surprise' generates.
  *   4. Failures never throw: a failed wallpaper set, a thrown native error and
  *      an offline request all resolve to { ok: false, message }.
+ *   5. Engine choice: an automatic surprise run sends the engine saved on the
+ *      Generate screen, skips the run (never falling back to Pollinations) when
+ *      that engine is gone, and rejects a backend fallback image instead of
+ *      setting it. With nothing saved the request carries no provider at all.
  *
  * How it loads the app code: the app modules are plain ESM, so this script
  * transpiles them to CommonJS on the fly (babel, no config files) and stubs the
@@ -72,8 +76,19 @@ class FakeDate extends RealDate {
 }
 global.Date = FakeDate;
 
+// Bodies of the /api/generate requests, in order, so a test can prove which
+// engine the automatic run actually asked the backend to use.
+const generateBodies = [];
+
 global.fetch = async (url, options) => {
   fetchLog.push(String(url));
+  if (String(url).includes('/api/generate') && options && typeof options.body === 'string') {
+    try {
+      generateBodies.push(JSON.parse(options.body));
+    } catch (err) {
+      generateBodies.push(null);
+    }
+  }
   if (!fetchHandler) {
     throw new TypeError('Network request failed');
   }
@@ -81,10 +96,11 @@ global.fetch = async (url, options) => {
 };
 
 // --- stub the native modules and the platform wallpaper setter -------------
-const deviceState = { fail: false, throw: false };
+const deviceState = { fail: false, throw: false, setCalls: 0 };
 const deviceMediaMock = {
   saveToDevice: async () => ({ ok: true }),
   setAsWallpaper: async () => {
+    deviceState.setCalls += 1;
     if (deviceState.throw) {
       throw new Error('wallpaper manager exploded');
     }
@@ -135,6 +151,16 @@ function jsonResponse(payload, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => payload };
 }
 
+// The live provider list as the backend reports it. Everything but the free
+// engine is inactive until a key is saved for it, so a test that wants a saved
+// paid engine to be usable has to mark it active here.
+let providersPayload = [
+  { id: 'pollinations', name: 'Pollinations', status: 'active' },
+  { id: 'gemini', name: 'Gemini', status: 'inactive' },
+  { id: 'huggingface', name: 'Hugging Face', status: 'inactive' },
+  { id: 'replicate', name: 'Replicate', status: 'inactive' },
+];
+
 const defaultFetch = async (url) => {
   if (url.includes('/api/gallery')) {
     return jsonResponse({
@@ -142,6 +168,9 @@ const defaultFetch = async (url) => {
       total: 2,
       images: [{ filename: 'gallery-one.png' }, { filename: 'gallery-two.png' }],
     });
+  }
+  if (url.includes('/api/providers')) {
+    return jsonResponse({ success: true, active: 'pollinations', providers: providersPayload });
   }
   if (url.includes('/api/generate')) {
     return jsonResponse({ success: true, image: { filename: 'generated-one.png' } }, 201);
@@ -154,6 +183,8 @@ const defaultFetch = async (url) => {
 fetchHandler = defaultFetch;
 
 const rotation = require(path.join(ROOT, 'src/services/wallpaperRotation.js'));
+const daily = require(path.join(ROOT, 'src/services/dailyWallpaper.js'));
+const enginePreference = require(path.join(ROOT, 'src/services/enginePreference.js'));
 
 const countGallery = () => fetchLog.filter((url) => url.includes('/api/gallery')).length;
 const countGenerate = () => fetchLog.filter((url) => url.includes('/api/generate')).length;
@@ -383,11 +414,17 @@ async function checkRouting() {
   // surprise -> generate
   storage.set(R, JSON.stringify({ frequency: 'open', source: 'surprise' }));
   fetchLog.length = 0;
+  generateBodies.length = 0;
   result = await rotation.runOnLaunch();
   check(
     "source 'surprise' uses the generate path only",
     result.ok === true && countGenerate() === 1 && countGallery() === 0,
     JSON.stringify({ result, gallery: countGallery(), generate: countGenerate() })
+  );
+  check(
+    'with no saved engine the request carries no provider (backend default)',
+    generateBodies.length === 1 && !('provider' in generateBodies[0]),
+    JSON.stringify(generateBodies)
   );
   check('the surprise result names the surprise pool', /surprise idea/.test(result.message), result.message);
 
@@ -420,7 +457,113 @@ async function checkRouting() {
   );
 }
 
-// --- 4: graceful failures --------------------------------------------------
+// --- 4: saved engine -------------------------------------------------------
+async function checkSavedEngine() {
+  console.log('\nSaved engine');
+  const R = rotation.ROTATION_KEY;
+  const LASTFAIL = '@frogpaper/daily_lastfail';
+
+  // (a) a saved, usable engine is the one the automatic run asks for
+  storage.clear();
+  await enginePreference.saveEnginePreference('huggingface');
+  providersPayload = providersPayload.map((p) =>
+    p.id === 'huggingface' ? { ...p, status: 'active' } : p
+  );
+  fetchHandler = defaultFetch;
+  deviceState.fail = false;
+  deviceState.throw = false;
+  deviceState.setCalls = 0;
+  fetchLog.length = 0;
+  generateBodies.length = 0;
+  clock = new RealDate('2026-09-20T09:00:00').getTime();
+  storage.set(R, JSON.stringify({ frequency: 'daily', source: 'surprise' }));
+  const auto = await rotation.runOnLaunch();
+  check(
+    'an automatic surprise run asks for the saved engine',
+    auto.ok === true &&
+      generateBodies.length === 1 &&
+      generateBodies[0].provider === 'huggingface',
+    JSON.stringify({ auto, bodies: generateBodies })
+  );
+  check(
+    'the automatic run checks the live provider list before generating',
+    fetchLog.some((url) => url.includes('/api/providers')),
+    fetchLog.join(',')
+  );
+  check(
+    'the automatic run still sets the wallpaper',
+    deviceState.setCalls === 1,
+    `set calls=${deviceState.setCalls}`
+  );
+
+  // (b) the backend quietly falling back to Pollinations is a failure here
+  clock = new RealDate('2026-09-21T09:00:00').getTime();
+  fetchHandler = async (url) => {
+    if (url.includes('/api/providers')) {
+      return jsonResponse({ success: true, providers: providersPayload });
+    }
+    if (url.includes('/api/generate')) {
+      return jsonResponse(
+        { success: true, image: { filename: 'x.png', provider_fallback_from: 'huggingface' } },
+        201
+      );
+    }
+    return defaultFetch(url);
+  };
+  fetchLog.length = 0;
+  generateBodies.length = 0;
+  deviceState.setCalls = 0;
+  const fellBack = await daily.runDailyWallpaper({ force: true, source: 'surprise' });
+  check(
+    'a silent free fallback is reported as an error',
+    fellBack.kind === 'error' && /free fallback was skipped/.test(fellBack.message || ''),
+    JSON.stringify(fellBack)
+  );
+  check(
+    'a silent free fallback is never set as the wallpaper',
+    deviceState.setCalls === 0,
+    `set calls=${deviceState.setCalls}`
+  );
+  check(
+    'the failed run starts the 2-hour cooldown',
+    (storage.get(LASTFAIL) || '').length > 0,
+    storage.get(LASTFAIL)
+  );
+  storage.set(R, JSON.stringify({ frequency: 'daily', source: 'surprise' }));
+  const cooling = await rotation.runOnLaunch();
+  check(
+    'the automatic run then waits out the cooldown instead of regenerating',
+    cooling.acted === false && cooling.reason === 'cooldown',
+    JSON.stringify(cooling)
+  );
+
+  // (c) a saved engine the backend no longer offers blocks the run entirely
+  storage.clear();
+  await enginePreference.saveEnginePreference('dalle');
+  fetchHandler = defaultFetch;
+  fetchLog.length = 0;
+  generateBodies.length = 0;
+  deviceState.setCalls = 0;
+  clock = new RealDate('2026-09-22T09:00:00').getTime();
+  const blocked = await daily.runDailyWallpaper({ force: true, source: 'surprise' });
+  check(
+    'a saved engine the backend does not offer blocks the run',
+    blocked.kind === 'error' && /saved engine is not available/i.test(blocked.message || ''),
+    JSON.stringify(blocked)
+  );
+  check(
+    'a blocked engine makes no generate request',
+    countGenerate() === 0,
+    fetchLog.join(',')
+  );
+  check(
+    'a blocked engine leaves the current wallpaper alone',
+    deviceState.setCalls === 0,
+    `set calls=${deviceState.setCalls}`
+  );
+}
+
+// --- 5: graceful failures --------------------------------------------------
 async function checkErrors() {
   console.log('\nGraceful failures');
   const R = rotation.ROTATION_KEY;
@@ -499,6 +642,7 @@ async function checkErrors() {
     await checkMigration();
     await checkFrequency();
     await checkRouting();
+    await checkSavedEngine();
     await checkErrors();
   } catch (err) {
     failures += 1;

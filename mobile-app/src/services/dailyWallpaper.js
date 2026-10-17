@@ -14,13 +14,14 @@
 // services/wallpaperRotation.js) decides it is due. Keys stay on the device -
 // the shared api layer attaches any saved BYOK keys to the request.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from './api';
+import api, { getByokSnapshotAsync } from './api';
 import { saveWallpaper } from './saveTarget';
 import { setAsWallpaper } from './deviceMedia';
 import { FAVORITES_KEY } from './promptLibrary';
 import { SURPRISE_NEGATIVE, surprisePrompt } from './promptComposer';
 import { PHONE, getGallerySource } from './gallerySource';
 import { saveLocalImage } from './localGallery';
+import { loadEnginePreference, resolveEnginePreference } from './enginePreference';
 
 const DAILY_ENABLED_KEY = '@frogpaper/daily_enabled';
 const DAILY_SOURCE_KEY = '@frogpaper/daily_source'; // 'surprise' | 'favorites'
@@ -79,6 +80,45 @@ async function pickDailyPrompt(source) {
   // Build screen offers, so an unattended wallpaper is never a one-line idea that
   // turns into a flat white background.
   return surprisePrompt();
+}
+
+// Automatic wallpapers honour the engine picked on the Generate screen. With
+// nothing saved the backend default (free Pollinations) is used, exactly as
+// before. A saved engine that is missing or no longer usable blocks the run
+// instead of silently downgrading - waking up to the wrong engine's picture is
+// worse than the wallpaper staying put for a day.
+async function pickDailyProvider() {
+  const savedId = await loadEnginePreference();
+  if (!savedId) {
+    return { provider: null, blocked: false };
+  }
+  try {
+    const [providerResponse, byok] = await Promise.all([
+      api.providers(),
+      getByokSnapshotAsync(),
+    ]);
+    const resolved = resolveEnginePreference({
+      savedId,
+      providers: (providerResponse && providerResponse.providers) || [],
+      byok: byok || {},
+    });
+    if (resolved.restored) {
+      return { provider: resolved.providerId, blocked: false };
+    }
+    // The screen's note ends with "using X instead", which is true there but
+    // false here - this path skips the fallback rather than taking it.
+    return {
+      provider: null,
+      blocked: true,
+      reason:
+        resolved.reason === 'needs-key'
+          ? 'Your saved engine needs a saved key, so the free fallback was skipped.'
+          : 'Your saved engine is not available right now, so the free fallback was skipped.',
+    };
+  } catch (err) {
+    // Keep the explicit choice; let /api/generate report the real error.
+    return { provider: savedId, blocked: false };
+  }
 }
 
 export async function getDailyInfo() {
@@ -172,6 +212,15 @@ export async function runDailyWallpaper({ force = false, source: sourceOverride 
 
   const prompt = await pickDailyPrompt(info.source);
   try {
+    const engine = await pickDailyProvider();
+    if (engine.blocked) {
+      throw new Error(
+        engine.reason ||
+          'Your saved engine is not available, so the free fallback was skipped.'
+      );
+    }
+    const provider = engine.provider;
+
     // 180s ceiling: nobody is watching a progress bar with a Cancel button,
     // so give slow peak-hour queues room to finish.
     const response = await api.generate({
@@ -182,8 +231,18 @@ export async function runDailyWallpaper({ force = false, source: sourceOverride 
       width: 1080,
       height: 1920,
       timeoutMs: 180000,
+      ...(provider ? { provider } : {}),
     });
     const image = response.image || {};
+    // The backend quietly paints a Pollinations picture when a selected paid
+    // engine fails. On the manual screen that is a visible, explained rescue;
+    // here nobody is watching, so treat it as a failure and leave the current
+    // wallpaper alone.
+    if (provider && image.provider_fallback_from) {
+      throw new Error(
+        'Your chosen engine could not render this wallpaper, so the free fallback was skipped.'
+      );
+    }
     const url = api.imageUrl(image.filename);
 
     // Save into the device gallery first (a bonus, never blocks the set).

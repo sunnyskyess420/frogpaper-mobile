@@ -4,11 +4,29 @@ AI wallpaper studio for Android. Generate phone wallpapers from a text prompt or
 build them from dropdowns, keep them on the phone where they cannot be lost, and
 rotate them as your wallpaper.
 
-**Versions:** app **1.11.1** (versionCode 50) · backend **1.9.28**.
+**Versions:** app **1.11.2** (versionCode 51) · backend **1.9.45**.
 They move independently - the backend version changes when the API changes, the
 app version when the APK changes.
 
+**Download:** [latest Android release](https://github.com/sunnyskyess420/frogpaper-mobile/releases/latest)
+· [landing page](https://sunnyskyess420.github.io/frogpaper-website/)
+
 ## What it does
+
+### New in 1.11.2
+
+- **Automatic wallpapers use your engine** - "Once a day" / "Every time I open"
+  with "Surprise me" now generate through the engine saved on the Generate
+  screen (Hugging Face, Gemini, Replicate or Pollinations) instead of always
+  using the free default. With no engine ever saved, a fresh install behaves
+  exactly as before.
+- **No silent Pollinations downgrade** - if the saved engine is gone, its key
+  was removed, or the backend paints a fallback image, the automatic run is
+  skipped: the current wallpaper stays, the run is reported as a failure, and
+  the normal 2-hour cooldown applies.
+- **11 new rotation checks** cover the saved-engine request, the rejected
+  fallback (nothing saved or set) and the skipped generation when an engine is
+  unavailable.
 
 ### New in 1.11.1
 
@@ -180,9 +198,9 @@ Plain Python and Node scripts - no pytest, no test runner to install.
 |---------|----------------|
 | `npm run check:local-gallery` (in `mobile-app/`) | phone gallery store, SD import bridge (36) |
 | `npm run check:recipes` | recipes, variable slots, negative presets (117) |
-| `npm run check:builder` | prompt builder, modes, composition (87) |
+| `npm run check:builder` | prompt builder, modes, composition (92) |
 | `npm run check:engine` | engine preference persistence (46) |
-| `npm run check:rotation` | wallpaper rotation + legacy migration (38) |
+| `npm run check:rotation` | wallpaper rotation + legacy migration + saved engine (49) |
 | `npm run check:offline` | offline cache + generation queue (29) |
 | `npm run check:favorites` | starred pictures + remembered update answer (21) |
 | `python backend/tests/test_filenames.py` | searchable filename slugs (17) |
@@ -194,19 +212,20 @@ Plain Python and Node scripts - no pytest, no test runner to install.
 The two provider/wallpaper scripts talk to the *running* server paths and need
 `backend/access_key.txt` moved aside temporarily (they do not send the key).
 
-## Verified (2026-09-27)
+## Verified (2026-10-17)
 
 | Check | Result |
 |-------|--------|
-| App checks (the `check:*` suites) | PASS - 13 suites, 593 checks |
+| App checks (the `check:*` suites) | PASS - 15 suites, 646 checks (`check:sentry` still needs a Sentry DSN; `check:versions` needs a generated `android/` dir) |
 | Backend checks (offline) | PASS - subject enhancer 98 + filenames 17 |
-| Release APK builds and installs (S9, Android 10) | PASS - 1.10.0 / versionCode 48 |
+| Release APK builds and is release-key signed | PASS - 1.11.2 / versionCode 51 (`apksigner verify`) |
 | Web bundle compiles (`npx expo export --platform web`) | PASS |
 | Access key gate | PASS - `/api/gallery` 401 without the key, 200 with it |
 | Offline gallery + generation queue | PASS - verified in airplane mode on the device |
 | Phone gallery + SD import | PASS - imported 8 wallpapers from the owner's folder on the device |
 | Frog variety | PASS - 17 frog + 5 toad breeds, different species across live generations |
 | Engine choice persistence | PASS - survives screen changes and a full app restart |
+| Automatic wallpaper engine | PASS - saved engine sent, fallback rejected, 46 + 49 rotation/engine checks |
 | Launch screen + icon | PASS - dark launch screen, frog icon on the app-navy background |
 
 ## Troubleshooting
