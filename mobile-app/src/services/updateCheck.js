@@ -102,3 +102,34 @@ export async function checkForUpdate({ timeoutMs = 15000 } = {}) {
     }
   }
 }
+
+/**
+ * Pure decision helper for "should Home show the update modal this launch?".
+ *
+ * Returns true only when:
+ *   - record.state === 'update' (a newer release was seen),
+ *   - record.latest exists (the version string the modal would advertise),
+ *   - the dismissed version differs from record.latest (a newer release must
+ *     re-prompt even after the user dismissed an older one).
+ *
+ * Kept storage-free on purpose: scripts/check-update.js loads this module
+ * without an AsyncStorage stub, and HomeScreen owns the dismissed-version
+ * key. The function never throws - any malformed input simply means "do
+ * not prompt".
+ */
+export function shouldPromptUpdate(record, dismissedVersion) {
+  if (!record || typeof record !== 'object') {
+    return false;
+  }
+  if (record.state !== 'update') {
+    return false;
+  }
+  if (typeof record.latest !== 'string' || record.latest.length === 0) {
+    return false;
+  }
+  if (typeof dismissedVersion !== 'string' || dismissedVersion.length === 0) {
+    // Nothing dismissed yet - always prompt for an update.
+    return true;
+  }
+  return record.latest !== dismissedVersion;
+}

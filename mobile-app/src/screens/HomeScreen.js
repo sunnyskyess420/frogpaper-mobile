@@ -3,6 +3,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Linking,
+  Modal,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -19,7 +22,15 @@ import { colors, radii, spacing } from '../theme';
 import { getGallerySource, PHONE as PHONE_SOURCE } from '../services/gallerySource';
 import { localImageCount } from '../services/localGallery';
 import { readCachedUpdate, refreshUpdateIfStale } from '../services/updateState';
+import { RELEASES_URL, shouldPromptUpdate } from '../services/updateCheck';
+import { hasSeenWelcome } from '../services/firstRun';
 import { shuffleWallpaperOnce } from '../services/shuffle';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Storage key for the version string the user dismissed with "Later" or
+// "Get update". A newer version later must re-prompt, so we store the
+// version (not a boolean) - the decision helper compares it to record.latest.
+const UPDATE_DISMISSED_KEY = '@frogpaper/update_prompt_dismissed';
 
 // Formats retryAt as a local-time "Retrying after 3:40 PM" sentence, or
 // returns an empty string when there is no concrete time to show. The
@@ -55,6 +66,15 @@ export default function HomeScreen() {
   const [updateReady, setUpdateReady] = useState(false);
   // Result text for the "New wallpaper now" button.
   const [shuffleNotice, setShuffleNotice] = useState(null);
+
+  // ---- One-time update prompt (per release version) ----------------------
+  // The first launch after a newer release shows a modal. "Later" or
+  // "Get update" persists the dismissed version, so the modal stays quiet
+  // for that release - but a still newer release later must prompt again,
+  // so we store the version string (not a boolean) and compare it to the
+  // record's `latest`. Never shows during the welcome walkthrough or for
+  // current / offline / no-releases states.
+  const [updateModal, setUpdateModal] = useState(null); // { latest, url } | null
 
   // ---- Queued generations (saved while the backend was unreachable) -------
   const [queueCount, setQueueCount] = useState(0);
@@ -218,14 +238,76 @@ export default function HomeScreen() {
   useEffect(() => {
     let alive = true;
     refreshUpdateIfStale()
-      .then((state) => {
-        if (alive) setUpdateReady(!!state && state.state === 'update');
+      .then(async (state) => {
+        if (!alive) {
+          return;
+        }
+        setUpdateReady(!!state && state.state === 'update');
+        // The one-time modal: show only when the latest release differs
+        // from the version the user already dismissed. The welcome
+        // walkthrough takes priority - the modal would be lost behind it
+        // anyway, and we never want to bother a first-time user before
+        // they have seen the app. Never throws, never blocks startup.
+        try {
+          const seenWelcome = await hasSeenWelcome();
+          if (!seenWelcome) {
+            return;
+          }
+          const dismissed = await AsyncStorage.getItem(UPDATE_DISMISSED_KEY);
+          if (shouldPromptUpdate(state, dismissed)) {
+            setUpdateModal({
+              latest: state.latest,
+              url: typeof state.url === 'string' ? state.url : RELEASES_URL,
+            });
+          }
+        } catch (err) {
+          // best-effort: never block the screen on this
+        }
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
   }, []);
+
+  // "Get update" opens the GitHub release page in the device browser. We
+  // persist the dismissed version before opening so the modal cannot come
+  // back on the next launch even if the user never returns to the app - the
+  // browser is the intended next step. The button is the ONLY thing that
+  // opens the browser; the modal never opens it on its own.
+  const getUpdate = useCallback(async () => {
+    const target = updateModal;
+    setUpdateModal(null);
+    if (!target) {
+      return;
+    }
+    try {
+      await AsyncStorage.setItem(UPDATE_DISMISSED_KEY, target.latest);
+    } catch (err) {
+      // best-effort - if the write fails the user just sees the modal again
+    }
+    const url = target.url || RELEASES_URL;
+    Linking.openURL(url).catch(() => {
+      // Silently ignore - the device may not have a browser configured.
+      // The release URL is in the modal body so the user can type it.
+    });
+  }, [updateModal]);
+
+  // "Later" persists the dismissed version and closes the modal. The same
+  // version will not re-prompt; a newer one will, via shouldPromptUpdate's
+  // string comparison in the effect above.
+  const dismissUpdate = useCallback(async () => {
+    const target = updateModal;
+    setUpdateModal(null);
+    if (!target) {
+      return;
+    }
+    try {
+      await AsyncStorage.setItem(UPDATE_DISMISSED_KEY, target.latest);
+    } catch (err) {
+      // best-effort - see getUpdate above
+    }
+  }, [updateModal]);
 
   // One-tap "set a random wallpaper now".
   const shuffleNow = useCallback(async () => {
@@ -419,6 +501,37 @@ export default function HomeScreen() {
       </View>
 
       <Text style={styles.footer}>Pull down to re-check the backend connection.</Text>
+
+      {/* The one-time-per-release update prompt. The buttons persist the
+          dismissed version before the modal closes; "Get update" is the
+          only path that opens the browser. */}
+      <Modal
+        visible={updateModal !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={dismissUpdate}
+      >
+        <View style={styles.updateModalOverlay}>
+          <View style={styles.updateModalCard}>
+            <Text style={styles.updateModalTitle}>
+              FrogPaper {updateModal ? updateModal.latest : ''} is available
+            </Text>
+            <Text style={styles.updateModalBody}>
+              A new release is ready to install - tap Get update to open the
+              download page, or Later to keep this version. FrogPaper will
+              remind you the next time a newer release ships.
+            </Text>
+            <View style={styles.updateModalButtons}>
+              <Pressable style={styles.updateModalLater} onPress={dismissUpdate}>
+                <Text style={styles.updateModalLaterText}>Later</Text>
+              </Pressable>
+              <Pressable style={styles.updateModalGet} onPress={getUpdate}>
+                <Text style={styles.updateModalGetText}>Get update</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -582,5 +695,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     marginTop: spacing.xl,
+  },
+  // One-time update prompt: dimmed full-screen overlay with a centred card.
+  // Mirrors the theme the rest of Home uses (card background, accent for
+  // the primary action, muted text) so the modal reads as part of the app.
+  updateModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  updateModalCard: {
+    backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    borderColor: colors.accentDim,
+    borderWidth: 1,
+    padding: spacing.lg,
+    width: '100%',
+    maxWidth: 380,
+  },
+  updateModalTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: spacing.sm,
+  },
+  updateModalBody: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: spacing.lg,
+  },
+  updateModalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+  },
+  updateModalLater: {
+    backgroundColor: colors.cardAlt,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  updateModalLaterText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  updateModalGet: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  updateModalGetText: {
+    color: colors.bg,
+    fontSize: 14,
+    fontWeight: '800',
   },
 });

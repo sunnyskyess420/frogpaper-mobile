@@ -12,6 +12,10 @@
  *   4. no releases yet (GitHub 404) is reported honestly, not as an error
  *   5. a dead network is reported as offline, never thrown
  *   6. nothing about the phone is sent, and no token is used
+ *   7. shouldPromptUpdate() decides whether Home shows the one-time modal:
+ *      update + no dismissal -> true; update + same version dismissed ->
+ *      false; update + older version dismissed -> true; current / offline /
+ *      none / missing latest -> false. Storage-free, so no AsyncStorage stub.
  */
 
 const fs = require('fs');
@@ -130,6 +134,78 @@ async function main() {
   const headerText = JSON.stringify(headers).toLowerCase();
   check('no token is sent', !headerText.includes('token') && !headerText.includes('authorization'), headerText);
   check('it only asks for the public release info', String(capturedRequest.url).includes('api.github.com') && String(capturedRequest.url).endsWith('/releases/latest'), capturedRequest.url);
+
+  // ---- shouldPromptUpdate (the one-time modal decision) ------------------
+  // Pure function: storage-free, never throws. A newer release prompts
+  // exactly once per version - the same version dismissed suppresses it,
+  // but a still newer release later re-prompts.
+  console.log('\nshouldPromptUpdate');
+  const updateRecord = { state: 'update', current: '1.11.2', latest: '1.12.0', url: 'https://example.test/release' };
+  check(
+    'update + no dismissal -> true',
+    update.shouldPromptUpdate(updateRecord, null) === true,
+    String(update.shouldPromptUpdate(updateRecord, null))
+  );
+  check(
+    'update + empty-string dismissal -> true',
+    update.shouldPromptUpdate(updateRecord, '') === true,
+    String(update.shouldPromptUpdate(updateRecord, ''))
+  );
+  check(
+    'update + same version dismissed -> false',
+    update.shouldPromptUpdate(updateRecord, '1.12.0') === false,
+    String(update.shouldPromptUpdate(updateRecord, '1.12.0'))
+  );
+  check(
+    'update + older version dismissed -> true (a newer release must re-prompt)',
+    update.shouldPromptUpdate(updateRecord, '1.11.5') === true,
+    String(update.shouldPromptUpdate(updateRecord, '1.11.5'))
+  );
+  check(
+    'update + a malformed dismissal (non-string) -> true',
+    update.shouldPromptUpdate(updateRecord, 123) === true && update.shouldPromptUpdate(updateRecord, undefined) === true,
+    JSON.stringify({ num: update.shouldPromptUpdate(updateRecord, 123), undef: update.shouldPromptUpdate(updateRecord, undefined) })
+  );
+
+  // Never prompt for non-update states.
+  check(
+    "state 'current' never prompts",
+    update.shouldPromptUpdate({ state: 'current', current: '1.11.2' }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'current', current: '1.11.2' }, null))
+  );
+  check(
+    "state 'offline' never prompts",
+    update.shouldPromptUpdate({ state: 'offline', current: '1.11.2' }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'offline', current: '1.11.2' }, null))
+  );
+  check(
+    "state 'none' never prompts",
+    update.shouldPromptUpdate({ state: 'none', current: '1.11.2' }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'none', current: '1.11.2' }, null))
+  );
+
+  // Missing / malformed `latest` field: never prompt (the modal would have
+  // nothing to advertise and nothing to compare to a dismissed version).
+  check(
+    'an update record with missing latest never prompts',
+    update.shouldPromptUpdate({ state: 'update', current: '1.11.2' }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'update', current: '1.11.2' }, null))
+  );
+  check(
+    'an update record with an empty latest never prompts',
+    update.shouldPromptUpdate({ state: 'update', current: '1.11.2', latest: '' }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'update', current: '1.11.2', latest: '' }, null))
+  );
+  check(
+    'an update record with a non-string latest never prompts',
+    update.shouldPromptUpdate({ state: 'update', current: '1.11.2', latest: 12 }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'update', current: '1.11.2', latest: 12 }, null))
+  );
+
+  // Malformed record / null / undefined -> never prompt, never throw.
+  check('null record never prompts', update.shouldPromptUpdate(null, null) === false);
+  check('undefined record never prompts', update.shouldPromptUpdate(undefined, null) === false);
+  check('a non-object record never prompts', update.shouldPromptUpdate('update', null) === false);
 
   console.log(`\n${passes} passed, ${failures} failed`);
   process.exit(failures === 0 ? 0 : 1);
