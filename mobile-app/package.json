@@ -48,5 +48,10 @@
     "check:favorites": "node scripts/check-favorites.js",
     "check:theme": "node scripts/check-theme.js"
   },
+  "overrides": {
+    "xcode": {
+      "uuid": "^11.1.1"
+    }
+  },
   "private": true
 }
