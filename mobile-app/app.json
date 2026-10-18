@@ -45,7 +45,8 @@
         }
       ],
       "./src/plugins/WallpaperManagerFix",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-secure-store"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
