@@ -4,9 +4,9 @@
 // Generate to Gallery to Settings meant repeated back taps and the Build
 // screen was only reachable from a button inside Generate. The four daily
 // destinations - Home, Generate, Gallery, Settings - now live in a bottom
-// tab bar, so each is one tap from the others. The four less-visited
-// screens - Build, Detail, Slideshow, History - push onto the root stack
-// above the tabs, so Back returns to whichever tab the user came from.
+// tab bar, so each is one tap from the others. The three less-visited
+// screens - Build, Detail, History - push onto the root stack above the
+// tabs, so Back returns to whichever tab the user came from.
 //
 // In React Navigation 7 a screen inside the tab navigator can call
 // navigation.navigate('Detail') / navigate('Build') and the call bubbles

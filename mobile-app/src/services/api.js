@@ -494,13 +494,6 @@ export const api = {
     }
     return parts.length ? `${url}?${parts.join('&')}` : url;
   },
-  slideshowConfig: () => request('/api/slideshow/config'),
-  setSlideshowConfig: (config) =>
-    request('/api/slideshow/config', {
-      method: 'POST',
-      body: JSON.stringify(config),
-    }),
-  slideshowNext: () => request('/api/slideshow/next'),
 };
 
 export default api;

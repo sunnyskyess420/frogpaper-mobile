@@ -3,7 +3,7 @@
  * check-navigation.js - catch the "stack screen calls a tab screen directly"
  * regression that shipped with the bottom-tab refactor.
  *
- * Root-stack screens (Build, Detail, History, Slideshow) are siblings of the
+ * Root-stack screens (Build, Detail, History) are siblings of the
  * Tabs navigator, not children of it. `navigation.navigate('Generate')` from
  * one of them is not handled by the root stack, so the button silently does
  * nothing. The working form is:
@@ -23,7 +23,6 @@ const ROOT_SCREENS = [
   'DetailScreen.js',
   'HistoryScreen.js',
   'PromptBuilderScreen.js',
-  'SlideshowScreen.js',
 ];
 
 let passes = 0;

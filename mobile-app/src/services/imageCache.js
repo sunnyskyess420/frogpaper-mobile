@@ -1,6 +1,6 @@
 // Offline image cache.
 //
-// Every gallery tile, detail view and slideshow frame points at
+// Every gallery tile and detail view points at
 // /api/images/<filename>. When the backend is unreachable those requests fail
 // and the UI would show empty boxes even though the wallpaper still exists on
 // this phone. This module keeps a copy of the newest images on the device,
