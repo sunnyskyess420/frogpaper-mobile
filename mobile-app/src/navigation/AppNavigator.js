@@ -29,7 +29,6 @@ import DetailScreen from '../screens/DetailScreen';
 import HomeScreen from '../screens/HomeScreen';
 import PromptBuilderScreen from '../screens/PromptBuilderScreen';
 import SettingsScreen from '../screens/SettingsScreen';
-import SlideshowScreen from '../screens/SlideshowScreen';
 import HistoryScreen from '../screens/HistoryScreen';
 
 // Shared by the tab headers and the stack-push headers so a Build header
@@ -140,12 +139,11 @@ export default function AppNavigator() {
         component={TabsNavigator}
         options={{ headerShown: false }}
       />
-      {/* The four less-visited screens push on top of the tabs. Back
+      {/* The three less-visited screens push on top of the tabs. Back
           returns to whichever tab the user came from because the tab
           navigator is the previous stack entry. */}
       <Stack.Screen name="Build" component={PromptBuilderScreen} options={{ title: 'Build' }} />
       <Stack.Screen name="Detail" component={DetailScreen} options={{ title: 'Detail' }} />
-      <Stack.Screen name="Slideshow" component={SlideshowScreen} options={{ title: 'Slideshow' }} />
       <Stack.Screen name="History" component={HistoryScreen} options={{ title: 'Prompt history' }} />
     </Stack.Navigator>
   );
