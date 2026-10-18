@@ -17,6 +17,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { recordError } from './errorLog';
 import { getDeviceId } from './deviceId';
 
@@ -111,24 +112,135 @@ const deviceIdPreloadPromise = accessKeyPreloadPromise
 // These functions store the user's personal API keys on this device only.
 // They are sent as headers on every generate request and never appear in
 // URLs, body, or logs. They persist across app restarts until cleared.
+//
+// Storage backend:
+//   - Native (Android/iOS): expo-secure-store. Encrypted at rest by the OS
+//     keychain / Keystore, never written to plain files.
+//   - Web: expo-secure-store is native-only. We fall back to AsyncStorage on
+//     web. AsyncStorage on web is sandboxed but not encrypted - it is a
+//     development convenience, not a security boundary. The native build
+//     never lands a key in AsyncStorage once migration has run.
+//
+// Migration: a previous release stored these keys in AsyncStorage. On the
+// first SecureStore read of a key that is empty, we look for the matching
+// legacy AsyncStorage value, copy it into SecureStore, then delete the
+// legacy key. The migration is idempotent - once the legacy key is gone
+// the migration step becomes a no-op.
+
+// True only when SecureStore is usable on this platform. Computed once on
+// module load so we don't re-evaluate Platform.OS on every key read.
+const USE_SECURE_STORE = Platform.OS === 'android' || Platform.OS === 'ios';
+
+// Reads a BYOK key from the active backend (SecureStore on native,
+// AsyncStorage on web). Returns null when absent or unreadable - the
+// caller treats null as "no key saved".
+async function _readByokKey(storageKey) {
+  try {
+    if (USE_SECURE_STORE) {
+      return await SecureStore.getItemAsync(storageKey);
+    }
+    return await AsyncStorage.getItem(storageKey);
+  } catch (error) {
+    // An unreadable secret store must never throw upwards - the app
+    // should treat this the same as "no key saved" and continue.
+    return null;
+  }
+}
+
+// Writes a BYOK key to the active backend. Never throws: a failed write
+// is swallowed so the caller's UX (Settings -> Save) is not blocked by
+// an OS-level keychain error.
+async function _writeByokKey(storageKey, value) {
+  try {
+    if (USE_SECURE_STORE) {
+      // SecureStore uses keychain accessibility. No options dict needed -
+      // the default (secure after first unlock) is correct for an app
+      // whose secrets are only needed while it is open.
+      await SecureStore.setItemAsync(storageKey, value);
+    } else {
+      await AsyncStorage.setItem(storageKey, value);
+    }
+  } catch (error) {
+    // Swallow: keys are best-effort persistence. A failed save is
+    // still visible in-memory for this session; the user can retry.
+  }
+}
+
+// Removes a BYOK key from both backends. Used by the "Clear" buttons in
+// Settings. Also called by the migration step to wipe the legacy
+// AsyncStorage copy after a successful copy into SecureStore.
+async function _deleteByokKey(storageKey) {
+  try {
+    if (USE_SECURE_STORE) {
+      await SecureStore.deleteItemAsync(storageKey);
+    }
+  } catch (error) {
+    // ignore: SecureStore.deleteItemAsync throws when the key is absent
+  }
+  try {
+    await AsyncStorage.removeItem(storageKey);
+  } catch (error) {
+    // ignore: storage may already be empty
+  }
+}
+
+// One-shot migration for a single key: if the secure store does not have
+// it but the legacy AsyncStorage slot does, copy it across and then wipe
+// the legacy slot. After the first successful run the legacy slot is
+// empty, so this is safe to call on every read. No-op on web (SecureStore
+// is not in use, so there is nothing to migrate to).
+async function _migrateByokKey(storageKey) {
+  if (!USE_SECURE_STORE) {
+    return;
+  }
+  let secureValue;
+  try {
+    secureValue = await SecureStore.getItemAsync(storageKey);
+  } catch (error) {
+    // If we cannot even read SecureStore, do not attempt a migration:
+    // writing the legacy value back into AsyncStorage would just leave it
+    // where it already is, and writing to SecureStore would also fail.
+    return;
+  }
+  if (secureValue) {
+    return; // already migrated (or natively saved)
+  }
+  let legacyValue;
+  try {
+    legacyValue = await AsyncStorage.getItem(storageKey);
+  } catch (error) {
+    return;
+  }
+  if (!legacyValue) {
+    return;
+  }
+  try {
+    await SecureStore.setItemAsync(storageKey, legacyValue);
+    // Only wipe the legacy slot after the secure write succeeded. A crash
+    // here would leave the value in both places, which is safe - the next
+    // read picks the SecureStore copy, and the next migration call is a
+    // no-op because secureValue is now non-null.
+    await AsyncStorage.removeItem(storageKey);
+  } catch (error) {
+    // Swallow: nothing the caller can do. The legacy value is still in
+    // place, so the next launch will try the migration again.
+  }
+}
 
 async function _loadByokKey(storageKey, setter) {
-  try {
-    const value = await AsyncStorage.getItem(storageKey);
-    setter(value || '');
-    return value || '';
-  } catch (error) {
-    return '';
-  }
+  await _migrateByokKey(storageKey);
+  const value = await _readByokKey(storageKey);
+  setter(value || '');
+  return value || '';
 }
 
 async function _saveByokKey(storageKey, value, setter) {
   if (!value || value.trim() === '') {
-    await AsyncStorage.removeItem(storageKey);
+    await _deleteByokKey(storageKey);
     setter('');
   } else {
     const trimmed = value.trim();
-    await AsyncStorage.setItem(storageKey, trimmed);
+    await _writeByokKey(storageKey, trimmed);
     setter(trimmed);
   }
 }

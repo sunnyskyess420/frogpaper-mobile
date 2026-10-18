@@ -148,6 +148,21 @@ const asyncStorageMock = {
   clear: async () => storage.clear(),
 };
 
+// SecureStore mock: backs onto the same in-memory map as AsyncStorage so the
+// migration code path (read SecureStore -> fall back to AsyncStorage -> copy
+// across -> wipe legacy) is exercised end-to-end. Native-only on real
+// devices, but the headless run uses Platform.OS = 'android' so the api
+// module's USE_SECURE_STORE flag is true and this mock must exist.
+const secureStoreMock = {
+  getItemAsync: async (key) => (storage.has(key) ? storage.get(key) : null),
+  setItemAsync: async (key, value) => {
+    storage.set(key, String(value));
+  },
+  deleteItemAsync: async (key) => {
+    storage.delete(key);
+  },
+};
+
 const mocks = {
   'react-native': { Platform: { OS: 'android' } },
   'expo-constants': { __esModule: true, default: { expoConfig: null }, expoConfig: null },
@@ -158,6 +173,7 @@ const mocks = {
     Paths: { cache: new MockDirectory(cacheDirUri) },
   },
   '@react-native-async-storage/async-storage': { __esModule: true, default: asyncStorageMock },
+  'expo-secure-store': { __esModule: true, ...secureStoreMock },
 };
 
 // --- load the app's service modules ---------------------------------------

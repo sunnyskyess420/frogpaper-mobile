@@ -4,6 +4,7 @@ mobile-app/node_modules/
 mobile-app/.expo/
 mobile-app/dist/
 mobile-app/web-build/
+web-build/
 __pycache__/
 *.pyc
 

@@ -44,6 +44,7 @@
     "check:recipelib": "node scripts/check-recipe-store.js",
     "check:keywords": "node scripts/check-keyword-bank.js",
     "check:accesskey": "node scripts/check-accesskey.js",
+    "check:byok": "node scripts/check-byok.js",
     "check:versions": "node scripts/check-versions.js",
     "check:welcome": "node scripts/check-welcome.js",
     "check:update": "node scripts/check-update.js",

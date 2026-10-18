@@ -59,6 +59,24 @@ const expoConstantsStub = {
   default: { expoConfig: { version: '1.9.50' } },
 };
 
+// SecureStore mock: backs onto the same `store` map as AsyncStorage so the
+// BYOK migration code path (read SecureStore -> fall back to AsyncStorage
+// -> copy across -> wipe legacy) is exercised end-to-end. The api module
+// routes BYOK reads/writes through SecureStore on android/ios, so the stub
+// is required even though this script only checks the access-key path.
+const secureStoreStub = {
+  __esModule: true,
+  async getItemAsync(key) {
+    return store.has(key) ? store.get(key) : null;
+  },
+  async setItemAsync(key, value) {
+    store.set(key, value);
+  },
+  async deleteItemAsync(key) {
+    store.delete(key);
+  },
+};
+
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === '@react-native-async-storage/async-storage') {
@@ -69,6 +87,9 @@ Module._load = function patchedLoad(request, parent, isMain) {
   }
   if (request === 'expo-constants') {
     return expoConstantsStub;
+  }
+  if (request === 'expo-secure-store') {
+    return secureStoreStub;
   }
   return originalLoad.call(this, request, parent, isMain);
 };
