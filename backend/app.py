@@ -43,6 +43,8 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -231,6 +233,143 @@ def _prompt_fingerprint(prompt: str) -> str:
     encoded = prompt.encode("utf-8")
     digest = hashlib.sha256(encoded).hexdigest()[:8]
     return f"len:{len(prompt)}:{digest}"
+
+
+# ---------------------------------------------------------------------------
+# Per-device rate limiting on /api/generate
+# ---------------------------------------------------------------------------
+# The access key ships inside the app, so it is not a real barrier to a
+# scripted client. Without rate limiting, anyone who extracts the key can
+# spam /api/generate and burn the Pollinations quota or a server-side
+# BYOK key. This is an in-memory token-bucket-per-device limiter:
+#
+#   - max_rate_per_hour requests per device in any rolling 60-minute window
+#   - max_concurrent in-flight generations per device
+#
+# The bucket is identified by X-Device-Id (falling back to request.remote_addr
+# when no id is supplied - the same privacy boundary the rest of the API
+# already uses for gallery isolation).
+#
+# HONEST LIMITATION: gunicorn runs multiple workers, and each worker keeps
+# its own bucket. A device that hits worker A N times and worker B N times
+# in the same hour will be allowed 2N requests, not N. A correct fix needs
+# Redis or another shared store; that is intentionally out of scope for
+# this audit pass. The default of 10/hour is conservative enough that the
+# effective cap (10-20/hour across workers) is still a real ceiling, and
+# the concurrency limit (1) is the more important guard against a runaway
+# client burning provider quota.
+
+# Tunable via env so a paid deployment can raise it without a code change.
+RATE_LIMIT_MAX_PER_HOUR = int(os.environ.get("FROGPAPER_RATE_LIMIT_PER_HOUR", "10") or "10")
+RATE_LIMIT_MAX_CONCURRENT = int(os.environ.get("FROGPAPER_RATE_LIMIT_CONCURRENT", "1") or "1")
+RATE_LIMIT_WINDOW_SECONDS = 3600
+
+
+class _DeviceRateLimiter:
+    """In-memory sliding-window rate limiter keyed by device id.
+
+    Tracks two things per device:
+      - a list of timestamps of accepted requests in the last window, to
+        enforce max_per_hour.
+      - a count of currently in-flight requests, to enforce max_concurrent.
+
+    Thread-safe via a single Lock - the operations per request are O(1)
+    amortised (we trim the timestamp list lazily), so the lock is held for
+    microseconds.
+
+    The class does NOT enforce limits itself; it returns decisions so the
+    caller can format the 429 response with the right `retry_after`.
+    """
+
+    def __init__(self, max_per_hour, max_concurrent, window_seconds):
+        self.max_per_hour = max_per_hour
+        self.max_concurrent = max_concurrent
+        self.window_seconds = window_seconds
+        self._lock = threading.Lock()
+        # device_id -> list[timestamp] of accepted requests in the window.
+        self._hits: dict[str, list[float]] = {}
+        # device_id -> count of currently in-flight requests.
+        self._inflight: dict[str, int] = {}
+
+    def _prune(self, now, hits):
+        """Drop timestamps that fell out of the rolling window in place."""
+        cutoff = now - self.window_seconds
+        # hits is sorted ascending because we always append; trim from the
+        # front until the first entry is inside the window.
+        i = 0
+        while i < len(hits) and hits[i] <= cutoff:
+            i += 1
+        if i > 0:
+            del hits[:i]
+
+    def acquire(self, device_id):
+        """Try to admit one request from `device_id`.
+
+        Returns ``(allowed: bool, retry_after: int)``. ``retry_after`` is 0
+        when allowed. When refused for the rate limit it is the number of
+        seconds until the oldest hit in the window expires. When refused
+        for the concurrency cap it is 0 (the in-flight request could free
+        up at any moment - the caller should retry shortly).
+        """
+        if not device_id:
+            device_id = "anonymous"
+        now = time.monotonic()
+        with self._lock:
+            hits = self._hits.setdefault(device_id, [])
+            self._prune(now, hits)
+            if len(hits) >= self.max_per_hour:
+                # Oldest hit still in the window: when it expires, a slot
+                # opens up. That is the soonest the caller can retry.
+                oldest = hits[0]
+                retry_after = max(1, int((oldest + self.window_seconds) - now) + 1)
+                return False, retry_after
+            inflight = self._inflight.get(device_id, 0)
+            if inflight >= self.max_concurrent:
+                # An in-flight request could finish any moment; ask the
+                # client to retry after a short back-off rather than the
+                # full rate window.
+                return False, 1
+            # Admit: record the timestamp and bump the in-flight count.
+            hits.append(now)
+            self._inflight[device_id] = inflight + 1
+            return True, 0
+
+    def release(self, device_id):
+        """Mark one in-flight request for `device_id` as finished.
+
+        Must be called exactly once for every successful acquire(). Safe
+        to call with an unknown device id (no-op).
+        """
+        if not device_id:
+            device_id = "anonymous"
+        with self._lock:
+            inflight = self._inflight.get(device_id, 0)
+            if inflight <= 1:
+                self._inflight.pop(device_id, None)
+            else:
+                self._inflight[device_id] = inflight - 1
+
+
+# One limiter per worker process. See the HONEST LIMITATION note above.
+_GENERATE_LIMITER = _DeviceRateLimiter(
+    RATE_LIMIT_MAX_PER_HOUR,
+    RATE_LIMIT_MAX_CONCURRENT,
+    RATE_LIMIT_WINDOW_SECONDS,
+)
+
+
+def _rate_limit_device_id():
+    """The device id used to key rate-limiting, falling back to remote_addr.
+
+    Uses _request_device_id() (the same boundary the gallery uses) when
+    present, so the rate limit is the same privacy unit as image ownership.
+    When no device id is supplied we fall back to request.remote_addr so a
+    caller without an id still gets *some* ceiling, not unlimited access.
+    """
+    device_id = _request_device_id()
+    if device_id:
+        return device_id
+    return (request.remote_addr or "anonymous").strip() or "anonymous"
 
 
 # --- image hand-off window ---------------------------------------------------
@@ -427,181 +566,226 @@ def generate():
     if len(prompt) > 600:
         return _error_response("Prompt must be 600 characters or fewer.", 400)
 
-    negative_prompt = str(data.get("negative_prompt") or "").strip()
-    if len(negative_prompt) > MAX_NEGATIVE_PROMPT_LENGTH:
-        return _error_response(
-            f"Negative prompt must be {MAX_NEGATIVE_PROMPT_LENGTH} characters or fewer.", 400
+    # Per-device rate limit. Checked AFTER prompt validation so a malformed
+    # request (too short / too long) does not consume a slot, but BEFORE
+    # any BYOK key read or provider work, so a refused request never burns
+    # a server-side key or exposes the BYOK header to provider code.
+    # The slot is held until the response is sent (success or error) so
+    # the concurrency cap reflects the full in-flight cost of the call,
+    # including image download and sidecar write.
+    rl_device_id = _rate_limit_device_id()
+    allowed, retry_after = _GENERATE_LIMITER.acquire(rl_device_id)
+    if not allowed:
+        # The retry_after hint is the soonest the caller may succeed; cap
+        # it at the full window so a misbehaving client cannot be told to
+        # wait a week.
+        retry_after = max(1, min(int(retry_after), RATE_LIMIT_WINDOW_SECONDS))
+        log.info(
+            "Generate refused (rate limit): device=%s retry_after=%ds",
+            rl_device_id,
+            retry_after,
         )
+        response = jsonify({
+            "success": False,
+            "error": {
+                "message": (
+                    "Rate limit reached. FrogPaper allows "
+                    f"{RATE_LIMIT_MAX_PER_HOUR} generations per hour per device. "
+                    f"Try again in {retry_after} second"
+                    f"{'s' if retry_after != 1 else ''}."
+                ),
+                "status": 429,
+                "retry_after": retry_after,
+            },
+        })
+        response.status_code = 429
+        # Standard HTTP header for the same hint, so generic HTTP clients
+        # (curl, axios default handlers) also pick it up.
+        response.headers["Retry-After"] = str(retry_after)
+        return response
 
-    width = _parse_int(data.get("width"), 1080, 256, 2048)
-    height = _parse_int(data.get("height"), 1920, 256, 2560)
-    # Legacy 16:9 portrait requests are rendered in the phone's real tall
-    # shape so wallpapers fill the screen with no zoom or side cropping.
-    width, height = fit_device_wallpaper(width, height)
-    seed = data.get("seed")
-    if seed is not None:
-        seed = _parse_int(seed, 1, 1, 999999999)
-
-    # Clear anything past its hand-off window before making room for this one.
-    sweep_handoff_images()
-
-    refresh_provider_statuses()
-    provider_id = str(data.get("provider") or default_provider_id()).strip().lower()
-    provider = next((p for p in PROVIDERS if p["id"] == provider_id), None)
-    if provider is None:
-        return _error_response(f"Unknown provider '{provider_id}'.", 400)
-    if provider["status"] != "active" and not (
-        (provider["id"] == "gemini" and _read_user_key("X-Gemini-Key"))
-        or (provider["id"] == "huggingface" and _read_user_key("X-Hf-Token"))
-        or (provider["id"] == "replicate" and _read_user_key("X-Replicate-Token"))
-    ):
-        return _error_response(f"Provider '{provider_id}' is not available yet.", 503)
-
-    # BYOK: read user-supplied keys from headers. Keys are never logged
-    # (see _read_user_key docstring). They are passed to the provider
-    # function for THIS request only, then discarded.
-    user_gemini_key = _read_user_key("X-Gemini-Key")
-    user_hf_token = _read_user_key("X-Hf-Token")
-    user_replicate_token = _read_user_key("X-Replicate-Token")
-    byok_summary = []
-    if user_gemini_key:
-        byok_summary.append("gemini")
-    if user_hf_token:
-        byok_summary.append("huggingface")
-    if user_replicate_token:
-        byok_summary.append("replicate")
-
-    log.info(
-        "Generate request: prompt=%s %dx%d provider=%s byok=%s",
-        _prompt_fingerprint(prompt),
-        width,
-        height,
-        provider_id,
-        ",".join(byok_summary) if byok_summary else "none",
-    )
     try:
-        if provider_id == "replicate":
-            try:
-                image = _run_provider(
-                    generate_image_replicate,
-                    prompt=prompt,
-                    width=width,
-                    height=height,
-                    seed=seed,
-                    negative_prompt=negative_prompt or None,
-                    user_api_token=user_replicate_token,
-                )
-            except GenerationError as rep_exc:
-                # Safety net: a bad token / outage / rejected request must
-                # never block the user - fall back to the free provider.
-                fallback = next(
-                    (p for p in PROVIDERS if p["id"] == "pollinations"), None
-                )
-                if fallback is None or fallback["status"] != "active":
-                    raise
-                log.warning(
-                    "Replicate failed (%s); falling back to Pollinations",
-                    rep_exc,
-                )
-                image = _run_provider(
-                    generate_image,
-                    prompt=prompt,
-                    width=width,
-                    height=height,
-                    seed=seed,
-                    model=fallback.get("model", "flux"),
-                    negative_prompt=negative_prompt or None,
-                )
-                image["provider_fallback_from"] = "replicate"
-                image["fallback_reason"] = str(rep_exc)
-        elif provider_id == "gemini":
-            try:
-                image = _run_provider(
-                    generate_image_gemini,
-                    prompt=prompt,
-                    width=width,
-                    height=height,
-                    seed=seed,
-                    model=provider.get("model", "gemini-2.5-flash-image"),
-                    negative_prompt=negative_prompt or None,
-                    user_api_key=user_gemini_key,
-                )
-            except GenerationError as gem_exc:
-                # Safety net: a broken/expired/rejected Gemini key must never
-                # block the user - fall back to the free provider instead.
-                fallback = next(
-                    (p for p in PROVIDERS if p["id"] == "pollinations"), None
-                )
-                if fallback is None or fallback["status"] != "active":
-                    raise
-                log.warning(
-                    "Gemini failed (%s); falling back to Pollinations", gem_exc
-                )
-                image = _run_provider(
-                    generate_image,
-                    prompt=prompt,
-                    width=width,
-                    height=height,
-                    seed=seed,
-                    model=fallback.get("model", "flux"),
-                    negative_prompt=negative_prompt or None,
-                )
-                image["provider_fallback_from"] = "gemini"
-                image["fallback_reason"] = str(gem_exc)
-        elif provider_id == "huggingface":
-            try:
-                image = _run_provider(
-                    generate_image_huggingface,
-                    prompt=prompt,
-                    width=width,
-                    height=height,
-                    seed=seed,
-                    negative_prompt=negative_prompt or None,
-                    user_api_token=user_hf_token,
-                )
-            except GenerationError as hf_exc:
-                # Safety net: a bad token / DNS outage / gated model must
-                # never block the user - fall back to the free provider.
-                fallback = next(
-                    (p for p in PROVIDERS if p["id"] == "pollinations"), None
-                )
-                if fallback is None or fallback["status"] != "active":
-                    raise
-                log.warning(
-                    "Hugging Face failed (%s); falling back to Pollinations",
-                    hf_exc,
-                )
-                image = _run_provider(
-                    generate_image,
-                    prompt=prompt,
-                    width=width,
-                    height=height,
-                    seed=seed,
-                    model=fallback.get("model", "flux"),
-                    negative_prompt=negative_prompt or None,
-                )
-                image["provider_fallback_from"] = "huggingface"
-                image["fallback_reason"] = str(hf_exc)
-        else:
-            image = _run_provider(
-                generate_image,
-                prompt=prompt,
-                width=width,
-                height=height,
-                seed=seed,
-                model=provider.get("model", "flux"),
-                negative_prompt=negative_prompt or None,
+        negative_prompt = str(data.get("negative_prompt") or "").strip()
+        if len(negative_prompt) > MAX_NEGATIVE_PROMPT_LENGTH:
+            return _error_response(
+                f"Negative prompt must be {MAX_NEGATIVE_PROMPT_LENGTH} characters or fewer.", 400
             )
-    except GenerationError as exc:
-        log.error("Generation failed: %s", exc)
-        return _error_response(
-            "The image provider failed to return an image.",
-            502,
-            {"cause": str(exc)},
-        )
 
-    log.info("Generated %s", image["filename"])
-    return jsonify({"success": True, "image": image}), 201
+        width = _parse_int(data.get("width"), 1080, 256, 2048)
+        height = _parse_int(data.get("height"), 1920, 256, 2560)
+        # Legacy 16:9 portrait requests are rendered in the phone's real tall
+        # shape so wallpapers fill the screen with no zoom or side cropping.
+        width, height = fit_device_wallpaper(width, height)
+        seed = data.get("seed")
+        if seed is not None:
+            seed = _parse_int(seed, 1, 1, 999999999)
+
+        # Clear anything past its hand-off window before making room for this one.
+        sweep_handoff_images()
+
+        refresh_provider_statuses()
+        provider_id = str(data.get("provider") or default_provider_id()).strip().lower()
+        provider = next((p for p in PROVIDERS if p["id"] == provider_id), None)
+        if provider is None:
+            return _error_response(f"Unknown provider '{provider_id}'.", 400)
+        if provider["status"] != "active" and not (
+            (provider["id"] == "gemini" and _read_user_key("X-Gemini-Key"))
+            or (provider["id"] == "huggingface" and _read_user_key("X-Hf-Token"))
+            or (provider["id"] == "replicate" and _read_user_key("X-Replicate-Token"))
+        ):
+            return _error_response(f"Provider '{provider_id}' is not available yet.", 503)
+
+        # BYOK: read user-supplied keys from headers. Keys are never logged
+        # (see _read_user_key docstring). They are passed to the provider
+        # function for THIS request only, then discarded.
+        user_gemini_key = _read_user_key("X-Gemini-Key")
+        user_hf_token = _read_user_key("X-Hf-Token")
+        user_replicate_token = _read_user_key("X-Replicate-Token")
+        byok_summary = []
+        if user_gemini_key:
+            byok_summary.append("gemini")
+        if user_hf_token:
+            byok_summary.append("huggingface")
+        if user_replicate_token:
+            byok_summary.append("replicate")
+
+        log.info(
+            "Generate request: prompt=%s %dx%d provider=%s byok=%s",
+            _prompt_fingerprint(prompt),
+            width,
+            height,
+            provider_id,
+            ",".join(byok_summary) if byok_summary else "none",
+        )
+        try:
+            if provider_id == "replicate":
+                try:
+                    image = _run_provider(
+                        generate_image_replicate,
+                        prompt=prompt,
+                        width=width,
+                        height=height,
+                        seed=seed,
+                        negative_prompt=negative_prompt or None,
+                        user_api_token=user_replicate_token,
+                    )
+                except GenerationError as rep_exc:
+                    # Safety net: a bad token / outage / rejected request must
+                    # never block the user - fall back to the free provider.
+                    fallback = next(
+                        (p for p in PROVIDERS if p["id"] == "pollinations"), None
+                    )
+                    if fallback is None or fallback["status"] != "active":
+                        raise
+                    log.warning(
+                        "Replicate failed (%s); falling back to Pollinations",
+                        rep_exc,
+                    )
+                    image = _run_provider(
+                        generate_image,
+                        prompt=prompt,
+                        width=width,
+                        height=height,
+                        seed=seed,
+                        model=fallback.get("model", "flux"),
+                        negative_prompt=negative_prompt or None,
+                    )
+                    image["provider_fallback_from"] = "replicate"
+                    image["fallback_reason"] = str(rep_exc)
+            elif provider_id == "gemini":
+                try:
+                    image = _run_provider(
+                        generate_image_gemini,
+                        prompt=prompt,
+                        width=width,
+                        height=height,
+                        seed=seed,
+                        model=provider.get("model", "gemini-2.5-flash-image"),
+                        negative_prompt=negative_prompt or None,
+                        user_api_key=user_gemini_key,
+                    )
+                except GenerationError as gem_exc:
+                    # Safety net: a broken/expired/rejected Gemini key must never
+                    # block the user - fall back to the free provider instead.
+                    fallback = next(
+                        (p for p in PROVIDERS if p["id"] == "pollinations"), None
+                    )
+                    if fallback is None or fallback["status"] != "active":
+                        raise
+                    log.warning(
+                        "Gemini failed (%s); falling back to Pollinations", gem_exc
+                    )
+                    image = _run_provider(
+                        generate_image,
+                        prompt=prompt,
+                        width=width,
+                        height=height,
+                        seed=seed,
+                        model=fallback.get("model", "flux"),
+                        negative_prompt=negative_prompt or None,
+                    )
+                    image["provider_fallback_from"] = "gemini"
+                    image["fallback_reason"] = str(gem_exc)
+            elif provider_id == "huggingface":
+                try:
+                    image = _run_provider(
+                        generate_image_huggingface,
+                        prompt=prompt,
+                        width=width,
+                        height=height,
+                        seed=seed,
+                        negative_prompt=negative_prompt or None,
+                        user_api_token=user_hf_token,
+                    )
+                except GenerationError as hf_exc:
+                    # Safety net: a bad token / DNS outage / gated model must
+                    # never block the user - fall back to the free provider.
+                    fallback = next(
+                        (p for p in PROVIDERS if p["id"] == "pollinations"), None
+                    )
+                    if fallback is None or fallback["status"] != "active":
+                        raise
+                    log.warning(
+                        "Hugging Face failed (%s); falling back to Pollinations",
+                        hf_exc,
+                    )
+                    image = _run_provider(
+                        generate_image,
+                        prompt=prompt,
+                        width=width,
+                        height=height,
+                        seed=seed,
+                        model=fallback.get("model", "flux"),
+                        negative_prompt=negative_prompt or None,
+                    )
+                    image["provider_fallback_from"] = "huggingface"
+                    image["fallback_reason"] = str(hf_exc)
+            else:
+                image = _run_provider(
+                    generate_image,
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    seed=seed,
+                    model=provider.get("model", "flux"),
+                    negative_prompt=negative_prompt or None,
+                )
+        except GenerationError as exc:
+            log.error("Generation failed: %s", exc)
+            return _error_response(
+                "The image provider failed to return an image.",
+                502,
+                {"cause": str(exc)},
+            )
+
+        log.info("Generated %s", image["filename"])
+        return jsonify({"success": True, "image": image}), 201
+    finally:
+        # Always release the rate-limit slot, whether the request succeeded,
+        # was rejected by the provider, or threw an unexpected exception.
+        # A leaked slot would silently drop the per-device concurrency cap
+        # to zero for that device until the worker restarts.
+        _GENERATE_LIMITER.release(rl_device_id)
 
 
 @app.get("/api/gallery")
