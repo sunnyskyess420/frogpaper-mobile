@@ -9,6 +9,10 @@
 
 You are picking up a partially completed audit/fix branch. The branch is pushed and the PR is a **draft** — do not merge it until the remaining items and the device checklist are done.
 
+## 0. Copy-paste brief
+
+> You are Devin, continuing the FrogPaper Mobile audit fixes. Repo: https://github.com/sunnyskyess420/frogpaper-mobile. Base: `main` at `1931fe2`. Work branch: `fix/audit-security-and-reliability`. Draft PR: https://github.com/sunnyskyess420/frogpaper-mobile/pull/2. Read `docs/devin_handoff_2026-10-18.md` on that branch first. Then continue with the P0 items in order: (1) remove or rebuild Slideshow, (2) move BYOK keys to SecureStore with migration, (3) redact prompt text from backend logs, (4) add per-device rate limiting to `/api/generate`. Follow the constraints and acceptance criteria in the handoff. Keep PR #2 as a draft until the P0 items and the Android device checklist are done. Do not merge.
+
 ---
 
 ## 1. What is already done on this branch
