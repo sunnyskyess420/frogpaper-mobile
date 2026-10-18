@@ -1,13 +1,13 @@
-# Devin Handoff — FrogPaper Mobile Audit Fixes
+﻿# Devin Handoff â€” FrogPaper Mobile Audit Fixes
 
 **Date:** 2026-10-18  
 **Repo:** https://github.com/sunnyskyess420/frogpaper-mobile  
 **Base:** `main` at `1931fe2`  
 **Work branch:** `fix/audit-security-and-reliability` (code commit `897e163`; later commits add this handoff)  
 **Draft PR:** https://github.com/sunnyskyess420/frogpaper-mobile/pull/2  
-**Audit report:** `deliverables/frogpaper-app-audit-2026-10-18.md` (local artifact; summary below)
+**Audit report:** `docs/audit_2026-10-18.md` (full audit report)
 
-You are picking up a partially completed audit/fix branch. The branch is pushed and the PR is a **draft** — do not merge it until the remaining items and the device checklist are done.
+You are picking up a partially completed audit/fix branch. The branch is pushed and the PR is a **draft** â€” do not merge it until the remaining items and the device checklist are done.
 
 ## 0. Copy-paste brief
 
@@ -19,7 +19,7 @@ You are picking up a partially completed audit/fix branch. The branch is pushed 
 
 All of the following are committed and tested:
 
-1. **Root-stack → tab navigation fixed.**
+1. **Root-stack â†’ tab navigation fixed.**
    - `DetailScreen.js`, `HistoryScreen.js`, `PromptBuilderScreen.js`, and `SlideshowScreen.js` are on the root stack. They previously called `navigation.navigate('Generate')` / `navigate('Gallery')`, which the root stack does not contain, so the buttons silently did nothing.
    - They now use:
      ```js
@@ -30,7 +30,7 @@ All of the following are committed and tested:
      );
      ```
    - `pop: true` is required. Without it, the stack pushes a second `Tabs` instance instead of returning to the existing one.
-   - Verified end-to-end in the web build: **Build → Cinematic → Use this prompt** lands on Generate with the 371-character prompt and Avoid list populated.
+   - Verified end-to-end in the web build: **Build â†’ Cinematic â†’ Use this prompt** lands on Generate with the 371-character prompt and Avoid list populated.
    - Regression check: `mobile-app/scripts/check-navigation.js`.
 
 2. **Cross-device gallery leaks closed.**
@@ -56,7 +56,7 @@ All of the following are committed and tested:
    - `GalleryScreen.js` used `useFocusEffect` with a stale `images.length` closure, so every focus showed a spinner. Now uses `imageCountRef`.
 
 7. **Duplicate offline queue runs prevented.**
-   - `generationQueue.js` has a module-level in-flight promise; Home’s automatic run and Generate’s manual run join the same pass.
+   - `generationQueue.js` has a module-level in-flight promise; Homeâ€™s automatic run and Generateâ€™s manual run join the same pass.
    - `check-offline.js` includes a new concurrency check.
 
 8. **BYOK headers scoped.**
@@ -131,13 +131,13 @@ Do not commit `.venv`, `node_modules`, `web-build`, generated `android/`, or tok
 - **BYOK keys** belong only on `/api/providers` and `/api/generate` requests. Do not re-add them to `request()` globally.
 - **Do not re-enable Sentry** until `@sentry/react-native` supports Gradle 9 / Expo SDK 57. The current `react-native.config.js` disables native autolinking intentionally.
 - **Do not upgrade `react-native-wallpaper-manager`** blindly. `WallpaperManagerFix.js` patches its 2016 native code at prebuild time; treat that as load-bearing.
-- **Access key is shipped in the app** and is not real security. Device ids are the privacy boundary. Do not weaken ownership checks to “make tests pass.”
+- **Access key is shipped in the app** and is not real security. Device ids are the privacy boundary. Do not weaken ownership checks to â€œmake tests pass.â€
 
 ---
 
 ## 4. Remaining work, in priority order
 
-### P0 — product/security decisions
+### P0 â€” product/security decisions
 
 #### 4.1 Slideshow: remove it or finish it
 
@@ -147,12 +147,12 @@ Do not commit `.venv`, `node_modules`, `web-build`, generated `android/`, or tok
 - `SlideshowScreen` is registered in `AppNavigator`, but no screen navigates to it.
 - It does **not** call `setAsWallpaper`; it only displays an image and offers Save.
 - `slideshow_config.json` is a single server-wide config, not per device.
-- `/api/slideshow/next` lists **all** images, not just the caller’s.
+- `/api/slideshow/next` lists **all** images, not just the callerâ€™s.
 - The JS interval only runs while the screen is mounted; it cannot change the wallpaper in the background.
 
 **Recommendation:** remove the route and screen for now. It is unreachable dead code and its copy promises behavior it does not deliver. If the product wants it back, rebuild it properly:
 - Store config per device id (`{"devices": {"<id>": {...}}}`) with migration from the old flat file.
-- `GET`/`POST /api/slideshow/config` read/write the caller’s entry.
+- `GET`/`POST /api/slideshow/config` read/write the callerâ€™s entry.
 - `/api/slideshow/next` filters `IMAGE_STORAGE.list_images()` by `entry.get("device") == device_id`.
 - On each interval, call `setAsWallpaper(api.imageUrl(filename))`; if `{ok:false}`, stop and show the message.
 - Make the copy explicit that the app must stay open/foreground, or add a native background task if that is truly required.
@@ -195,7 +195,7 @@ Do not commit `.venv`, `node_modules`, `web-build`, generated `android/`, or tok
 
 **Acceptance:** 11th request in the window returns 429; a second device is unaffected; tests cover the boundary.
 
-### P1 — reliability and performance
+### P1 â€” reliability and performance
 
 #### 4.5 Gallery listing performance
 
@@ -206,7 +206,7 @@ Do not commit `.venv`, `node_modules`, `web-build`, generated `android/`, or tok
 **Do, in order:**
 1. Reduce `DIMENSION_HEADER_BYTES` from `512 * 1024` to `64 * 1024` (PNG IHDR/JPEG SOF are early).
 2. Prefer `width`/`height` already present in the sidecar before reading image bytes.
-3. Add a short-lived entry cache keyed by `(name, size, last_modified)` so repeated gallery polls don’t re-read sidecars.
+3. Add a short-lived entry cache keyed by `(name, size, last_modified)` so repeated gallery polls donâ€™t re-read sidecars.
 4. Add storage-level pagination (`list_images_page(limit, offset)`) so only the requested page is enriched. Device filtering still needs sidecar reads; cache helps.
 5. Store actual `width`/`height` in generated sidecars so most entries never need an image header read.
 
@@ -232,15 +232,15 @@ Do not commit `.venv`, `node_modules`, `web-build`, generated `android/`, or tok
 
 **Acceptance:** repeated shares do not grow cache usage indefinitely.
 
-#### 4.8 Home “server wallpapers” count is global
+#### 4.8 Home â€œserver wallpapersâ€ count is global
 
 **Files:** `backend/app.py` (`/api/health`), `mobile-app/src/screens/HomeScreen.js`.
 
-**Current:** `images_count` counts every install’s images, and Home shows it as “N wallpapers on the server.”
+**Current:** `images_count` counts every installâ€™s images, and Home shows it as â€œN wallpapers on the server.â€
 
-**Do:** either label it generically (“Server gallery”) or add a per-device count. A cheap option is `/api/gallery?limit=1` for the own total, but don’t make `/api/health` expensive again.
+**Do:** either label it generically (â€œServer galleryâ€) or add a per-device count. A cheap option is `/api/gallery?limit=1` for the own total, but donâ€™t make `/api/health` expensive again.
 
-**Acceptance:** Home never displays another user’s image count.
+**Acceptance:** Home never displays another userâ€™s image count.
 
 #### 4.9 Upload timeout
 
@@ -248,11 +248,11 @@ Do not commit `.venv`, `node_modules`, `web-build`, generated `android/`, or tok
 
 **Current:** `expoFetch` has no AbortController; a stalled upload can hang forever.
 
-**Do:** add the same 60–180 s timeout pattern used by `request()`, with a user-friendly abort message.
+**Do:** add the same 60â€“180 s timeout pattern used by `request()`, with a user-friendly abort message.
 
 **Acceptance:** stalled upload fails cleanly within the timeout.
 
-### P2 — tooling, CI, dependencies
+### P2 â€” tooling, CI, dependencies
 
 #### 4.10 Add CI
 
@@ -262,14 +262,14 @@ Add `.github/workflows/ci.yml`:
 - Do not require secrets or live provider calls.
 
 Fix the two known tooling failures first:
-- `check:sentry`: Sentry is intentionally disabled; either remove the package/check or make the script report “disabled (Gradle 9)” and exit 0.
+- `check:sentry`: Sentry is intentionally disabled; either remove the package/check or make the script report â€œdisabled (Gradle 9)â€ and exit 0.
 - `check:versions`: skip the Gradle comparison when `android/app/build.gradle` is missing, or run it only after `expo prebuild`.
 
 **Acceptance:** green CI on the PR; no live-network tests required.
 
 #### 4.11 Dependency and config cleanup
 
-- `@sentry/react-native` is disabled and mismatched (6.10 vs expected ~7.11). Remove it, `react-native.config.js`, and the dead Sentry handlers/state in `SettingsScreen.js`/`sentry.js`; or keep it but make the check honest. Don’t re-enable native Sentry until Gradle 9 is supported.
+- `@sentry/react-native` is disabled and mismatched (6.10 vs expected ~7.11). Remove it, `react-native.config.js`, and the dead Sentry handlers/state in `SettingsScreen.js`/`sentry.js`; or keep it but make the check honest. Donâ€™t re-enable native Sentry until Gradle 9 is supported.
 - Run `npx expo install --check` and upgrade the 8 patch-level Expo packages in a separate commit; rebuild and device-test.
 - Remove unused `axios` from `package.json`.
 - `app.json`: remove `READ_MEDIA_VIDEO` / `READ_MEDIA_AUDIO` if nothing uses them; change iOS `NSAllowsArbitraryLoads` to `NSAllowsLocalNetworking`; keep Android cleartext only for debug/LAN if possible.
@@ -288,9 +288,9 @@ Fix the two known tooling failures first:
 Do this before merging the PR:
 
 - [ ] Fresh install; welcome tour; skip.
-- [ ] Build → pick a mode → **Use this prompt** → Generate shows the prompt and Avoid list.
-- [ ] Detail → **Generate again** → Generate shows the prompt and starts generation.
-- [ ] History → **Make again** and **Edit** both reach Generate.
+- [ ] Build â†’ pick a mode â†’ **Use this prompt** â†’ Generate shows the prompt and Avoid list.
+- [ ] Detail â†’ **Generate again** â†’ Generate shows the prompt and starts generation.
+- [ ] History â†’ **Make again** and **Edit** both reach Generate.
 - [ ] Gallery: leave and return; no full-screen spinner when images exist.
 - [ ] Gallery: delete A, then B within 5 seconds; both are gone; undo B restores B.
 - [ ] Set wallpaper: home, lock, both. Force a failure (deny permission / bad URI) and confirm the app reports failure, not success.
@@ -298,7 +298,7 @@ Do this before merging the PR:
 - [ ] BYOK: save Gemini/HF/Replicate keys; restart; Settings shows **Ready**; generate with each; invalid key falls back with a visible notice.
 - [ ] Offline: queue a generation; reopen online; run queue; ensure no duplicate generation.
 - [ ] Slideshow if kept: it actually changes the wallpaper; leaving the screen stops the timer.
-- [ ] Update prompt: a newer release prompts once; “Later” suppresses that version.
+- [ ] Update prompt: a newer release prompts once; â€œLaterâ€ suppresses that version.
 
 ---
 
@@ -310,3 +310,4 @@ Do this before merging the PR:
 - Web export passes.
 - Android device checklist completed.
 - PR #2 is marked ready for review (not draft) and has a short summary of what changed since this handoff.
+
