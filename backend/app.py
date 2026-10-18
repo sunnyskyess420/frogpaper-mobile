@@ -366,9 +366,34 @@ def health():
 
 @app.get("/api/providers")
 def providers():
-    """List available image generation providers."""
+    """List available image generation providers.
+
+    The status flags in PROVIDERS describe what the *server* is configured
+    with (env var / key file), so a pure BYOK deployment reports the paid
+    engines as inactive even when the caller has saved a key on their phone.
+    The app sends those keys as headers on this request, so fold them into a
+    copy of the list for the response. The global PROVIDERS list is left
+    untouched: user keys are per-request and must never leak between callers.
+    """
     refresh_provider_statuses()
-    return jsonify({"success": True, "active": default_provider_id(), "providers": PROVIDERS})
+    byok_headers = {
+        "gemini": "X-Gemini-Key",
+        "huggingface": "X-Hf-Token",
+        "replicate": "X-Replicate-Token",
+    }
+    providers_out = []
+    for provider in PROVIDERS:
+        item = dict(provider)
+        header = byok_headers.get(item["id"])
+        if header and _read_user_key(header):
+            item["status"] = "active"
+            item["key_source"] = "user"
+        providers_out.append(item)
+    return jsonify({
+        "success": True,
+        "active": default_provider_id(),
+        "providers": providers_out,
+    })
 
 
 @app.post("/api/generate")
