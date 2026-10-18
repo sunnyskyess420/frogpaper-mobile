@@ -38,6 +38,7 @@ cd E:\\FROGPAPER\\FrogPaperMobile\\backend
 python app.py
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -209,6 +210,27 @@ def _error_response(message, status, details=None):
     if details:
         body["error"]["details"] = details
     return jsonify(body), status
+
+
+def _prompt_fingerprint(prompt: str) -> str:
+    """A non-reversible short identifier for a prompt, for server logs only.
+
+    Render log lines need *something* to correlate a "Generate request" entry
+    with the downstream "Generated <filename>" entry, but they must never
+    contain the prompt text itself. The prompt is the user's creative input
+    and is not FrogPaper's to publish.
+
+    This returns ``len:<N>:<sha256-prefix>`` - enough to spot "two requests
+    with the same prompt" or "the same request twice" without recovering the
+    text. The hash is deliberately truncated to 8 hex chars so it cannot be
+    rainbow-tabled back to a likely prompt; an attacker who needs the prompt
+    will not get it from this string.
+    """
+    if not prompt:
+        return "len:0:"
+    encoded = prompt.encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()[:8]
+    return f"len:{len(prompt)}:{digest}"
 
 
 # --- image hand-off window ---------------------------------------------------
@@ -450,8 +472,8 @@ def generate():
         byok_summary.append("replicate")
 
     log.info(
-        "Generate request: prompt=%r %dx%d provider=%s byok=%s",
-        prompt[:60],
+        "Generate request: prompt=%s %dx%d provider=%s byok=%s",
+        _prompt_fingerprint(prompt),
         width,
         height,
         provider_id,
