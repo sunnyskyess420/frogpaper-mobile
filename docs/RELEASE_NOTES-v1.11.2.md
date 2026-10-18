@@ -1,6 +1,6 @@
-# FrogPaper Mobile 1.11.2 - release notes
+# FrogPaper Mobile 1.12.0 - release notes
 
-**App 1.11.2 (versionCode 51) · Android 7.0+**
+**App 1.12.0 (versionCode 51) · Android 7.0+**
 
 A small, focused fix: automatic wallpapers now use the engine you picked.
 

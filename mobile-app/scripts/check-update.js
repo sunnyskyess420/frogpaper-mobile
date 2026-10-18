@@ -140,7 +140,7 @@ async function main() {
   // exactly once per version - the same version dismissed suppresses it,
   // but a still newer release later re-prompts.
   console.log('\nshouldPromptUpdate');
-  const updateRecord = { state: 'update', current: '1.11.2', latest: '1.12.0', url: 'https://example.test/release' };
+  const updateRecord = { state: 'update', current: '1.12.0', latest: '1.12.0', url: 'https://example.test/release' };
   check(
     'update + no dismissal -> true',
     update.shouldPromptUpdate(updateRecord, null) === true,
@@ -170,36 +170,36 @@ async function main() {
   // Never prompt for non-update states.
   check(
     "state 'current' never prompts",
-    update.shouldPromptUpdate({ state: 'current', current: '1.11.2' }, null) === false,
-    String(update.shouldPromptUpdate({ state: 'current', current: '1.11.2' }, null))
+    update.shouldPromptUpdate({ state: 'current', current: '1.12.0' }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'current', current: '1.12.0' }, null))
   );
   check(
     "state 'offline' never prompts",
-    update.shouldPromptUpdate({ state: 'offline', current: '1.11.2' }, null) === false,
-    String(update.shouldPromptUpdate({ state: 'offline', current: '1.11.2' }, null))
+    update.shouldPromptUpdate({ state: 'offline', current: '1.12.0' }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'offline', current: '1.12.0' }, null))
   );
   check(
     "state 'none' never prompts",
-    update.shouldPromptUpdate({ state: 'none', current: '1.11.2' }, null) === false,
-    String(update.shouldPromptUpdate({ state: 'none', current: '1.11.2' }, null))
+    update.shouldPromptUpdate({ state: 'none', current: '1.12.0' }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'none', current: '1.12.0' }, null))
   );
 
   // Missing / malformed `latest` field: never prompt (the modal would have
   // nothing to advertise and nothing to compare to a dismissed version).
   check(
     'an update record with missing latest never prompts',
-    update.shouldPromptUpdate({ state: 'update', current: '1.11.2' }, null) === false,
-    String(update.shouldPromptUpdate({ state: 'update', current: '1.11.2' }, null))
+    update.shouldPromptUpdate({ state: 'update', current: '1.12.0' }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'update', current: '1.12.0' }, null))
   );
   check(
     'an update record with an empty latest never prompts',
-    update.shouldPromptUpdate({ state: 'update', current: '1.11.2', latest: '' }, null) === false,
-    String(update.shouldPromptUpdate({ state: 'update', current: '1.11.2', latest: '' }, null))
+    update.shouldPromptUpdate({ state: 'update', current: '1.12.0', latest: '' }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'update', current: '1.12.0', latest: '' }, null))
   );
   check(
     'an update record with a non-string latest never prompts',
-    update.shouldPromptUpdate({ state: 'update', current: '1.11.2', latest: 12 }, null) === false,
-    String(update.shouldPromptUpdate({ state: 'update', current: '1.11.2', latest: 12 }, null))
+    update.shouldPromptUpdate({ state: 'update', current: '1.12.0', latest: 12 }, null) === false,
+    String(update.shouldPromptUpdate({ state: 'update', current: '1.12.0', latest: 12 }, null))
   );
 
   // Malformed record / null / undefined -> never prompt, never throw.

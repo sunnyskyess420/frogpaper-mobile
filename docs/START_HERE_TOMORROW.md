@@ -5,11 +5,11 @@ versions are in the git history).
 
 ## Where things stand
 
-- **App 1.11.2** (versionCode 51) built and released; 1.11.1 is what is installed
+- **App 1.12.0** (versionCode 51) built and released; 1.11.1 is what is installed
   on the Galaxy S9 until the new APK is sideloaded. The five UX fixes from the
   2026-10-18 sweep (locked-engine BYOK sheet, honest cooldown + last-change
   record, Detail "Made with" row, bottom tabs, one-time update prompt) are
-  committed on top of 1.11.2 and pending the next release.
+  committed on top of 1.12.0 and pending the next release.
 - **Backend 1.9.45** live on Render (auto-deploys on push to `main`); the new
   prompt-slug filenames take effect on the next deploy / local run.
 - **693 app checks across 15 suites** passing (rotation 64, engine 64,

@@ -4,7 +4,7 @@ AI wallpaper studio for Android. Generate phone wallpapers from a text prompt or
 build them from dropdowns, keep them on the phone where they cannot be lost, and
 rotate them as your wallpaper.
 
-**Versions:** app **1.11.2** (versionCode 51) · backend **1.9.45**.
+**Versions:** app **1.12.0** (versionCode 51) · backend **1.9.45**.
 They move independently - the backend version changes when the API changes, the
 app version when the APK changes.
 
@@ -13,7 +13,7 @@ app version when the APK changes.
 
 ## What it does
 
-### New in 1.11.2
+### New in 1.12.0
 
 - **Automatic wallpapers use your engine** - "Once a day" / "Every time I open"
   with "Surprise me" now generate through the engine saved on the Generate
@@ -220,7 +220,7 @@ The two provider/wallpaper scripts talk to the *running* server paths and need
 |-------|--------|
 | App checks (the `check:*` suites) | PASS - 15 suites, 693 checks (`check:sentry` still needs a Sentry DSN; `check:versions` needs a generated `android/` dir) |
 | Backend checks (offline) | PASS - subject enhancer 98 + filenames 17 |
-| Release APK builds and is release-key signed | PASS - 1.11.2 / versionCode 51 (`apksigner verify`) |
+| Release APK builds and is release-key signed | PASS - 1.12.0 / versionCode 51 (`apksigner verify`) |
 | Web bundle compiles (`npx expo export --platform web`) | PASS |
 | Access key gate | PASS - `/api/gallery` 401 without the key, 200 with it |
 | Offline gallery + generation queue | PASS - verified in airplane mode on the device |
