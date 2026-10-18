@@ -48,8 +48,14 @@ export async function setAsWallpaper(remoteUrl, target = 'home') {
         resolve({ error: String(callError && callError.message) });
       }
     });
-    if (result && result.error) {
-      throw new Error(`Wallpaper error: ${result.error}`);
+    // The native module reports { status: 'success' | 'error', msg, url }.
+    // Checking only `result.error` treated every native failure (permission,
+    // decode, unsupported target) as success and told the user the wallpaper
+    // had changed. Accept the legacy error field too.
+    if (result && (result.error || result.status === 'error')) {
+      throw new Error(
+        `Wallpaper error: ${result.error || result.msg || 'unknown'}`
+      );
     }
     return { ok: true, target: which };
   } finally {

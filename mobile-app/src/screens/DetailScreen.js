@@ -551,20 +551,28 @@ export default function DetailScreen() {
   const generateAgain = () => {
     const savedPrompt = (detail?.prompt || '').trim();
     if (savedPrompt.length < 3) {
-      navigation.navigate('Generate', {
-        handoffNotice:
-          'This image has no saved prompt, so there is nothing to generate again from. The prompt field was left untouched - type a prompt to generate.',
-        handoffNoticeNonce: Date.now(),
-      });
+      // Detail lives on the root stack, above the tab navigator; Generate is
+      // inside Tabs. Navigate to the parent route first, then the tab.
+      navigation.navigate('Tabs', {
+        screen: 'Generate',
+        params: {
+          handoffNotice:
+            'This image has no saved prompt, so there is nothing to generate again from. The prompt field was left untouched - type a prompt to generate.',
+          handoffNoticeNonce: Date.now(),
+        },
+      }, { pop: true });
       return;
     }
     const nonce = Date.now();
-    navigation.navigate('Generate', {
-      builtPrompt: savedPrompt,
-      builtPromptNonce: nonce,
-      autoGenerate: true,
-      autoGenerateNonce: nonce,
-    });
+    navigation.navigate('Tabs', {
+      screen: 'Generate',
+      params: {
+        builtPrompt: savedPrompt,
+        builtPromptNonce: nonce,
+        autoGenerate: true,
+        autoGenerateNonce: nonce,
+      },
+    }, { pop: true });
   };
 
   // Deletes from whichever source is showing: the phone's own file, or the

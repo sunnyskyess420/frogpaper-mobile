@@ -355,12 +355,18 @@ export default function PromptBuilderScreen() {
     // The nonce makes sending the same prompt twice still update Generate.
     // The Avoid list travels with its own payload and nonce, so a prompt-only
     // handoff (or a repeated one) can never carry a stale negative across.
-    navigation.navigate('Generate', {
-      builtPrompt: preview,
-      builtPromptNonce: Date.now(),
-      builtNegative: negative,
-      builtNegativeNonce: Date.now(),
-    });
+    // Build is pushed on the root stack, above the tabs. Generate is a tab
+    // screen, so route through Tabs instead of asking the stack for a name it
+    // does not contain.
+    navigation.navigate('Tabs', {
+      screen: 'Generate',
+      params: {
+        builtPrompt: preview,
+        builtPromptNonce: Date.now(),
+        builtNegative: negative,
+        builtNegativeNonce: Date.now(),
+      },
+    }, { pop: true });
   };
 
   const openRow = (row) => {

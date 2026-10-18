@@ -287,6 +287,25 @@ class ImageStorage(ABC):
         entries.sort(key=lambda item: item["created_at"], reverse=True)
         return entries
 
+    def count_images(self) -> int:
+        """Cheap count for /api/health: object metadata only, no sidecars.
+
+        list_images() reads every sidecar (and may fetch image headers) to
+        build the gallery payload. Health is polled constantly and must not
+        pay that cost, so this counts the same objects without enriching
+        them.
+        """
+        try:
+            return sum(
+                1
+                for stored in self._list_objects()
+                if not stored.name.endswith(SIDECAR_SUFFIX)
+                and Path(stored.name).suffix.lower() in VALID_EXTENSIONS
+            )
+        except Exception as exc:  # noqa: BLE001 - health must stay 200
+            log.warning("Could not count the gallery: %s", exc)
+            return 0
+
     def find_image(self, filename) -> Optional[dict]:
         name = clean_name(filename)
         if not name or Path(name).suffix.lower() not in VALID_EXTENSIONS:
@@ -315,11 +334,18 @@ class ImageStorage(ABC):
         payload = json.dumps(metadata, ensure_ascii=False, indent=2).encode("utf-8")
         self._write(self.sidecar_name(name), payload, MIMETYPES[SIDECAR_SUFFIX])
 
-    def recent_prompts(self, limit: int = 12) -> list:
-        """Distinct recently-used prompts, newest first (for reuse chips)."""
+    def recent_prompts(self, limit: int = 12, device_id: Optional[str] = None) -> list:
+        """Distinct recently-used prompts, newest first (for reuse chips).
+
+        Pass ``device_id`` to keep one install's prompt text out of another's
+        history. The default (None) preserves the old storage-level behaviour
+        for callers that have already filtered the gallery.
+        """
         seen = set()
         prompts = []
         for entry in self.list_images():
+            if device_id is not None and entry.get("device") != device_id:
+                continue
             text = (entry.get("prompt") or "").strip()
             if len(text) < 3 or text in seen:
                 continue

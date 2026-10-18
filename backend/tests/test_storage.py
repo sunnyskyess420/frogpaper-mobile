@@ -252,7 +252,7 @@ check("/api/images 401 without a key", resp.status_code == 401, str(resp.status_
 resp = client.get(f"/api/images/{uploaded_name}?device=dev_teststoragesuite000001&key={ACCESS_KEY}")
 check("/api/images 200 with ?device=dev_teststoragesuite000001&key=", resp.status_code == 200, str(resp.status_code))
 check("/api/images bytes match", resp.data == PNG_1X1)
-check("/api/images cache header", resp.headers.get("Cache-Control") == "public, max-age=86400",
+check("/api/images cache header", resp.headers.get("Cache-Control") == "private, max-age=86400",
       str(resp.headers.get("Cache-Control")))
 # Windows: an open send_from_directory handle blocks the later DELETE, so
 # release the response before moving on (POSIX would not care).
@@ -448,7 +448,7 @@ else:
                   resp.headers.get("Content-Type") == "image/png",
                   str(resp.headers.get("Content-Type")))
             check("streamed cache header",
-                  resp.headers.get("Cache-Control") == "public, max-age=86400",
+                  resp.headers.get("Cache-Control") == "private, max-age=86400",
                   str(resp.headers.get("Cache-Control")))
             check("streamed Content-Length is set",
                   resp.headers.get("Content-Length") == str(len(PNG_1X1)),

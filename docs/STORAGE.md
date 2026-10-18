@@ -210,7 +210,7 @@ python backend/scripts/backup_gallery.py --url https://frogpaper-backend.onrende
   the first time it sees an image, to report width/height. Results are
   cached per object, so normal polling does not re-fetch anything.
 - **Serving is streamed through the backend**, with `Cache-Control:
-  public, max-age=86400` and an ETag, exactly like the local path. Range
+  private, max-age=86400` and an ETag, exactly like the local path. Range
   requests get the full object (S3 mode) rather than a 206.
 - **A broken bucket config fails loudly, not silently:** `GET /api/health`
   still answers (so the app can reach the backend), but gallery calls return

@@ -113,6 +113,11 @@ export async function clearQueue() {
   return queue.length;
 }
 
+// One run at a time across the whole app. Home's automatic run and the
+// Generate screen's "Run queued" button used to be able to process the same
+// snapshot concurrently, generating (and paying for) the same prompt twice.
+let activeRun = null;
+
 // Runs the queue in order, one request at a time.
 //
 // includeFailed: entries the server already refused are skipped unless this is
@@ -121,7 +126,7 @@ export async function clearQueue() {
 // gives the user a real retry.
 //
 // Returns a summary the caller can phrase for the user.
-export async function processQueue({ includeFailed = true, onProgress } = {}) {
+async function runQueue({ includeFailed = true, onProgress } = {}) {
   const snapshot = await readQueue();
   const pending = snapshot.filter((entry) => includeFailed || !entry.failed);
 
@@ -182,6 +187,18 @@ export async function processQueue({ includeFailed = true, onProgress } = {}) {
 
   summary.remaining = (await readQueue()).length;
   return summary;
+}
+
+// Shared entry point: a second caller joins the run already in flight instead
+// of starting a duplicate pass over the same entries.
+export function processQueue(options = {}) {
+  if (activeRun) {
+    return activeRun;
+  }
+  activeRun = runQueue(options).finally(() => {
+    activeRun = null;
+  });
+  return activeRun;
 }
 
 // Short human-readable outcome, shared by Home and Generate so both screens

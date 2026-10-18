@@ -47,7 +47,8 @@
     "check:welcome": "node scripts/check-welcome.js",
     "check:update": "node scripts/check-update.js",
     "check:favorites": "node scripts/check-favorites.js",
-    "check:theme": "node scripts/check-theme.js"
+    "check:theme": "node scripts/check-theme.js",
+    "check:navigation": "node scripts/check-navigation.js"
   },
   "overrides": {
     "xcode": {

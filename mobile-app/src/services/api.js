@@ -368,18 +368,20 @@ async function request(path, options = {}) {
     headers['X-Device-Id'] = deviceId;
   }
 
-  // Attach BYOK keys (if the user has set any). The backend uses these
-  // INSTEAD OF any server-side keys when present, and never logs them.
-  // All three are sent on every API request so the backend can pick the
-  // right one for whichever provider the user picked (or the default).
-  if (userGeminiKey) {
-    headers['X-Gemini-Key'] = userGeminiKey;
-  }
-  if (userHfToken) {
-    headers['X-Hf-Token'] = userHfToken;
-  }
-  if (userReplicateToken) {
-    headers['X-Replicate-Token'] = userReplicateToken;
+  // Attach BYOK keys only where the backend actually consumes them: the
+  // provider list (so saved keys can be reported as Ready) and generation.
+  // Sending secrets to unrelated endpoints only widens the exposure surface.
+  const byokEndpoint = path === '/api/providers' || path === '/api/generate';
+  if (byokEndpoint) {
+    if (userGeminiKey) {
+      headers['X-Gemini-Key'] = userGeminiKey;
+    }
+    if (userHfToken) {
+      headers['X-Hf-Token'] = userHfToken;
+    }
+    if (userReplicateToken) {
+      headers['X-Replicate-Token'] = userReplicateToken;
+    }
   }
 
   // 60s safety timeout so the UI can never spin forever; callers that pass
@@ -447,6 +449,9 @@ export const api = {
     // eslint-disable-next-line global-require
     const { File } = require('expo-file-system');
     const base = getBaseUrl();
+    // Same startup race as request(): the first upload must not go out before
+    // the saved access key has been read from AsyncStorage.
+    await accessKeyPreloadPromise;
     const form = new FormData();
     if (Platform.OS === 'web') {
       // web: turn the local blob/data URI into a real Blob part
@@ -466,16 +471,6 @@ export const api = {
     const uploadDeviceId = deviceId || (await getDeviceId());
     if (uploadDeviceId) {
       headers['X-Device-Id'] = uploadDeviceId;
-    }
-    // Attach BYOK keys on upload too (consistent with all other requests).
-    if (userGeminiKey) {
-      headers['X-Gemini-Key'] = userGeminiKey;
-    }
-    if (userHfToken) {
-      headers['X-Hf-Token'] = userHfToken;
-    }
-    if (userReplicateToken) {
-      headers['X-Replicate-Token'] = userReplicateToken;
     }
     // expo/fetch is the implementation that understands a File part.
     const response = await expoFetch(`${base}/api/gallery/upload`, {

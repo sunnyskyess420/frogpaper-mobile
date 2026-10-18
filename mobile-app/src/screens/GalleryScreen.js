@@ -119,6 +119,13 @@ export default function GalleryScreen() {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [busy, setBusy] = useState(false);
+  // useFocusEffect below must know whether the grid already has images without
+  // re-subscribing on every render (which would make it reload in a loop).
+  const imageCountRef = useRef(0);
+
+  useEffect(() => {
+    imageCountRef.current = images.length;
+  }, [images.length]);
 
   const load = useCallback(async (showSpinner = true) => {
     if (showSpinner) {
@@ -171,8 +178,7 @@ export default function GalleryScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      load(images.length === 0);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      load(imageCountRef.current === 0);
     }, [load])
   );
 

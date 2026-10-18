@@ -349,7 +349,6 @@ def _run_provider(generator, **kwargs):
 def health():
     """Health check used by the mobile app to detect the backend."""
     refresh_provider_statuses()
-    images = IMAGE_STORAGE.list_images()
     return jsonify(
         {
             "success": True,
@@ -357,7 +356,9 @@ def health():
             "app": APP_NAME,
             "version": APP_VERSION,
             "server_time": datetime.now(timezone.utc).isoformat(),
-            "images_count": len(images),
+            # Counting must not read every sidecar/dimension: this endpoint is
+            # polled by the app and by the container health check.
+            "images_count": IMAGE_STORAGE.count_images(),
             "storage": IMAGE_STORAGE.describe(),
             "providers_active": [p["id"] for p in PROVIDERS if p["status"] == "active"],
         }
@@ -591,12 +592,14 @@ def gallery():
     offset = _parse_int(request.args.get("offset"), 0, 0, 100000)
 
     # Only this install's own pictures, so the shared gallery is not a window
-    # into what anyone else has been making.
+    # into what anyone else has been making. The entry already carries its
+    # sidecar metadata, so filter on that instead of re-reading every sidecar
+    # through _owns_image().
     device_id = _request_device_id()
     images = [
         entry
         for entry in IMAGE_STORAGE.list_images()
-        if _owns_image(entry.get("filename"), device_id)
+        if device_id and entry.get("device") == device_id
     ]
     total = len(images)
     page = images[offset : offset + limit]
@@ -614,11 +617,10 @@ def gallery():
 @app.get("/api/gallery/<path:filename>")
 def gallery_detail(filename):
     """Metadata for a single gallery image."""
-    if not _owns_image(Path(filename).name, _request_device_id()):
+    device_id = _request_device_id()
+    entry = IMAGE_STORAGE.find_image(Path(filename).name)
+    if entry is None or not device_id or entry.get("device") != device_id:
         return _error_response("Image not found.", 404)
-    entry = IMAGE_STORAGE.find_image(filename)
-    if entry is None:
-        return _error_response(f"Image '{Path(filename).name}' not found.", 404)
     return jsonify({"success": True, "image": entry})
 
 
@@ -626,6 +628,11 @@ def gallery_detail(filename):
 def gallery_delete(filename):
     """Delete an image (and its sidecar) from the gallery."""
     safe_name = Path(filename).name
+    device_id = _request_device_id()
+    # A delete is a read of the same private object: without this check any
+    # install that knows a filename could erase another install's picture.
+    if not _owns_image(safe_name, device_id):
+        return _error_response("Image not found.", 404)
     try:
         deleted = IMAGE_STORAGE.delete_image(safe_name)
     except Exception as exc:  # noqa: BLE001 - storage backends raise various types
@@ -638,7 +645,11 @@ def gallery_delete(filename):
         {
             "success": True,
             "deleted": safe_name,
-            "images_count": len(IMAGE_STORAGE.list_images()),
+            "images_count": sum(
+                1
+                for entry in IMAGE_STORAGE.list_images()
+                if device_id and entry.get("device") == device_id
+            ),
         }
     )
 
@@ -671,7 +682,12 @@ def gallery_upload():
 def prompts_recent():
     """Distinct recently-used prompts, newest first (for quick-reuse chips)."""
     limit = _parse_int(request.args.get("limit"), 12, 1, 50)
-    prompts = IMAGE_STORAGE.recent_prompts(limit=limit)
+    # Prompts describe what someone asked an image model to make. They are as
+    # private as the pictures themselves, so never merge other installs' text
+    # into this list.
+    prompts = IMAGE_STORAGE.recent_prompts(
+        limit=limit, device_id=_request_device_id()
+    )
     return jsonify({"success": True, "count": len(prompts), "prompts": prompts})
 
 
@@ -712,7 +728,10 @@ def serve_image(filename):
         # download) use it for progress.
         if stored.size_bytes:
             response.content_length = stored.size_bytes
-    response.headers["Cache-Control"] = "public, max-age=86400"
+    # These images are private to one install. A shared cache must never be
+    # allowed to hand one user's wallpaper to another, so keep the day-long
+    # cache but mark it private (browser/device cache only).
+    response.headers["Cache-Control"] = "private, max-age=86400"
     return response
 
 

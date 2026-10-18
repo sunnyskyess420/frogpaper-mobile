@@ -246,7 +246,9 @@ export default function SlideshowScreen() {
               </Pressable>
               <Pressable
                 style={styles.secondaryButton}
-                onPress={() => navigation.navigate('Gallery')}
+          onPress={() =>
+            navigation.navigate('Tabs', { screen: 'Gallery' }, { pop: true })
+          }
               >
                 <Text style={styles.secondaryButtonText}>Open gallery</Text>
               </Pressable>

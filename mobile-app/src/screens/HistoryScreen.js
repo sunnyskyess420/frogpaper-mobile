@@ -115,19 +115,26 @@ export default function HistoryScreen() {
 
   const makeAgain = (item) => {
     const nonce = Date.now();
-    navigation.navigate('Generate', {
-      builtPrompt: item.prompt,
-      builtPromptNonce: nonce,
-      autoGenerate: true,
-      autoGenerateNonce: nonce,
-    });
+    // History is on the root stack; Generate lives inside the tab navigator.
+    navigation.navigate('Tabs', {
+      screen: 'Generate',
+      params: {
+        builtPrompt: item.prompt,
+        builtPromptNonce: nonce,
+        autoGenerate: true,
+        autoGenerateNonce: nonce,
+      },
+    }, { pop: true });
   };
 
   const editPrompt = (item) => {
-    navigation.navigate('Generate', {
-      builtPrompt: item.prompt,
-      builtPromptNonce: Date.now(),
-    });
+    navigation.navigate('Tabs', {
+      screen: 'Generate',
+      params: {
+        builtPrompt: item.prompt,
+        builtPromptNonce: Date.now(),
+      },
+    }, { pop: true });
   };
 
   const renderItem = ({ item }) => (

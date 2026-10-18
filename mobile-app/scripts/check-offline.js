@@ -436,6 +436,20 @@ async function checkQueue() {
   );
   check('describeQueueRun phrases the outcome', /Generated 2/.test(generationQueue.describeQueueRun(okRun)), generationQueue.describeQueueRun(okRun));
 
+  // Two callers (Home's automatic run + Generate's manual button) must not
+  // generate the same snapshot twice.
+  await generationQueue.clearQueue();
+  await generationQueue.enqueue({ prompt: 'shared prompt' });
+  bodies.length = 0;
+  const firstRun = generationQueue.processQueue({ includeFailed: false });
+  const secondRun = generationQueue.processQueue({ includeFailed: false });
+  const [firstSummary, secondSummary] = await Promise.all([firstRun, secondRun]);
+  check(
+    'concurrent callers share one queue run',
+    bodies.length === 1 && firstSummary === secondSummary && firstSummary.succeeded.length === 1,
+    JSON.stringify({ requests: bodies.length, sameSummary: firstSummary === secondSummary })
+  );
+
   await generationQueue.clearQueue();
 }
 
