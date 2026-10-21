@@ -2,11 +2,16 @@
   "expo": {
     "name": "FrogPaper Mobile",
     "slug": "frogpaper-mobile",
-    "version": "1.12.0",
+    "version": "1.13.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#140D1C",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#140D1C"
+    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -18,7 +23,7 @@
     },
     "android": {
       "package": "com.frogpaper.mobile",
-      "versionCode": 51,
+      "versionCode": 52,
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -45,8 +50,18 @@
         }
       ],
       "./src/plugins/WallpaperManagerFix",
+      "./src/plugins/SigningConfig",
       "expo-sharing",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#140D1C"
+        }
+      ]
     ],
     "web": {
       "favicon": "./assets/favicon.png"

@@ -117,7 +117,24 @@ const deviceMediaMock = {
 };
 
 const mocks = {
-  'react-native': { Platform: { OS: 'android' }, NativeModules: {} },
+  'react-native': {
+    Platform: {
+      OS: 'android',
+      select: (options) => (options && (options.android || options.default)) || null,
+    },
+    NativeModules: {},
+  },
+  // src/services/api.js pulls in the BYOK key store since P0-4.2. Rotation does
+  // not care where keys live, but the real module is ESM with extensionless
+  // imports and cannot be required under Node, so stub it out.
+  'expo-secure-store': {
+    __esModule: true,
+    async getItemAsync() {
+      return null;
+    },
+    async setItemAsync() {},
+    async deleteItemAsync() {},
+  },
   'expo-constants': { __esModule: true, default: { expoConfig: null }, expoConfig: null },
   'expo-file-system': { __esModule: true, File: class {}, Paths: { cache: {} } },
   'expo-file-system/legacy': { __esModule: true, StorageAccessFramework: {} },

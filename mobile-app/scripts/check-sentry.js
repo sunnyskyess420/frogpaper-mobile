@@ -11,7 +11,10 @@
  *
  * Checks performed:
  *   1. @sentry/react-native is listed in package.json dependencies.
- *   2. The @sentry/react-native Expo plugin is configured in app.json.
+ *   2. The @sentry/react-native Expo plugin is NOT enabled in app.json.
+ *      It was disabled in c9b44cf because sentry.gradle calls exec() on a
+ *      DefaultTask, which Gradle 9 forbids. The JS SDK still reports JS
+ *      exceptions; only native crash reporting is paused.
  *   3. The plugin's DSN is either a real DSN or a placeholder (and a real
  *      DSN is reachable via SENTRY_DSN env var or runtime AsyncStorage).
  *   4. The Sentry service module exists at src/services/sentry.js.
@@ -70,27 +73,38 @@ check('npm script "check:sentry" present', () => {
   return { ok: !!present, detail: present || 'missing' };
 });
 
-check('app.json has @sentry/react-native Expo plugin configured', () => {
+check('app.json does not enable the Gradle-9-incompatible Sentry plugin', () => {
   const appJson = readJson('app.json');
   const plugins = appJson.expo && appJson.expo.plugins;
   if (!Array.isArray(plugins)) {
     return { ok: false, detail: 'no plugins array found in app.json' };
   }
   const sentryPlugin = plugins.find(
-    (p) => Array.isArray(p) && p[0] === '@sentry/react-native',
+    (p) => Array.isArray(p) && p[0] === '@sentry/react-native'
   );
+
   if (!sentryPlugin) {
-    return { ok: false, detail: 'add ["@sentry/react-native", {...}] to plugins' };
+    // Deliberate, see c9b44cf. Not a failure: the JS SDK in
+    // src/services/sentry.js still initialises and reports JS exceptions.
+    // Only native crash reporting is paused until the package supports Gradle 9.
+    return {
+      ok: true,
+      warn: true,
+      detail:
+        'plugin intentionally absent (Gradle 9 incompatibility, c9b44cf); JS SDK still active',
+    };
   }
+
   const cfg = sentryPlugin[1] || {};
-  const dsnOk =
-    typeof cfg.dsn === 'string' &&
-    cfg.dsn &&
-    !cfg.dsn.startsWith('REPLACE_WITH');
-  return {
-    ok: true,
-    detail: `plugin present, DSN ${dsnOk ? 'set' : 'is placeholder (OK for dev, replace before prod build)'}`,
-  };
+  if (cfg.enableNative !== false) {
+    return {
+      ok: false,
+      detail:
+        '@sentry/react-native plugin is enabled - sentry.gradle breaks Gradle 9 builds. Remove it, or set enableNative:false',
+    };
+  }
+
+  return { ok: true, detail: 'plugin present with enableNative:false (safe)' };
 });
 
 check('SENTRY_DSN env var (optional override)', () => {
