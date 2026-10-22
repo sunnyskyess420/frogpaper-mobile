@@ -1,3 +1,11 @@
+<img width="1024" height="1024" alt="Gemini_Generated_Image_hpwt4bhpwt4bhpwt" src="https://github.com/user-attachments/assets/9000479d-f5d6-4508-b46f-985b50cd0a2f" />
+
+
+🎨 Meet Pip, the Chief Curator
+Pip is the official mascot of FROGPAPER. While he might look like he’s about to paint a masterpiece with his trusty brush and beret, his real job is making sure your phone and computer screen looks amazing without selling your data. Pip believes in open-source, privacy, and the perfect pixel. Say hi to him in the issues tab! 🐸
+
+
+
 # FrogPaper Mobile
 
 AI wallpaper studio for Android. Generate phone wallpapers from a text prompt or
