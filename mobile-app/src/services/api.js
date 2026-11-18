@@ -131,13 +131,22 @@ const deviceIdPreloadPromise = accessKeyPreloadPromise
 // module load so we don't re-evaluate Platform.OS on every key read.
 const USE_SECURE_STORE = Platform.OS === 'android' || Platform.OS === 'ios';
 
+// SecureStore rejects keys outside [A-Za-z0-9._-]; the '@frogpaper_...'
+// names used for AsyncStorage threw on every native write, which is why
+// Settings reported "token not saved". Translate only for the secure
+// backend - the AsyncStorage name, and any legacy value under it, is
+// unchanged, so migration keeps working.
+function secureStoreKey(storageKey) {
+  return storageKey.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
 // Reads a BYOK key from the active backend (SecureStore on native,
 // AsyncStorage on web). Returns null when absent or unreadable - the
 // caller treats null as "no key saved".
 async function _readByokKey(storageKey) {
   try {
     if (USE_SECURE_STORE) {
-      return await SecureStore.getItemAsync(storageKey);
+      return await SecureStore.getItemAsync(secureStoreKey(storageKey));
     }
     return await AsyncStorage.getItem(storageKey);
   } catch (error) {
@@ -161,7 +170,7 @@ async function _writeByokKey(storageKey, value) {
       // SecureStore uses keychain accessibility. No options dict needed -
       // the default (secure after first unlock) is correct for an app
       // whose secrets are only needed while it is open.
-      await SecureStore.setItemAsync(storageKey, value);
+      await SecureStore.setItemAsync(secureStoreKey(storageKey), value);
     } else {
       await AsyncStorage.setItem(storageKey, value);
     }
@@ -174,7 +183,7 @@ async function _writeByokKey(storageKey, value) {
 
   try {
     const stored = USE_SECURE_STORE
-      ? await SecureStore.getItemAsync(storageKey)
+      ? await SecureStore.getItemAsync(secureStoreKey(storageKey))
       : await AsyncStorage.getItem(storageKey);
     if (stored === value) {
       return true;
@@ -196,7 +205,7 @@ async function _writeByokKey(storageKey, value) {
 async function _deleteByokKey(storageKey) {
   try {
     if (USE_SECURE_STORE) {
-      await SecureStore.deleteItemAsync(storageKey);
+      await SecureStore.deleteItemAsync(secureStoreKey(storageKey));
     }
   } catch (error) {
     // ignore: SecureStore.deleteItemAsync throws when the key is absent
@@ -219,7 +228,7 @@ async function _migrateByokKey(storageKey) {
   }
   let secureValue;
   try {
-    secureValue = await SecureStore.getItemAsync(storageKey);
+    secureValue = await SecureStore.getItemAsync(secureStoreKey(storageKey));
   } catch (error) {
     // If we cannot even read SecureStore, do not attempt a migration:
     // writing the legacy value back into AsyncStorage would just leave it
@@ -239,7 +248,7 @@ async function _migrateByokKey(storageKey) {
     return;
   }
   try {
-    await SecureStore.setItemAsync(storageKey, legacyValue);
+    await SecureStore.setItemAsync(secureStoreKey(storageKey), legacyValue);
     // Only wipe the legacy slot after the secure write succeeded. A crash
     // here would leave the value in both places, which is safe - the next
     // read picks the SecureStore copy, and the next migration call is a

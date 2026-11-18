@@ -67,9 +67,19 @@ let secureStoreMode = 'ok';
 // so a slow read can be beaten by a save - that is the race in section 8.
 let secureStoreReadDelayMs = 0;
 
+// Real expo-secure-store rejects keys outside [A-Za-z0-9._-]
+// (@frogpaper_... threw on every native write - the "token not saved"
+// bug). The stub enforces the same rule so a bad key fails here too.
+function assertValidSecureKey(key) {
+  if (typeof key !== 'string' || !/^[A-Za-z0-9._-]+$/.test(key)) {
+    throw new Error('Invalid key provided to SecureStore: ' + key);
+  }
+}
+
 const secureStoreStub = {
   __esModule: true,
   async getItemAsync(key) {
+    assertValidSecureKey(key);
     const value = secureStoreMap.has(key) ? secureStoreMap.get(key) : null;
     if (secureStoreReadDelayMs) {
       await new Promise((resolve) => setTimeout(resolve, secureStoreReadDelayMs));
@@ -77,6 +87,7 @@ const secureStoreStub = {
     return value;
   },
   async setItemAsync(key, value) {
+    assertValidSecureKey(key);
     if (secureStoreMode === 'throw') {
       throw new Error('android keystore refused the write');
     }
@@ -86,6 +97,7 @@ const secureStoreStub = {
     secureStoreMap.set(key, value);
   },
   async deleteItemAsync(key) {
+    assertValidSecureKey(key);
     secureStoreMap.delete(key);
   },
 };
@@ -174,10 +186,12 @@ async function main() {
     await api[setFn](`secret-${label}-token-123`);
 
     // The save must go to SecureStore, NOT AsyncStorage (post-migration).
+    // SecureStore keys are sanitized (@ -> _) - see secureStoreKey() in api.js.
+    const secureKey = storeKey.replace("@", "_");
     check(
       `${label}: a saved key lands in SecureStore`,
-      secureStoreMap.get(storeKey) === `secret-${label}-token-123`,
-      `secureStore=${JSON.stringify(secureStoreMap.get(storeKey))} asyncStorage=${JSON.stringify(asyncStorageMap.get(storeKey))}`
+      secureStoreMap.get(secureKey) === `secret-${label}-token-123`,
+      `secureStore=${JSON.stringify(secureStoreMap.get(secureKey))} asyncStorage=${JSON.stringify(asyncStorageMap.get(storeKey))}`
     );
     check(
       `${label}: a saved key does NOT land in AsyncStorage`,
@@ -211,8 +225,8 @@ async function main() {
     await api.setGeminiKey('   padded-gemini-key   ');
     check(
       'whitespace is trimmed when saving a BYOK key',
-      secureStoreMap.get('@frogpaper_user_gemini_key') === 'padded-gemini-key',
-      JSON.stringify(secureStoreMap.get('@frogpaper_user_gemini_key'))
+      secureStoreMap.get('_frogpaper_user_gemini_key') === 'padded-gemini-key',
+      JSON.stringify(secureStoreMap.get('_frogpaper_user_gemini_key'))
     );
   }
 
@@ -227,8 +241,8 @@ async function main() {
     await api.setHfToken('');
     check(
       'clear wipes SecureStore',
-      !secureStoreMap.has('@frogpaper_user_hf_token'),
-      JSON.stringify(secureStoreMap.get('@frogpaper_user_hf_token'))
+      !secureStoreMap.has('_frogpaper_user_hf_token'),
+      JSON.stringify(secureStoreMap.get('_frogpaper_user_hf_token'))
     );
     check(
       'clear wipes the legacy AsyncStorage slot too',
@@ -259,8 +273,8 @@ async function main() {
     );
     check(
       'migration: the value is now in SecureStore',
-      secureStoreMap.get('@frogpaper_user_replicate_token') === 'legacy-replicate-key-xyz',
-      JSON.stringify(secureStoreMap.get('@frogpaper_user_replicate_token'))
+      secureStoreMap.get('_frogpaper_user_replicate_token') === 'legacy-replicate-key-xyz',
+      JSON.stringify(secureStoreMap.get('_frogpaper_user_replicate_token'))
     );
     check(
       'migration: the legacy AsyncStorage slot is wiped',
@@ -328,9 +342,9 @@ async function main() {
     );
     check(
       `honest save (${mode}): nothing is left in SecureStore`,
-      !secureStoreMap.has('@frogpaper_user_gemini_key') ||
-        secureStoreMap.get('@frogpaper_user_gemini_key') == null,
-      JSON.stringify(secureStoreMap.get('@frogpaper_user_gemini_key'))
+      !secureStoreMap.has('_frogpaper_user_gemini_key') ||
+        secureStoreMap.get('_frogpaper_user_gemini_key') == null,
+      JSON.stringify(secureStoreMap.get('_frogpaper_user_gemini_key'))
     );
     check(
       `honest save (${mode}): snapshot does not claim a saved key`,
@@ -360,8 +374,8 @@ async function main() {
     );
     check(
       'the saved key is still in SecureStore after that race',
-      secureStoreMap.get('@frogpaper_user_gemini_key') === 'typed-while-loading-key',
-      JSON.stringify(secureStoreMap.get('@frogpaper_user_gemini_key'))
+      secureStoreMap.get('_frogpaper_user_gemini_key') === 'typed-while-loading-key',
+      JSON.stringify(secureStoreMap.get('_frogpaper_user_gemini_key'))
     );
     secureStoreReadDelayMs = 0;
   }
