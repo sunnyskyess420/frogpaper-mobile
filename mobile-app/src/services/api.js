@@ -147,9 +147,14 @@ async function _readByokKey(storageKey) {
   }
 }
 
-// Writes a BYOK key to the active backend. Never throws: a failed write
-// is swallowed so the caller's UX (Settings -> Save) is not blocked by
-// an OS-level keychain error.
+// Writes a BYOK key to the active backend and proves it landed: the value is
+// read back and compared before the caller is told the save worked. Returns
+// true only when the key is really in storage.
+//
+// Why the read-back: a Keychain / Keystore write can report success and still
+// come back empty on the next launch (an invalidated Keystore entry is the
+// usual cause). Before this check Settings said "key saved" while the next
+// cold start found nothing - the exact "it does not stick" report.
 async function _writeByokKey(storageKey, value) {
   try {
     if (USE_SECURE_STORE) {
@@ -161,8 +166,27 @@ async function _writeByokKey(storageKey, value) {
       await AsyncStorage.setItem(storageKey, value);
     }
   } catch (error) {
-    // Swallow: keys are best-effort persistence. A failed save is
-    // still visible in-memory for this session; the user can retry.
+    // Report, do not swallow: Settings now says "not saved" instead of
+    // claiming a key is stored when the OS refused it.
+    recordError(error, `byok write ${storageKey}`);
+    return false;
+  }
+
+  try {
+    const stored = USE_SECURE_STORE
+      ? await SecureStore.getItemAsync(storageKey)
+      : await AsyncStorage.getItem(storageKey);
+    if (stored === value) {
+      return true;
+    }
+    recordError(
+      new Error(`Secure storage kept a different value for ${storageKey}`),
+      'byok verify',
+    );
+    return false;
+  } catch (error) {
+    recordError(error, `byok verify ${storageKey}`);
+    return false;
   }
 }
 
@@ -227,49 +251,73 @@ async function _migrateByokKey(storageKey) {
   }
 }
 
-async function _loadByokKey(storageKey, setter) {
+async function _loadByokKey(storageKey, getCached, setCached) {
   await _migrateByokKey(storageKey);
   const value = await _readByokKey(storageKey);
-  setter(value || '');
-  return value || '';
+  // A save that landed while this read was in flight must win: never replace
+  // a key the owner just typed with the older value this read started with.
+  if (!getCached()) {
+    setCached(value || '');
+    return value || '';
+  }
+  return getCached();
 }
 
+// Returns { ok, saved }:
+//   ok    - the storage backend accepted the value (or the clear), confirmed
+//           by reading it back.
+//   saved - a key is now stored (false means it was cleared).
 async function _saveByokKey(storageKey, value, setter) {
   if (!value || value.trim() === '') {
     await _deleteByokKey(storageKey);
     setter('');
-  } else {
-    const trimmed = value.trim();
-    await _writeByokKey(storageKey, trimmed);
+    return { ok: true, saved: false };
+  }
+  const trimmed = value.trim();
+  const ok = await _writeByokKey(storageKey, trimmed);
+  if (ok) {
     setter(trimmed);
   }
+  return { ok, saved: ok };
 }
 
 export async function setGeminiKey(key) {
-  await _saveByokKey(GEMINI_KEY_STORE, key, (v) => { userGeminiKey = v; });
+  return _saveByokKey(GEMINI_KEY_STORE, key, (v) => { userGeminiKey = v; });
 }
 
 export async function getGeminiKey() {
   if (userGeminiKey !== null) return userGeminiKey;
-  return _loadByokKey(GEMINI_KEY_STORE, (v) => { userGeminiKey = v; });
+  return _loadByokKey(
+    GEMINI_KEY_STORE,
+    () => userGeminiKey,
+    (v) => { userGeminiKey = v; },
+  );
 }
 
 export async function setHfToken(token) {
-  await _saveByokKey(HF_TOKEN_STORE, token, (v) => { userHfToken = v; });
+  return _saveByokKey(HF_TOKEN_STORE, token, (v) => { userHfToken = v; });
 }
 
 export async function getHfToken() {
   if (userHfToken !== null) return userHfToken;
-  return _loadByokKey(HF_TOKEN_STORE, (v) => { userHfToken = v; });
+  return _loadByokKey(
+    HF_TOKEN_STORE,
+    () => userHfToken,
+    (v) => { userHfToken = v; },
+  );
 }
 
 export async function setReplicateToken(token) {
-  await _saveByokKey(REPLICATE_TOKEN_STORE, token, (v) => { userReplicateToken = v; });
+  return _saveByokKey(REPLICATE_TOKEN_STORE, token, (v) => { userReplicateToken = v; });
 }
 
 export async function getReplicateToken() {
   if (userReplicateToken !== null) return userReplicateToken;
-  return _loadByokKey(REPLICATE_TOKEN_STORE, (v) => { userReplicateToken = v; });
+  return _loadByokKey(
+    REPLICATE_TOKEN_STORE,
+    () => userReplicateToken,
+    (v) => { userReplicateToken = v; },
+  );
 }
 
 // Preload all BYOK keys on startup so the first request can attach them.

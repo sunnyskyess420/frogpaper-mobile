@@ -20,6 +20,10 @@
  *   5. Keys never appear in api.imageUrl() output, byokSnapshot reports
  *      the saved key as present (non-empty) without leaking the value.
  *   6. Whitespace is trimmed when saving, matching the access-key path.
+ *   7. A save that the OS silently drops is reported as failed, never as
+ *      "saved" - Settings shows the truth instead of a lying alert.
+ *   8. A slow startup read cannot overwrite a key saved while it was still
+ *      in flight (the "I typed it, it vanished" race).
  *
  * Same ESM transpile + native-module stub trick as the other check scripts.
  */
@@ -54,12 +58,31 @@ const asyncStorageStub = {
   },
 };
 
+// Failure modes used by the "honest save" checks in section 7:
+//   'ok'    - normal
+//   'throw' - the OS refuses the write (Keystore error)
+//   'drop'  - the write reports success but nothing is stored
+let secureStoreMode = 'ok';
+// Milliseconds a read takes. The value is captured when the read *starts*,
+// so a slow read can be beaten by a save - that is the race in section 8.
+let secureStoreReadDelayMs = 0;
+
 const secureStoreStub = {
   __esModule: true,
   async getItemAsync(key) {
-    return secureStoreMap.has(key) ? secureStoreMap.get(key) : null;
+    const value = secureStoreMap.has(key) ? secureStoreMap.get(key) : null;
+    if (secureStoreReadDelayMs) {
+      await new Promise((resolve) => setTimeout(resolve, secureStoreReadDelayMs));
+    }
+    return value;
   },
   async setItemAsync(key, value) {
+    if (secureStoreMode === 'throw') {
+      throw new Error('android keystore refused the write');
+    }
+    if (secureStoreMode === 'drop') {
+      return;
+    }
     secureStoreMap.set(key, value);
   },
   async deleteItemAsync(key) {
@@ -283,6 +306,64 @@ async function main() {
         !url.includes('super-secret'),
       url
     );
+  }
+
+  // 7. A write the OS refuses (thrown or silently dropped) must be reported
+  // as a failure, and the in-memory key must not claim to be saved.
+  for (const mode of ['throw', 'drop']) {
+    asyncStorageMap.clear();
+    secureStoreMap.clear();
+    secureStoreMode = mode;
+    const api = freshApi();
+    let result;
+    try {
+      result = await api.setGeminiKey('key-the-phone-refuses');
+    } catch (error) {
+      result = { ok: 'threw', error };
+    }
+    check(
+      `honest save (${mode}): setGeminiKey reports ok=false`,
+      result && result.ok === false,
+      JSON.stringify(result)
+    );
+    check(
+      `honest save (${mode}): nothing is left in SecureStore`,
+      !secureStoreMap.has('@frogpaper_user_gemini_key') ||
+        secureStoreMap.get('@frogpaper_user_gemini_key') == null,
+      JSON.stringify(secureStoreMap.get('@frogpaper_user_gemini_key'))
+    );
+    check(
+      `honest save (${mode}): snapshot does not claim a saved key`,
+      api.getByokSnapshot().gemini === '',
+      JSON.stringify(api.getByokSnapshot())
+    );
+  }
+  secureStoreMode = 'ok';
+
+  // 8. A read that started before the save must not land afterwards and
+  // replace the freshly saved key with the old (empty) value.
+  asyncStorageMap.clear();
+  secureStoreMap.clear();
+  {
+    // The read takes 50 ms and the save lands in the middle of it, so the
+    // read resolves holding the pre-save (empty) value.
+    secureStoreReadDelayMs = 50;
+    const api = freshApi();
+    const inFlightRead = api.getGeminiKey();
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    await api.setGeminiKey('typed-while-loading-key');
+    await inFlightRead;
+    check(
+      'a slow startup read cannot wipe a key saved while it was in flight',
+      api.getByokSnapshot().gemini === 'typed-while-loading-key',
+      JSON.stringify(api.getByokSnapshot())
+    );
+    check(
+      'the saved key is still in SecureStore after that race',
+      secureStoreMap.get('@frogpaper_user_gemini_key') === 'typed-while-loading-key',
+      JSON.stringify(secureStoreMap.get('@frogpaper_user_gemini_key'))
+    );
+    secureStoreReadDelayMs = 0;
   }
 
   console.log(`\n${passes} passed, ${failures} failed`);

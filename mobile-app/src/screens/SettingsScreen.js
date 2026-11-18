@@ -282,6 +282,9 @@ export default function SettingsScreen() {
     userReplicateToken: '',
     // BYOK status row: which keys are currently saved (true/false per provider).
     byokStatus: { gemini: false, huggingface: false, replicate: false },
+    // Last key-save result, shown in the card itself so "did that save?"
+    // never depends on catching a disappearing alert.
+    byokNotice: null,
     // Help modal visibility (opened from "How do I get API keys?" button).
     byokHelpVisible: false,
     sentryDsn: '',
@@ -293,6 +296,28 @@ export default function SettingsScreen() {
     testEventFeedback: '',
     testEventTime: null, byokHelpVisible: false,
   });
+
+  // Which BYOK field the owner has typed into since the last successful save.
+  // The three inputs hold drafts, not the stored values, so a refresh that
+  // lands while a key is being typed must never overwrite it.
+  const byokEdited = useRef({ gemini: false, huggingface: false, replicate: false });
+
+  // Applies a fresh settings snapshot but keeps any draft the owner is in the
+  // middle of typing. The backend probe in refresh() can take 10-70 s on a
+  // cold or unreachable server - long enough that the old code wiped a key
+  // out of the input box while it was being entered.
+  const applyRefreshedState = useCallback((next) => {
+    setState((prev) => ({
+      ...next,
+      userGeminiKey: byokEdited.current.gemini ? prev.userGeminiKey : next.userGeminiKey,
+      userHfToken: byokEdited.current.huggingface ? prev.userHfToken : next.userHfToken,
+      userReplicateToken: byokEdited.current.replicate
+        ? prev.userReplicateToken
+        : next.userReplicateToken,
+      // The notice describes the last save, not the connection check.
+      byokNotice: prev.byokNotice,
+    }));
+  }, []);
 
   const refresh = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
@@ -319,7 +344,7 @@ export default function SettingsScreen() {
       ]);
       const customUrl = await getCustomServerUrl();
       const byok = getByokSnapshot();
-      setState({
+      applyRefreshedState({
         loading: false,
         health,
         providers: providersResponse.providers || [],
@@ -352,7 +377,7 @@ export default function SettingsScreen() {
       const hfToken = await getHfToken();
       const replicateToken = await getReplicateToken();
       const byok = getByokSnapshot();
-      setState({
+      applyRefreshedState({
         loading: false,
         health: null,
         providers: [],
@@ -707,91 +732,153 @@ export default function SettingsScreen() {
   };
 
   // --- BYOK (Bring Your Own Key) handlers ---------------------------------
-  // Each provider has its own onChange / save / clear. Save persists the
-  // key to AsyncStorage (and the in-memory cache) so it gets attached to
-  // the next generate request. Clear wipes it from this device only.
+  // Each provider has its own onChange / save / clear. Save writes the key to
+  // the device keychain through api.setX() and only reports success when the
+  // value can be read back. Clear wipes it from this device only.
+
+  // Message shown under the key inputs when the phone refuses to store a key.
+  // Honest by design: the old code reported success even when the write failed.
+  const keyNotStoredNotice = (label) => ({
+    kind: 'error',
+    text: `${label} was not stored by this phone. Nothing was saved - try again, and check Settings > Diagnostics > error log if it keeps failing.`,
+  });
 
   const handleGeminiKeyChange = (text) => {
+    byokEdited.current.gemini = true;
     setState((prev) => ({ ...prev, userGeminiKey: text }));
   };
 
   const saveGeminiKey = async () => {
-    await setGeminiKey(state.userGeminiKey);
+    const result = await setGeminiKey(state.userGeminiKey);
     const byok = getByokSnapshot();
+    byokEdited.current.gemini = result.ok;
     setState((prev) => ({
       ...prev,
+      userGeminiKey: result.ok ? byok.gemini || '' : prev.userGeminiKey,
       byokStatus: { ...prev.byokStatus, gemini: !!byok.gemini },
+      byokNotice: result.ok
+        ? {
+            kind: byok.gemini ? 'ok' : 'info',
+            text: byok.gemini
+              ? 'Gemini key saved on this phone.'
+              : 'Gemini key cleared.',
+          }
+        : keyNotStoredNotice('The Gemini key'),
     }));
     Alert.alert(
-      'Gemini key saved',
-      byok.gemini
-        ? 'Your Gemini key is now used for every generate request that picks the Gemini provider.'
-        : 'Gemini key cleared. The next generate will fall back to the server default.',
+      result.ok
+        ? byok.gemini
+          ? 'Gemini key saved'
+          : 'Gemini key cleared'
+        : 'Gemini key not saved',
+      !result.ok
+        ? 'This phone would not store the key, so nothing was saved. Nothing was sent anywhere.'
+        : byok.gemini
+          ? 'Your Gemini key is now used for every generate request that picks the Gemini provider.'
+          : 'Gemini key cleared. The next generate will fall back to the server default.',
     );
   };
 
   const clearGeminiKey = async () => {
     await setGeminiKey('');
+    byokEdited.current.gemini = false;
     setState((prev) => ({
       ...prev,
       userGeminiKey: '',
       byokStatus: { ...prev.byokStatus, gemini: false },
+      byokNotice: { kind: 'info', text: 'Gemini key cleared.' },
     }));
   };
 
   const handleHfTokenChange = (text) => {
+    byokEdited.current.huggingface = true;
     setState((prev) => ({ ...prev, userHfToken: text }));
   };
 
   const saveHfToken = async () => {
-    await setHfToken(state.userHfToken);
+    const result = await setHfToken(state.userHfToken);
     const byok = getByokSnapshot();
+    byokEdited.current.huggingface = result.ok;
     setState((prev) => ({
       ...prev,
+      userHfToken: result.ok ? byok.huggingface || '' : prev.userHfToken,
       byokStatus: { ...prev.byokStatus, huggingface: !!byok.huggingface },
+      byokNotice: result.ok
+        ? {
+            kind: byok.huggingface ? 'ok' : 'info',
+            text: byok.huggingface
+              ? 'Hugging Face token saved on this phone.'
+              : 'Hugging Face token cleared.',
+          }
+        : keyNotStoredNotice('The Hugging Face token'),
     }));
     Alert.alert(
-      'Hugging Face token saved',
-      byok.huggingface
-        ? 'Your Hugging Face token is now used for every generate request that picks the Hugging Face provider.'
-        : 'Hugging Face token cleared. The next generate will fall back to the server default.',
+      result.ok
+        ? byok.huggingface
+          ? 'Hugging Face token saved'
+          : 'Hugging Face token cleared'
+        : 'Hugging Face token not saved',
+      !result.ok
+        ? 'This phone would not store the token, so nothing was saved. Nothing was sent anywhere.'
+        : byok.huggingface
+          ? 'Your Hugging Face token is now used for every generate request that picks the Hugging Face provider.'
+          : 'Hugging Face token cleared. The next generate will fall back to the server default.',
     );
   };
 
   const clearHfToken = async () => {
     await setHfToken('');
+    byokEdited.current.huggingface = false;
     setState((prev) => ({
       ...prev,
       userHfToken: '',
       byokStatus: { ...prev.byokStatus, huggingface: false },
+      byokNotice: { kind: 'info', text: 'Hugging Face token cleared.' },
     }));
   };
 
   const handleReplicateTokenChange = (text) => {
+    byokEdited.current.replicate = true;
     setState((prev) => ({ ...prev, userReplicateToken: text }));
   };
 
   const saveReplicateToken = async () => {
-    await setReplicateToken(state.userReplicateToken);
+    const result = await setReplicateToken(state.userReplicateToken);
     const byok = getByokSnapshot();
+    byokEdited.current.replicate = result.ok;
     setState((prev) => ({
       ...prev,
+      userReplicateToken: result.ok ? byok.replicate || '' : prev.userReplicateToken,
       byokStatus: { ...prev.byokStatus, replicate: !!byok.replicate },
+      byokNotice: result.ok
+        ? {
+            kind: byok.replicate ? 'ok' : 'info',
+            text: byok.replicate ? 'Replicate token saved on this phone.' : 'Replicate token cleared.',
+          }
+        : keyNotStoredNotice('The Replicate token'),
     }));
     Alert.alert(
-      'Replicate token saved',
-      byok.replicate
-        ? 'Your Replicate token is now used for every generate request that picks the Replicate provider.'
-        : 'Replicate token cleared. The next generate will fall back to the server default.',
+      result.ok
+        ? byok.replicate
+          ? 'Replicate token saved'
+          : 'Replicate token cleared'
+        : 'Replicate token not saved',
+      !result.ok
+        ? 'This phone would not store the token, so nothing was saved. Nothing was sent anywhere.'
+        : byok.replicate
+          ? 'Your Replicate token is now used for every generate request that picks the Replicate provider.'
+          : 'Replicate token cleared. The next generate will fall back to the server default.',
     );
   };
 
   const clearReplicateToken = async () => {
     await setReplicateToken('');
+    byokEdited.current.replicate = false;
     setState((prev) => ({
       ...prev,
       userReplicateToken: '',
       byokStatus: { ...prev.byokStatus, replicate: false },
+      byokNotice: { kind: 'info', text: 'Replicate token cleared.' },
     }));
   };
 
@@ -945,10 +1032,15 @@ export default function SettingsScreen() {
     );
   };
 
+  // keyboardShouldPersistTaps: without it, the first tap on "Save" after typing
+  // only dismisses the keyboard and the button never fires. Every other screen
+  // with a text input already sets it; Settings was the one that did not.
   return (
     <ScrollView
       style={styles.screen}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
     >
       <SettingsCard
         title="Connection"
@@ -1317,6 +1409,18 @@ export default function SettingsScreen() {
         <Pressable style={[styles.button, styles.buttonPrimary]} onPress={openByokHelp}>
           <Text style={styles.buttonTextPrimary}>How do I get API keys?</Text>
         </Pressable>
+
+        {state.byokNotice ? (
+          <Text
+            style={[
+              styles.keyNotice,
+              state.byokNotice.kind === 'error' && styles.keyNoticeError,
+              state.byokNotice.kind === 'ok' && styles.keyNoticeOk,
+            ]}
+          >
+            {state.byokNotice.text}
+          </Text>
+        ) : null}
 
         <Text style={styles.inputLabel}>Google Gemini key</Text>
         <TextInput
@@ -1770,6 +1874,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     padding: spacing.md,
     marginTop: spacing.sm,
+  },
+  keyNotice: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: spacing.sm,
+  },
+  keyNoticeOk: {
+    color: colors.accent,
+  },
+  keyNoticeError: {
+    color: colors.danger,
   },
   inputLabel: {
     color: colors.text,
