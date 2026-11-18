@@ -395,7 +395,15 @@ export default function HomeScreen() {
 
       <View style={[styles.statusCard, !online && styles.statusCardOffline]}>
         {checking ? (
-          <ActivityIndicator color={colors.accent} />
+          <>
+            <ActivityIndicator color={colors.accent} />
+            <View style={styles.statusTextWrap}>
+              <Text style={styles.statusText}>Waking the server...</Text>
+              <Text style={styles.statusDetail}>
+                The cloud backend can take up to a minute to answer after sitting idle.
+              </Text>
+            </View>
+          </>
         ) : (
           <>
             <View style={[styles.dot, online ? styles.dotOnline : styles.dotOffline]} />

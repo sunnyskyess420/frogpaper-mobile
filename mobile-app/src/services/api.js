@@ -445,22 +445,22 @@ export async function discoverBaseUrl(timeoutMs = 2500) {
     // The owner's own address, and the cloud backend, may be waking from sleep;
     // a LAN probe should stay quick.
     const isPatient = candidate === customServerUrl || candidate === CLOUD_SERVER_URL;
-    const timeout = isPatient ? Math.max(timeoutMs * 4, 10000) : timeoutMs;
+    const timeout = isPatient ? Math.max(timeoutMs * 12, 30000) : timeoutMs;
     const reachable = await probe(candidate, timeout);
     if (reachable) {
       baseUrl = candidate;
       return baseUrl;
     }
   }
-  // Cloud servers asleep on the free tier can take up to a minute to answer.
-  // If a custom URL is configured, give it one long patient retry before
-  // declaring the backend unreachable.
-  if (customServerUrl) {
-    const reachable = await probe(customServerUrl, 30000);
-    if (reachable) {
-      baseUrl = customServerUrl;
-      return baseUrl;
-    }
+  // A cloud host asleep on the free tier can take up to a minute to answer
+  // (Render cold starts measured at ~12-50 s). Retry the patient candidate once
+  // more before handing back the cloud URL anyway - a later request can still
+  // succeed once the instance is awake.
+  const patientUrl = customServerUrl || CLOUD_SERVER_URL;
+  const reachable = await probe(patientUrl, 30000);
+  if (reachable) {
+    baseUrl = patientUrl;
+    return baseUrl;
   }
   // Nothing answered. Hand back the cloud backend rather than the first
   // candidate: a retry against a real server is useful, a retry against
