@@ -41,4 +41,4 @@ picker - all still there.
 3. Install over an existing FrogPaper install - this build is signed with the
    same release key, so there is no need to uninstall first.
 
-APK SHA-256: `<fill in after signing>`
+APK SHA-256: `A93D3F5BD5AF9F9798FD1DD32BF859836A5A686FD56BC376E8009880FFE16483`
