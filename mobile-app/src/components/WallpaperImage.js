@@ -12,7 +12,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text } from 'react-native';
 import api from '../services/api';
 import { ensureCached, getCachedUri } from '../services/imageCache';
-import { colors, radii } from '../theme';
+import { colors, radii, themedStyles, useTheme } from '../theme';
 
 // Which source the image is showing right now. Kept in a ref (not state) so an
 // error callback always sees the current stage without re-subscribing.
@@ -32,6 +32,8 @@ export default function WallpaperImage({
   resizeMode = 'cover',
   ...imageProps
 }) {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  useTheme();
   const remoteUri = filename ? api.imageUrl(filename) : null;
   const [uri, setUri] = useState(null);
   const [dead, setDead] = useState(false);
@@ -126,7 +128,7 @@ export default function WallpaperImage({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   placeholder: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -139,4 +141,4 @@ const styles = StyleSheet.create({
     fontSize: 10,
     textAlign: 'center',
   },
-});
+}));

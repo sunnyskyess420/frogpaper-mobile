@@ -6,7 +6,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -52,7 +51,7 @@ import Constants from 'expo-constants';
 import { resetWelcome } from '../services/firstRun';
 import { RELEASES_URL, runningVersion } from '../services/updateCheck';
 import { refreshUpdateIfStale } from '../services/updateState';
-import { colors, EDITION_NAME, radii, spacing } from '../theme';
+import { colors, radii, spacing, themedStyles, useTheme } from '../theme';
 
 // One source of truth: app.json's version. The About summary used to be a
 // hardcoded string, which sat at 1.9.39 for several releases after the app had
@@ -167,6 +166,8 @@ function SettingsCard({ title, summary, summaryDotStyle, open, onPress, children
 }
 
 export default function SettingsScreen() {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  const { id: themeId, label: themeLabel, themes, setTheme } = useTheme();
   const insets = useSafeAreaInsets();
   // Kept separate from the big settings state object: the error log is
   // read-mostly and its failures must never disturb the rest of the screen.
@@ -675,10 +676,10 @@ export default function SettingsScreen() {
   // cards start collapsed so Settings reads at a glance.
   const [openCards, setOpenCards] = useState({
     connection: true,
+    appearance: false,
     wallpaper: false,
     offline: false,
     keys: false,
-    advanced: false,
     about: false,
   });
 
@@ -1071,6 +1072,51 @@ export default function SettingsScreen() {
             <Text style={styles.buttonText}>Re-test connection</Text>
           )}
         </Pressable>
+      </SettingsCard>
+
+      <SettingsCard
+        title="Appearance"
+        summary={`${themeLabel} theme`}
+        open={openCards.appearance}
+        onPress={() => toggleCard('appearance')}
+      >
+        <Text style={styles.hint}>
+          Pick the look for the whole app. It applies straight away and is remembered on this
+          phone.
+        </Text>
+        <View style={styles.themeChips}>
+          {themes.map((theme) => {
+            const active = theme.id === themeId;
+            return (
+              <Pressable
+                key={theme.id}
+                style={[styles.themeChip, active && styles.themeChipActive]}
+                onPress={() => setTheme(theme.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${theme.label} theme`}
+              >
+                {/* The swatch previews the OTHER theme, so it reads straight
+                    from that palette instead of the active `colors`. */}
+                <View
+                  style={[
+                    styles.themeSwatch,
+                    {
+                      backgroundColor: theme.palette.bg,
+                      borderColor: theme.palette.accent,
+                    },
+                  ]}
+                >
+                  <View style={[styles.themeSwatchDot, { backgroundColor: theme.palette.accent }]} />
+                </View>
+                <Text style={[styles.themeChipText, active && styles.themeChipTextActive]}>
+                  {theme.label}
+                </Text>
+                {active ? <Text style={styles.themeCheck}>✓</Text> : null}
+              </Pressable>
+            );
+          })}
+        </View>
       </SettingsCard>
 
       <SettingsCard
@@ -1541,7 +1587,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.aboutRow}>
           <Text style={styles.aboutKey}>App</Text>
-          <Text style={styles.aboutValue}>{`FrogPaper Mobile ${APP_VERSION}${EDITION_NAME ? ` · ${EDITION_NAME}` : ''}`}</Text>
+          <Text style={styles.aboutValue}>{`FrogPaper Mobile ${APP_VERSION} · ${themeLabel}`}</Text>
         </View>
 
 
@@ -1657,7 +1703,7 @@ function maskDsn(dsn) {
   return `${scheme}${visible}...${rest}`;
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -1771,6 +1817,55 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: 'monospace',
   },
+  themeChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  themeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.control,
+    borderColor: colors.controlBorder,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  // The selected chip is filled with the accent, which every palette keeps dark
+  // label-on-accent readable (see check-theme).
+  themeChipActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  themeSwatch: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  themeSwatchDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  themeChipText: {
+    color: colors.onControl,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  themeChipTextActive: {
+    color: colors.bg,
+  },
+  themeCheck: {
+    color: colors.bg,
+    fontSize: 13,
+    fontWeight: '800',
+  },
   hint: {
     color: colors.muted,
     fontSize: 13,
@@ -1811,7 +1906,7 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.xs,
   },
   buttonSecondaryText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     textAlign: 'center',
   },
   chipActive: {
@@ -1947,7 +2042,7 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   errorCard: {
-    backgroundColor: '#2A1520',
+    backgroundColor: colors.dangerBg,
     borderColor: colors.danger,
     borderWidth: 1,
     borderRadius: radii.md,
@@ -1958,4 +2053,4 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontSize: 14,
   },
-});
+}));

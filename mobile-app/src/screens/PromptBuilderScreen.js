@@ -1,5 +1,5 @@
 // Build - assemble a prompt from tap-to-choose lists and hand it to Generate.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -8,7 +8,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -16,13 +15,8 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  ATMOSPHERES,
-  LIGHTING,
   MODES,
-  MOODS,
   SETTING_SUGGESTIONS,
-  STYLES,
-  SUBJECTS,
 } from '../data/promptOptions';
 import { composeSelection, randomCombo } from '../services/promptComposer';
 import {
@@ -49,9 +43,17 @@ import {
   saveUserRecipe,
   toggleFavouriteRecipe,
 } from '../services/recipeStore';
-import { colors, radii, spacing } from '../theme';
+import {
+  clearSelection,
+  loadRecents,
+  loadSelection,
+  rememberRecentValue,
+  saveRecents,
+  saveSelection,
+} from '../services/builderMemory';
+import { colors, radii, spacing, themedStyles, useTheme } from '../theme';
 
-// The seven rows, in the order they read best as a sentence. The setting row has
+// The eight rows, in the order they read best as a sentence. The setting row has
 // no fixed list - it opens a text input with the suggestions as chips.
 const ROWS = [
   { key: 'mode', label: 'Mode', options: MODES },
@@ -63,6 +65,12 @@ const ROWS = [
   { key: 'mood', label: 'Mood', options: MOOD_OPTIONS },
   { key: 'atmosphere', label: 'Atmosphere', options: ATMOSPHERE_OPTIONS },
 ];
+
+// Long lists get a filter field above them; short ones (a mode's ten names, a
+// recipe's five) do not need one.
+const FILTER_THRESHOLD = 12;
+// How long "Undo" stays offered after Clear all.
+const UNDO_MS = 6000;
 
 const EMPTY_SELECTION = {
   mode: '',
@@ -92,6 +100,8 @@ function defaultRecipeName(prompt) {
 }
 
 export default function PromptBuilderScreen() {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  useTheme();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [selection, setSelection] = useState(EMPTY_SELECTION);
@@ -101,6 +111,17 @@ export default function PromptBuilderScreen() {
   // The sheet's "type your own" field - every row (and recipe slot) accepts a
   // typed value that is not in its list, like the desktop's editable dropdowns.
   const [customText, setCustomText] = useState('');
+  // The filter field above a long option list.
+  const [query, setQuery] = useState('');
+  // The last few values picked per row (and per recipe slot), from storage.
+  const [recents, setRecents] = useState({});
+  // A Clear all can be taken back for a few seconds.
+  const [undo, setUndo] = useState(null); // { selection, recipeValues } | null
+  // The saved selection has to land before this screen starts writing its own.
+  const hydrated = useRef(false);
+  // Kept in a ref as well, so leaving the screen can flush the newest value
+  // even while the debounce is still waiting.
+  const latestSelection = useRef(EMPTY_SELECTION);
   // Recipe mode. null means the normal seven rows; picking a recipe swaps the
   // rows and the preview for that recipe's slots and template. The normal
   // selection is left untouched, so leaving recipe mode restores it instead of
@@ -132,6 +153,54 @@ export default function PromptBuilderScreen() {
   useEffect(() => {
     refreshRecipeStore();
   }, [refreshRecipeStore]);
+
+  // Reopen on whatever was left half-built last visit. The write-back below
+  // waits for this, so the empty first render can never erase the store.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [saved, recentMap] = await Promise.all([loadSelection(), loadRecents()]);
+      if (cancelled) {
+        return;
+      }
+      setRecents(recentMap);
+      setSelection((current) => ({ ...current, ...saved }));
+      hydrated.current = true;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Typing a setting should not hit storage on every keystroke.
+  useEffect(() => {
+    latestSelection.current = selection;
+    if (!hydrated.current) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      saveSelection(selection);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [selection]);
+
+  // Closing the screen flushes whatever the debounce had not written yet.
+  useEffect(() => {
+    return () => {
+      if (hydrated.current) {
+        saveSelection(latestSelection.current);
+      }
+    };
+  }, []);
+
+  // The undo offer expires on its own; a second Clear all restarts it.
+  useEffect(() => {
+    if (!undo) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setUndo(null), UNDO_MS);
+    return () => clearTimeout(timer);
+  }, [undo]);
 
   // Built-in recipes first, then the owner's own.
   const allRecipes = [...RECIPES.map((item) => ({ ...item })), ...userRecipes];
@@ -176,6 +245,13 @@ export default function PromptBuilderScreen() {
   const setRecipeValue = (key, value) =>
     setRecipeValues((current) => ({ ...current, [key]: value }));
 
+  // Picking a value also files it under "Recent" for that row.
+  const remember = (key, value) => {
+    const next = rememberRecentValue(recents, key, value);
+    setRecents(next);
+    saveRecents(next);
+  };
+
   const clearValue = (key) => {
     setValue(key, '');
     setSheet(null);
@@ -204,7 +280,11 @@ export default function PromptBuilderScreen() {
         title: row.label,
         options: row.options,
         value: selection[row.key],
-        pick: (value) => setValue(row.key, value),
+        recentKey: `row:${row.key}`,
+        pick: (value) => {
+          setValue(row.key, value);
+          remember(`row:${row.key}`, value);
+        },
         clear: () => clearValue(row.key),
       };
     }
@@ -216,15 +296,27 @@ export default function PromptBuilderScreen() {
       title: slotLabel(sheet.key),
       options,
       value: recipeValues[sheet.key] || '',
-      pick: (value) => setRecipeValue(sheet.key, value),
+      recentKey: `slot:${sheet.key}`,
+      pick: (value) => {
+        setRecipeValue(sheet.key, value);
+        remember(`slot:${sheet.key}`, value);
+      },
       clear: () => clearRecipeValue(sheet.key),
     };
   })();
+
+  // Long lists can be narrowed by typing in the filter field.
+  const searchTerm = query.trim().toLowerCase();
+  const visibleOptions = activeSheet
+    ? activeSheet.options.filter((option) => option.toLowerCase().includes(searchTerm))
+    : [];
+  const recentValues = activeSheet ? recents[activeSheet.recentKey] || [] : [];
 
   // The custom field starts empty; if the row already holds a value that is not
   // in its list (something typed earlier), it starts as that value so it can be
   // edited in place.
   useEffect(() => {
+    setQuery('');
     if (!sheet) {
       setCustomText('');
       return;
@@ -254,10 +346,21 @@ export default function PromptBuilderScreen() {
   const rollAll = () => setRecipeValues(rollRecipe(recipe));
 
   const clearAll = () => {
+    setUndo({ selection, recipeValues });
     setSelection(EMPTY_SELECTION);
     setRecipeValues({});
     setSettingOpen(false);
     setSheet(null);
+    clearSelection();
+  };
+
+  const restoreCleared = () => {
+    if (!undo) {
+      return;
+    }
+    setSelection(undo.selection);
+    setRecipeValues(undo.recipeValues);
+    setUndo(null);
   };
 
   const chooseRecipe = (name) => {
@@ -292,6 +395,7 @@ export default function PromptBuilderScreen() {
             text: 'Switch',
             onPress: () => {
               useNormalBuilder();
+              setRecipeListOpen(true);
               setSaveName(defaultRecipeName(composed.prompt));
               setSaveDescription('');
               setSaveNote('');
@@ -341,6 +445,12 @@ export default function PromptBuilderScreen() {
           style: 'destructive',
           onPress: async () => {
             await deleteUserRecipe(name);
+            // Deleting the recipe being previewed must not leave the screen
+            // pointing at something that no longer exists.
+            if (sameName(name, recipeName)) {
+              setRecipeName(null);
+              setRecipeValues({});
+            }
             await refreshRecipeStore();
           },
         },
@@ -393,6 +503,26 @@ export default function PromptBuilderScreen() {
             : 'Tap a row to choose, or type your own value in the sheet. Anything left unset is simply left out of the prompt.'}
         </Text>
 
+        {/* Recipes sit above the rows because choosing one replaces the rows
+            with its slots. The row stays put in recipe mode, so there is always
+            one tap back to the list. */}
+        <Pressable
+          style={[styles.row, recipe && styles.rowActive]}
+          onPress={() => setRecipeListOpen(true)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: recipeListOpen }}
+        >
+          <Text style={styles.rowLabel}>Recipe</Text>
+          <View style={styles.rowValueWrap}>
+            <Text
+              style={[styles.rowValue, !recipe && styles.rowValueEmpty]}
+              numberOfLines={1}
+            >
+              {recipe ? recipe.name : 'None'}
+            </Text>
+            <Text style={styles.rowChevron}>▸</Text>
+          </View>
+        </Pressable>
 
         {recipe ? (
           <>
@@ -406,6 +536,7 @@ export default function PromptBuilderScreen() {
                   key={slot}
                   style={styles.row}
                   onPress={() => setSheet({ kind: 'slot', key: slot })}
+                  accessibilityRole="button"
                 >
                   <Text style={styles.rowLabel}>{slotLabel(slot)}</Text>
                   <View style={styles.rowValueWrap}>
@@ -430,6 +561,8 @@ export default function PromptBuilderScreen() {
               <Pressable
                 style={[styles.row, isOpen && styles.rowOpen]}
                 onPress={() => openRow(row)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isOpen }}
               >
                 <Text style={styles.rowLabel}>{row.label}</Text>
                 <View style={styles.rowValueWrap}>
@@ -528,6 +661,16 @@ export default function PromptBuilderScreen() {
             <Text style={styles.secondaryButtonText}>Clear all</Text>
           </Pressable>
         </View>
+
+        {/* Clear all is one tap, so it has to be one tap back. */}
+        {undo && (
+          <View style={styles.undoBar}>
+            <Text style={styles.undoText}>Cleared everything.</Text>
+            <Pressable style={styles.undoAction} onPress={restoreCleared} accessibilityRole="button">
+              <Text style={styles.undoActionText}>Undo</Text>
+            </Pressable>
+          </View>
+        )}
       </ScrollView>
 
       <Modal
@@ -536,73 +679,286 @@ export default function PromptBuilderScreen() {
         animationType="slide"
         onRequestClose={() => setSheet(null)}
       >
-        <Pressable style={styles.backdrop} onPress={() => setSheet(null)}>
-          {/* Stop taps inside the sheet from closing it. */}
-          <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]} onPress={() => {}}>
-            {activeSheet && (
-              <>
-                <Text style={styles.sheetTitle}>{activeSheet.title}</Text>
-                <View style={styles.customEntry}>
-                  <TextInput
-                    style={styles.customInput}
-                    value={customText}
-                    onChangeText={setCustomText}
-                    placeholder="Or type your own value…"
-                    placeholderTextColor={colors.muted}
-                    maxLength={80}
-                    returnKeyType="done"
-                    onSubmitEditing={submitCustom}
-                    blurOnSubmit={false}
-                  />
-                  <Pressable
-                    style={[styles.customUse, !customText.trim() && styles.customUseDisabled]}
-                    onPress={submitCustom}
-                    disabled={!customText.trim()}
-                  >
-                    <Text style={styles.customUseText}>Use</Text>
-                  </Pressable>
-                </View>
-                <FlatList
-                  data={activeSheet.options}
-                  keyExtractor={(item) => item}
-                  keyboardShouldPersistTaps="handled"
-                  ListHeaderComponent={
+        {/* The sheet is anchored to the bottom of its own window, so it needs its
+            own keyboard avoidance: the screen's KeyboardAvoidingView cannot reach
+            inside a Modal. Without this the custom field and the lower options
+            sit behind the keyboard on iOS. */}
+        <KeyboardAvoidingView
+          style={styles.modalRoot}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <Pressable style={styles.backdrop} onPress={() => setSheet(null)}>
+            {/* Stop taps inside the sheet from closing it. */}
+            <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]} onPress={() => {}}>
+              {activeSheet && (
+                <>
+                  <Text style={styles.sheetTitle}>{activeSheet.title}</Text>
+                  <View style={styles.customEntry}>
+                    <TextInput
+                      style={styles.customInput}
+                      value={customText}
+                      onChangeText={setCustomText}
+                      placeholder="Or type your own value…"
+                      placeholderTextColor={colors.muted}
+                      maxLength={80}
+                      returnKeyType="done"
+                      onSubmitEditing={submitCustom}
+                      blurOnSubmit={false}
+                    />
                     <Pressable
-                      style={styles.clearEntry}
-                      onPress={() => activeSheet.clear()}
+                      style={[styles.customUse, !customText.trim() && styles.customUseDisabled]}
+                      onPress={submitCustom}
+                      disabled={!customText.trim()}
                     >
-                      <Text style={styles.clearEntryText}>Clear this choice</Text>
+                      <Text style={styles.customUseText}>Use</Text>
                     </Pressable>
-                  }
-                  renderItem={({ item }) => {
-                    const selected = activeSheet.value === item;
-                    return (
-                      <Pressable
-                        style={[styles.optionRow, selected && styles.optionRowActive]}
-                        onPress={() => {
-                          activeSheet.pick(item);
-                          setSheet(null);
-                        }}
-                      >
-                        <Text style={[styles.optionText, selected && styles.optionTextActive]}>
-                          {item}
-                        </Text>
-                        {selected && <Text style={styles.optionCheck}>✓</Text>}
-                      </Pressable>
-                    );
-                  }}
-                />
-              </>
-            )}
+                  </View>
+                  {activeSheet.options.length >= FILTER_THRESHOLD ? (
+                    <View style={styles.customEntry}>
+                      <TextInput
+                        style={styles.customInput}
+                        value={query}
+                        onChangeText={setQuery}
+                        placeholder={`Filter ${activeSheet.title.toLowerCase()} options…`}
+                        placeholderTextColor={colors.muted}
+                        autoCorrect={false}
+                        autoCapitalize="none"
+                      />
+                    </View>
+                  ) : null}
+                  <FlatList
+                    data={visibleOptions}
+                    keyExtractor={(item) => item}
+                    keyboardShouldPersistTaps="handled"
+                    // Dragging the list puts the keyboard away, so the options
+                    // underneath it can be reached without closing the sheet.
+                    keyboardDismissMode="on-drag"
+                    ListHeaderComponent={
+                      <View>
+                        {searchTerm === '' && recentValues.length > 0 ? (
+                          <View style={styles.recentBlock}>
+                            <Text style={styles.recentLabel}>Recent</Text>
+                            <View style={styles.suggestionChips}>
+                              {recentValues.map((value) => (
+                                <Pressable
+                                  key={value}
+                                  style={styles.suggestionChip}
+                                  onPress={() => {
+                                    activeSheet.pick(value);
+                                    setSheet(null);
+                                  }}
+                                >
+                                  <Text style={styles.suggestionText}>{value}</Text>
+                                </Pressable>
+                              ))}
+                            </View>
+                          </View>
+                        ) : null}
+                        <Pressable
+                          style={styles.clearEntry}
+                          onPress={() => activeSheet.clear()}
+                        >
+                          <Text style={styles.clearEntryText}>Clear this choice</Text>
+                        </Pressable>
+                      </View>
+                    }
+                    ListEmptyComponent={
+                      <Text style={styles.recipeEmpty}>
+                        Nothing matches that filter. The field above still takes anything you
+                        type.
+                      </Text>
+                    }
+                    renderItem={({ item }) => {
+                      const selected = activeSheet.value === item;
+                      return (
+                        <Pressable
+                          style={[styles.optionRow, selected && styles.optionRowActive]}
+                          onPress={() => {
+                            activeSheet.pick(item);
+                            setSheet(null);
+                          }}
+                        >
+                          <Text style={[styles.optionText, selected && styles.optionTextActive]}>
+                            {item}
+                          </Text>
+                          {selected && <Text style={styles.optionCheck}>✓</Text>}
+                        </Pressable>
+                      );
+                    }}
+                  />
+                </>
+              )}
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* The recipe picker: starred recipes first, the save panel swaps in over
+          the list so nothing else has to move. */}
+      <Modal
+        visible={recipeListOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setRecipeListOpen(false);
+          setSaveOpen(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalRoot}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <Pressable
+            style={styles.backdrop}
+            onPress={() => {
+              setRecipeListOpen(false);
+              setSaveOpen(false);
+            }}
+          >
+            <Pressable
+              style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
+              onPress={() => {}}
+            >
+              <Text style={styles.sheetTitle}>Recipes</Text>
+              {saveOpen ? (
+                <View style={styles.savePanel}>
+                  <Text style={styles.saveLabel}>Name</Text>
+                  <TextInput
+                    style={styles.saveInput}
+                    value={saveName}
+                    onChangeText={setSaveName}
+                    placeholder="e.g. misty forest at dawn"
+                    placeholderTextColor={colors.muted}
+                    maxLength={60}
+                    autoFocus
+                  />
+                  <Text style={styles.saveLabel}>Description (optional)</Text>
+                  <TextInput
+                    style={styles.saveInput}
+                    value={saveDescription}
+                    onChangeText={setSaveDescription}
+                    placeholder="What this recipe is for"
+                    placeholderTextColor={colors.muted}
+                    maxLength={120}
+                  />
+                  {saveNote ? <Text style={styles.saveNote}>{saveNote}</Text> : null}
+                  <View style={styles.buttonRow}>
+                    <Pressable
+                      style={styles.secondaryButton}
+                      onPress={() => {
+                        setSaveOpen(false);
+                        setSaveNote('');
+                      }}
+                    >
+                      <Text style={styles.secondaryButtonText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.primaryButton,
+                        styles.saveButton,
+                        !saveName.trim() && styles.primaryButtonDisabled,
+                      ]}
+                      onPress={saveCurrentRecipe}
+                      disabled={!saveName.trim()}
+                    >
+                      <Text style={styles.primaryButtonText}>Save recipe</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.recipeIntro}>
+                    A recipe swaps the rows for its own slots and template. Star the ones you
+                    use most - they move to the top.
+                  </Text>
+                  <Pressable style={styles.optionRow} onPress={useNormalBuilder}>
+                    <Text style={[styles.optionText, !recipe && styles.optionTextActive]}>
+                      Use the normal builder
+                    </Text>
+                    {!recipe && <Text style={styles.optionCheck}>✓</Text>}
+                  </Pressable>
+                  <Pressable style={styles.optionRow} onPress={startSaveRecipe}>
+                    <Text style={styles.optionText}>Save what I have chosen…</Text>
+                  </Pressable>
+                  <FlatList
+                    data={displayOrder.map((index) => allRecipes[index])}
+                    keyExtractor={(item) => item.name}
+                    keyboardShouldPersistTaps="handled"
+                    ListEmptyComponent={
+                      <Text style={styles.recipeEmpty}>
+                        No recipes on this phone yet - save one from what you have chosen.
+                      </Text>
+                    }
+                    renderItem={({ item }) => {
+                      const active = recipe ? sameName(item.name, recipe.name) : false;
+                      const starred = favourites.some((name) => sameName(name, item.name));
+                      const mine = !RECIPES.some((entry) => sameName(entry.name, item.name));
+                      return (
+                        <View style={[styles.recipeRow, active && styles.recipeRowActive]}>
+                          <Pressable
+                            style={styles.recipeStar}
+                            onPress={() => starRecipe(item.name)}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              starred
+                                ? `Remove ${item.name} from favourites`
+                                : `Add ${item.name} to favourites`
+                            }
+                            accessibilityState={{ selected: starred }}
+                          >
+                            <Text
+                              style={[styles.recipeStarText, starred && styles.recipeStarTextOn]}
+                            >
+                              {starred ? '★' : '☆'}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            style={styles.recipeRowMain}
+                            onPress={() => chooseRecipe(item.name)}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: active }}
+                          >
+                            <Text
+                              style={[styles.rowLabel, active && styles.recipeRowNameActive]}
+                              numberOfLines={1}
+                            >
+                              {item.name}
+                            </Text>
+                            {item.description ? (
+                              <Text style={styles.recipeRowDescription} numberOfLines={2}>
+                                {item.description}
+                              </Text>
+                            ) : null}
+                            {mine ? <Text style={styles.recipeMine}>Yours</Text> : null}
+                          </Pressable>
+                          {mine && (
+                            <Pressable
+                              style={styles.recipeDelete}
+                              onPress={() => confirmDeleteRecipe(item.name)}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Delete ${item.name}`}
+                            >
+                              <Text style={styles.recipeDeleteText}>×</Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+                    }}
+                  />
+                </>
+              )}
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
     </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -695,7 +1051,7 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
   suggestionText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -742,9 +1098,30 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginBottom: spacing.sm,
   },
-  recipeRowText: {
-    flexShrink: 1,
-    marginRight: spacing.md,
+  // One recipe in the picker: star, name + description, and (for the owner's
+  // own recipes) a delete button.
+  recipeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  recipeRowActive: {
+    backgroundColor: colors.cardAlt,
+  },
+  recipeRowMain: {
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  recipeRowNameActive: {
+    color: colors.accent,
+  },
+  // Sits beside Cancel in the save panel, so it must not be full-bleed.
+  saveButton: {
+    flex: 1,
+    paddingVertical: 13,
   },
   recipeRowDescription: {
     color: colors.muted,
@@ -791,17 +1168,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryButtonText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 14,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  // Hosts the sheet inside the Modal's own window, so the sheet can lift above
+  // the keyboard (see the Modal above).
+  modalRoot: {
+    flex: 1,
   },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'flex-end',
-  },
-  sheet: {
+  },  sheet: {
     backgroundColor: colors.card,
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
@@ -848,6 +1229,49 @@ const styles = StyleSheet.create({
   customUseText: {
     color: colors.bg,
     fontSize: 15,
+    fontWeight: '800',
+  },
+  // "Recent" chips at the top of a sheet, above the clear entry.
+  recentBlock: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  recentLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: spacing.xs,
+  },
+  // The Clear all undo offer, right under the buttons it reverses.
+  undoBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.noticeBg,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    marginTop: spacing.sm,
+  },
+  undoText: {
+    color: colors.text,
+    fontSize: 13,
+    flexShrink: 1,
+  },
+  undoAction: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+  },
+  undoActionText: {
+    color: colors.accent,
+    fontSize: 14,
     fontWeight: '800',
   },
   clearEntry: {
@@ -948,4 +1372,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-});
+}));

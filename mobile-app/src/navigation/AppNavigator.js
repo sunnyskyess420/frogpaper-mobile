@@ -22,7 +22,7 @@ import React from 'react';
 import { Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { colors } from '../theme';
+import { colors, useTheme } from '../theme';
 import GalleryScreen from '../screens/GalleryScreen';
 import GenerateScreen from '../screens/GenerateScreen';
 import DetailScreen from '../screens/DetailScreen';
@@ -35,13 +35,17 @@ import HistoryScreen from '../screens/HistoryScreen';
 // looks exactly like a Home header. colours.card is the header background,
 // colours.accent is the back arrow / tint, colours.bg is the body
 // background. headerShadowVisible: false keeps the original flat look.
-const SHARED_HEADER_OPTIONS = {
-  headerStyle: { backgroundColor: colors.card },
-  headerTintColor: colors.accent,
-  headerTitleStyle: { fontWeight: '700' },
-  contentStyle: { backgroundColor: colors.bg },
-  headerShadowVisible: false,
-};
+// Built per render rather than once at import, so the header/bodies follow the
+// active theme like the rest of the app.
+function headerOptions() {
+  return {
+    headerStyle: { backgroundColor: colors.card },
+    headerTintColor: colors.accent,
+    headerTitleStyle: { fontWeight: '700' },
+    contentStyle: { backgroundColor: colors.bg },
+    headerShadowVisible: false,
+  };
+}
 
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
@@ -66,11 +70,12 @@ function TabGlyph({ children, focused }) {
 }
 
 function TabsNavigator() {
+  useTheme();
   return (
     <Tabs.Navigator
       initialRouteName="Home"
       screenOptions={({ route }) => ({
-        ...SHARED_HEADER_OPTIONS,
+        ...headerOptions(),
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: {
@@ -126,10 +131,11 @@ function TabsNavigator() {
 }
 
 export default function AppNavigator() {
+  useTheme();
   return (
     <Stack.Navigator
       initialRouteName="Tabs"
-      screenOptions={SHARED_HEADER_OPTIONS}
+      screenOptions={headerOptions()}
     >
       {/* The tab bar itself has its own per-screen headers (see above), so
           the root stack's wrapper screen must not draw a second header on

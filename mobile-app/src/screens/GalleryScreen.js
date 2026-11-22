@@ -12,7 +12,6 @@ import {
   Modal,
   Pressable,
   RefreshControl,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -40,7 +39,7 @@ import { loadGalleryPrefs, saveGalleryPrefs } from '../services/galleryPrefs';
 import { hasSeenTip, markTipSeen } from '../services/coachTips';
 import { shuffleWallpaperOnce } from '../services/shuffle';
 import WallpaperImage from '../components/WallpaperImage';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, themedStyles, useTheme } from '../theme';
 
 const UNDO_MS = 5000;
 
@@ -77,6 +76,8 @@ const SORT_OPTIONS = [
 ];
 
 export default function GalleryScreen() {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  useTheme();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [images, setImages] = useState([]);
@@ -962,7 +963,7 @@ export default function GalleryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -1108,7 +1109,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   importButtonText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 15,
     fontWeight: '700',
     textAlign: 'center',
@@ -1173,7 +1174,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   starBadgeText: {
-    color: '#FFFFFF',
+    color: colors.onImage,
     fontSize: 16,
     lineHeight: 20,
   },
@@ -1232,12 +1233,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sheetRowText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 15,
     fontWeight: '700',
   },
   sheetRowTextDanger: {
-    color: '#FEE2E2',
+    color: colors.dangerText,
   },
   sheetCancel: {
     paddingVertical: 13,
@@ -1266,7 +1267,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   undoText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 14,
     flex: 1,
   },
@@ -1292,7 +1293,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   errorCard: {
-    backgroundColor: '#2A1520',
+    backgroundColor: colors.dangerBg,
     borderColor: colors.danger,
     borderWidth: 1,
   },
@@ -1325,7 +1326,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   tipButtonText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -1348,7 +1349,7 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
   toolChipText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1366,7 +1367,7 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: colors.onImage,
     backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1387,7 +1388,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   selectCount: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 14,
     fontWeight: '700',
     flex: 1,
@@ -1405,11 +1406,11 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   selectActionText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 14,
     fontWeight: '700',
   },
   selectActionDanger: {
-    color: '#FEE2E2',
+    color: colors.dangerText,
   },
-});
+}));

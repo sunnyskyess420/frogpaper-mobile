@@ -4,7 +4,7 @@
 // the owner would have seen on the card cannot drift from the Detail copy.
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, themedStyles, useTheme } from '../theme';
 import { PROVIDER_LABELS } from '../services/providerInfo';
 
 // The fallback notice echoes the provider id the user actually picked. The
@@ -17,6 +17,8 @@ export function providerFallbackText(providerId) {
 }
 
 export default function ProviderFallbackNotice({ providerId, style }) {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  useTheme();
   if (!providerId) {
     return null;
   }
@@ -27,7 +29,7 @@ export default function ProviderFallbackNotice({ providerId, style }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   card: {
     backgroundColor: colors.cardAlt,
     borderColor: colors.warn,
@@ -42,4 +44,4 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '600',
   },
-});
+}));

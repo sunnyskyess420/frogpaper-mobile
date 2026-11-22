@@ -17,7 +17,6 @@ import {
   PanResponder,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -34,7 +33,7 @@ import { providerFromFilename, providerLabel } from '../services/providerInfo';
 import { capabilities, setAsWallpaper } from '../services/deviceMedia';
 import { saveWallpaper } from '../services/saveTarget';
 import { shareWallpaper } from '../services/share';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, themedStyles, useTheme } from '../theme';
 
 function formatBytes(bytes) {
   if (bytes === undefined || bytes === null) {
@@ -83,6 +82,8 @@ function clamp(value, min, max) {
 }
 
 export default function DetailScreen() {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  useTheme();
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
@@ -906,7 +907,7 @@ export default function DetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -952,7 +953,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   positionText: {
-    color: '#fff',
+    color: colors.onImage,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -981,7 +982,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   viewerCloseText: {
-    color: '#FFFFFF',
+    color: colors.onImage,
     fontSize: 14,
     fontWeight: '700',
     textAlign: 'center',
@@ -991,7 +992,7 @@ const styles = StyleSheet.create({
     bottom: 40,
     left: 0,
     right: 0,
-    color: '#BBBBBB',
+    color: colors.onImageMuted,
     fontSize: 12,
     textAlign: 'center',
   },
@@ -1075,7 +1076,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   noticeCardError: {
-    backgroundColor: '#2A1520',
+    backgroundColor: colors.dangerBg,
     borderColor: colors.danger,
   },
   noticeText: {
@@ -1128,7 +1129,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   shareButtonText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 15,
     fontWeight: '700',
     textAlign: 'center',
@@ -1145,26 +1146,28 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   generateAgainButtonText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 15,
     fontWeight: '700',
     textAlign: 'center',
   },
   deleteButton: {
-    backgroundColor: '#7F1D1D',
+    backgroundColor: colors.dangerStrong,
     borderRadius: radii.md,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: spacing.lg,
   },
   deleteButtonText: {
-    color: '#FEE2E2',
+    // White in every palette (onImage), because this fill is always a dark red -
+    // the Daylight theme's dangerText is dark for light panels.
+    color: colors.onImage,
     fontSize: 15,
     fontWeight: '800',
     textAlign: 'center',
   },
   confirmCard: {
-    backgroundColor: '#2A1520',
+    backgroundColor: colors.dangerBg,
     borderColor: colors.danger,
     borderWidth: 1,
     borderRadius: radii.md,
@@ -1212,7 +1215,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   errorCard: {
-    backgroundColor: '#2A1520',
+    backgroundColor: colors.dangerBg,
     borderColor: colors.danger,
     borderWidth: 1,
     borderRadius: radii.md,
@@ -1233,7 +1236,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   starButtonText: {
-    color: '#FFFFFF',
+    color: colors.onImage,
     fontSize: 20,
     lineHeight: 24,
   },
@@ -1275,4 +1278,4 @@ const styles = StyleSheet.create({
   targetChipTextActive: {
     color: colors.accent,
   },
-});
+}));

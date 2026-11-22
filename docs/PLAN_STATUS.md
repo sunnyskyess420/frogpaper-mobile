@@ -5,7 +5,24 @@ the sandbox rebuild and live verification session, then again after the
 standalone APK build sessions (commits 7545e15 -> 44edaed -> 1ecfc78).
 Updated 2026-09-10 after cloud independence and generation UX hardening tasks.
 
-## Current status - 2026-09-13 - THIS SECTION SUPERSEDES THE SNAPSHOT BELOW
+## Current status - 2026-11-22 - THIS SECTION SUPERSEDES EVERYTHING BELOW
+
+App **1.14.0** / versionCode 56, backend 1.9.45. Since the 1.9.x snapshot below the
+app gained the audit/security work of 1.13.x (BYOK keys in secure storage, prompt
+redaction in logs, a per-device rate limit) and then **1.14.0**: five runtime themes
+incl. a light one, filter + Recent chips in every Build picker, undoable Clear all,
+a remembered Build selection, the Recipes picker wired up again, and screen-level
+check suites (`check:ui`, `check:screens`) so a screen can no longer ship with a
+piece of its JSX missing.
+
+Phase status is unchanged otherwise: the plan was written for a phone-only MVP and
+the app has outgrown it. Still missing on purpose or by cost: batch generation,
+style transfer, text overlay, background wallpaper rotation, store submission,
+and iOS.
+
+---
+
+## Previous snapshot - 2026-09-13
 
 Repo `C:\FrogPaperMobile` @ end of 2026-09-13 (app **1.9.39** / versionCode 29, backend 1.9.28).
 The app now also has a dropdown/recipe prompt builder, a phone-first gallery with SD import,

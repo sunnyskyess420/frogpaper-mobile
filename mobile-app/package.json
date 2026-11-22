@@ -1,6 +1,6 @@
 {
   "name": "mobile-app",
-  "version": "1.13.3",
+  "version": "1.14.0",
   "main": "index.js",
   "dependencies": {
     "@expo/metro-runtime": "~57.0.15",
@@ -38,6 +38,8 @@
     "check:offline": "node scripts/check-offline.js",
     "check:local-gallery": "node scripts/check-local-gallery.js",
     "check:builder": "node scripts/check-builder.js",
+    "check:ui": "node scripts/check-ui.js",
+    "check:screens": "node scripts/check-screens.js",
     "check:rotation": "node scripts/check-rotation.js",
     "check:engine": "node scripts/check-engine.js",
     "check:recipes": "node scripts/check-recipes.js",
@@ -57,6 +59,12 @@
     "xcode": {
       "uuid": "^11.1.1"
     }
+  },
+  "devDependencies": {
+    "@babel/core": "^7.28.4",
+    "@babel/plugin-transform-modules-commonjs": "^7.27.1",
+    "@babel/plugin-transform-react-jsx": "^7.27.1",
+    "react-test-renderer": "19.2.3"
   },
   "private": true
 }

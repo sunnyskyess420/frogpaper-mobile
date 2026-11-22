@@ -12,7 +12,7 @@ AI wallpaper studio for Android. Generate phone wallpapers from a text prompt or
 build them from dropdowns, keep them on the phone where they cannot be lost, and
 rotate them as your wallpaper.
 
-**Versions:** app **1.12.0** (versionCode 51) · backend **1.9.45**.
+**Versions:** app **1.14.0** (versionCode 56) · backend **1.9.45**.
 They move independently - the backend version changes when the API changes, the
 app version when the APK changes.
 
@@ -20,6 +20,33 @@ app version when the APK changes.
 · [landing page](https://sunnyskyess420.github.io/frogpaper-website/)
 
 ## What it does
+
+### New in 1.14.0
+
+- **Five themes, switched in Settings** - Appearance offers Halloween, frog
+  green, Tide (deep sea blue), Blossom (plum and pink) and **Daylight**, a
+  proper light theme for bright rooms. The choice applies on the spot, reaches
+  every screen including headers and modals, and is remembered on the phone.
+  Screens now build their styles through `themedStyles()`, so no screen can pin
+  one palette, and raw hex colours are gone from screens, components and the
+  navigator.
+- **Filter and Recents in every picker** - lists of 12+ options get a filter
+  field, and the last five values you picked for a row come back as tappable
+  chips at the top of its sheet.
+- **Clear all is undoable** - six seconds to take it back, right under the
+  buttons.
+- **Build remembers your choices** - a half-built prompt survives closing the
+  app, and the write is flushed when you leave the screen.
+- **Recipes are back on the Build screen** - the row, the picker (star, "Yours",
+  delete) and the save panel had shipped as unreachable code; they are wired up
+  again, so recipe slots are usable once more.
+- **History keeps the Avoid list** - "Make again" and "Edit" now carry the
+  entry's negative prompt to Generate, so a re-run comes back the same.
+- **Screen-level checks** - `npm run check:ui` mounts the Build screen and taps
+  through every dropdown, filter, recent, undo and recipe flow;
+  `npm run check:screens` mounts all seven screens plus the shared components and
+  drives Settings -> Appearance. Both are what would have caught the missing
+  recipe picker.
 
 ### New in 1.12.0
 
@@ -48,15 +75,14 @@ app version when the APK changes.
 
 ### New in 1.11.0 - Halloween Edition
 
-- **Halloween theme** - for this release the app wears its costume: pumpkin
+- **Halloween theme** - for that release the app wore its costume: pumpkin
   orange on a haunted purple night (buttons, notices, cards, every surface).
-  The frog-green look is one line away (`EDITION` in `src/theme.js`); the next
-  release flips it back.
+  It is now one of five themes you can pick in Settings -> Appearance.
 - **Full file name on the image screen** - the detail view shows the complete
   file name, wrapped and selectable; gallery captions wrap to two lines.
-- **Palette check** - `npm run check:theme` keeps both palettes
-  interchangeable: same tokens, same contrast thresholds, no brand colours
-  leaking into screens.
+- **Palette check** - `npm run check:theme` keeps the palettes
+  interchangeable (five today): same tokens, same contrast thresholds, no brand
+  colours leaking into screens.
 
 ### New in 1.10.0
 
@@ -85,12 +111,15 @@ app version when the APK changes.
   cancel button with elapsed timer, recent prompts, and a *Surprise me* dice with
   20 curated ideas. The primary action is pinned to the bottom of the screen, so
   it is always reachable.
-- **Build screen** - assemble a prompt from the desktop app's own lists:
-  10 **modes** (each with its real style/quality wording and its own negative
-  list), 16 subjects, 23 styles, 19 lighting, 19 moods, 10 atmospheres, a free-text
-  setting, **recipes** (templates with rollable variable slots) and **quick
-  negative presets**. A live preview shows the sentence as it forms; *Use this
-  prompt* hands the prompt (and the mode's negatives) to Generate.
+- **Build screen** - assemble a prompt from the desktop app's own lists, merged
+  with the desktop keyword bank: 10 **modes** (each with its real style/quality
+  wording and its own negative list), plus subjects, styles, lighting, colours,
+  moods and atmospheres (60 subjects, 39 lighting, 33 moods, 32 atmospheres),
+  a free-text setting, and **recipes** (templates with rollable variable slots).
+  Long lists carry a filter field, the last few picks come back as **Recent**
+  chips, and the selection is remembered next time the screen opens. A live
+  preview shows the sentence as it forms; *Use this prompt* hands the prompt
+  (and the mode's negatives) to Generate. *Clear all* can be undone.
 - **Engines** - Pollinations (free, no key), Google Gemini, Hugging Face, Replicate
   (paid). The last three use **your own** keys, stored on the phone only. Your
   engine choice is remembered across restarts; if a saved engine stops being
@@ -103,6 +132,10 @@ app version when the APK changes.
 - **When a generation finishes** the image opens full-screen by itself with
   *Set as wallpaper*, *Save to device* and *Generate again* (which re-runs the same
   prompt), plus Copy and Delete.
+- **Five themes** - Halloween, frog green, Tide, Blossom and Daylight (light),
+  switched in
+  Settings -> Appearance. The choice applies instantly across every screen and is
+  remembered on the phone.
 - **Wallpaper rotation** - one control: `Off` / `Every time I open` / `Once a day`,
   with the source `Surprise me` / `My favourites` / `Random from my gallery`.
   It only ever acts while the app is open, and a failed run backs off for 2 hours.
@@ -200,19 +233,31 @@ Settings -> Advanced.
 
 ## Tests
 
-Plain Python and Node scripts - no pytest, no test runner to install.
+Plain Python and Node scripts - no pytest, no test runner. Run `npm install`
+in `mobile-app/` first: the Node checks use Babel (and `check:ui` uses
+react-test-renderer) to load the app's ESM/JSX modules directly.
 
 | Command | What it covers |
 |---------|----------------|
 | `npm run check:local-gallery` (in `mobile-app/`) | phone gallery store, SD import bridge (36) |
+| `npm run check:recipelib` | saved recipes + favourites store (40) |
+| `npm run check:keywords` | keyword bank merge, caps, subject expansion (102) |
 | `npm run check:recipes` | recipes, variable slots, negative presets (117) |
 | `npm run check:builder` | prompt builder, modes, composition (92) |
+| `npm run check:ui` | mounts the Build screen: every dropdown, the filter, recents, undo, recipes, live theme switch (130) |
+| `npm run check:screens` | every screen mounts under the theme provider; Settings -> Appearance flow, all five themes (22) |
 | `npm run check:engine` | engine preference persistence + provider info labels & filename prefixes (64) |
 | `npm run check:rotation` | wallpaper rotation, cooldown retryAt, last-change record, legacy migration, saved engine (64) |
 | `npm run check:offline` | offline cache + generation queue (29) |
 | `npm run check:favorites` | starred pictures + remembered update answer (21) |
 | `npm run check:update` | version compare, offline / no-releases states, one-time update prompt decision (35) |
-| `npm run check:theme` | both palettes interchangeable, no brand colours leak (16) |
+| `npm run check:theme` | every palette: same tokens, same contrast, no raw colours (51) |
+| `npm run check:versions` | app.json / package.json agree; Gradle too when `android/` exists (5) |
+| `npm run check:navigation` | every screen is registered and reachable (19) |
+| `npm run check:welcome` | first-run flag, replay from Settings (19) |
+| `npm run check:errorlog` | error log cap, describe, clear (29) |
+| `npm run check:accesskey` | optional shared secret plumbing (23) |
+| `npm run check:byok` | BYOK keys via secure storage, web fallback, migration (30) |
 | `python backend/tests/test_filenames.py` | searchable filename slugs (17) |
 | `python backend/tests/test_subject_enhancer.py` | prompt building + frog variety (98) |
 | `python backend/tests/test_storage.py` | storage layer, routes, S3 via a fake bucket (131) |
@@ -222,14 +267,22 @@ Plain Python and Node scripts - no pytest, no test runner to install.
 The two provider/wallpaper scripts talk to the *running* server paths and need
 `backend/access_key.txt` moved aside temporarily (they do not send the key).
 
-## Verified (2026-10-18)
+## Verified for 1.14.0 (2026-11-22)
 
 | Check | Result |
 |-------|--------|
-| App checks (the `check:*` suites) | PASS - 15 suites, 693 checks (`check:sentry` still needs a Sentry DSN; `check:versions` needs a generated `android/` dir) |
+| App checks (the `check:*` suites) | PASS - 19 suites, 929 checks (`check:sentry` and `check:signing-config` also pass) |
+| Sentry checks | PASS with 2 warnings (no DSN configured, as intended) |
+| Web bundle compiles (`npx expo export --platform web`) | PASS - 1.2 MB bundle |
+| App runs in a browser (`npx expo start --web`) | PASS - all five themes switched by hand; Build dropdowns, filter, recents, undo, recipe picker used |
+| Release APK | **NOT RUN for 1.14.0** - build and sign before publishing (versionCode 56) |
+
+## Verified on the device (2026-10-18, 1.12.0)
+
+| Check | Result |
+|-------|--------|
 | Backend checks (offline) | PASS - subject enhancer 98 + filenames 17 |
 | Release APK builds and is release-key signed | PASS - 1.12.0 / versionCode 51 (`apksigner verify`) |
-| Web bundle compiles (`npx expo export --platform web`) | PASS |
 | Access key gate | PASS - `/api/gallery` 401 without the key, 200 with it |
 | Offline gallery + generation queue | PASS - verified in airplane mode on the device |
 | Phone gallery + SD import | PASS - imported 8 wallpapers from the owner's folder on the device |

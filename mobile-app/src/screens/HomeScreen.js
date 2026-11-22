@@ -8,7 +8,6 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -18,7 +17,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import api, { getBaseUrl } from '../services/api';
 import { loadRotation, runOnLaunch } from '../services/wallpaperRotation';
 import { describeQueueRun, listQueue, processQueue } from '../services/generationQueue';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, themedStyles, useTheme } from '../theme';
 import { getGallerySource, PHONE as PHONE_SOURCE } from '../services/gallerySource';
 import { localImageCount } from '../services/localGallery';
 import { readCachedUpdate, refreshUpdateIfStale } from '../services/updateState';
@@ -52,6 +51,8 @@ function retryAfterText(retryAt, prefix = 'Retrying after ') {
 }
 
 export default function HomeScreen() {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  useTheme();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState({ state: 'checking', info: null });
@@ -544,7 +545,7 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -762,4 +763,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
-});
+}));

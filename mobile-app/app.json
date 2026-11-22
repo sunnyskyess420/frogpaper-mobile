@@ -2,7 +2,7 @@
   "expo": {
     "name": "FrogPaper Mobile",
     "slug": "frogpaper-mobile",
-    "version": "1.13.3",
+    "version": "1.14.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -23,7 +23,7 @@
     },
     "android": {
       "package": "com.frogpaper.mobile",
-      "versionCode": 55,
+      "versionCode": 56,
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",

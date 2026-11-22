@@ -11,7 +11,7 @@
  */
 import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, themedStyles, useTheme } from '../theme';
 
 const STEPS = [
   {
@@ -46,6 +46,8 @@ const STEPS = [
 ];
 
 export default function WelcomeTutorial({ visible, onDone }) {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  useTheme();
   const [step, setStep] = useState(0);
   const last = step === STEPS.length - 1;
   const current = STEPS[step];
@@ -96,7 +98,7 @@ export default function WelcomeTutorial({ visible, onDone }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(4, 8, 16, 0.86)',
@@ -176,4 +178,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.md,
   },
-});
+}));

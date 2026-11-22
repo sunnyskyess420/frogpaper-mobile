@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 /**
- * check-theme.js - the palette switch (and the Halloween Edition) stays sane.
+ * check-theme.js - the app's themes stay sane and interchangeable.
  *
- * The app ships ONE visual theme per build - `EDITION` in src/theme.js picks
- * between the classic frog-green palette and the Halloween Edition pumpkin
- * palette. This suite keeps the two interchangeable and readable:
+ * The app ships four palettes (Halloween, classic frog green, Tide, Blossom) and
+ * Settings -> Appearance switches between them at runtime. This suite keeps them
+ * honest without importing the app:
  *
- *   1. EDITION points at a palette that exists (and is 'halloween' for this
- *      release - flip it back, and this check reminds you to flip it back).
- *   2. Both palettes define exactly the same token set, all as 6-digit hex.
- *   3. Key text/surface pairs keep sensible contrast in BOTH palettes.
- *   4. No raw brand hexes (the classic greens) leak into screens or
- *      components - palette colours only live in theme.js.
+ *   1. Every palette exists, defines the same token set, and every required
+ *      token is present (a screen that reads colors.x must never get undefined).
+ *   2. Key text/surface pairs keep sensible contrast in EVERY palette, including
+ *      the ones added later.
+ *   3. The theme registry points at real palettes, with unique ids and labels,
+ *      and the default theme is one of them.
+ *   4. No raw hex literals live in screens, components, navigation or App.js -
+ *      colours come from the palette - and no screen still calls
+ *      StyleSheet.create directly (that would freeze one theme's colours).
  *
  * Run with:  npm run check:theme
  */
@@ -36,7 +39,7 @@ function check(name, condition, detail) {
   }
 }
 
-/* ── tiny WCAG helpers ─────────────────────────────────────────────── */
+/* ── tiny WCAG helpers ────────────────────────────────────────────── */
 
 function channel(v) {
   const c = v / 255;
@@ -58,14 +61,15 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/* ── parse theme.js (text-level, no imports needed) ────────────────── */
+/* ── parse theme.js (text-level, no imports needed) ───────────────── */
 
 const REQUIRED = [
   'bg', 'card', 'cardAlt', 'border', 'text', 'muted',
   'accent', 'accentDim', 'danger', 'warn',
   'control', 'controlBorder', 'noticeBg',
+  'onControl', 'dangerBg', 'dangerText', 'dangerStrong',
+  'onImage', 'onImageMuted',
 ];
-
 function parsePalettes(src) {
   const out = {};
   const re = /const (\w+) = \{([\s\S]*?)\n\};/g;
@@ -84,89 +88,128 @@ function parsePalettes(src) {
   return out;
 }
 
+function parseRegistry(src) {
+  const entries = [];
+  const re = /\{\s*id:\s*'([^']+)',\s*label:\s*'([^']+)',\s*palette:\s*(\w+),\s*scheme:\s*'([^']+)'\s*\}/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    entries.push({ id: m[1], label: m[2], palette: m[3], scheme: m[4] });
+  }
+  return entries;
+}
+
+function jsFiles(rel) {
+  const p = path.join(ROOT, rel);
+  if (!fs.existsSync(p)) return [];
+  if (!fs.statSync(p).isDirectory()) return [p];
+  return fs
+    .readdirSync(p)
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => path.join(p, f));
+}
+
 function main() {
   console.log('theme');
 
-  const themePath = path.join(ROOT, 'src/theme.js');
-  const themeSrc = fs.readFileSync(themePath, 'utf8');
-
-  const edition = (themeSrc.match(/export const EDITION = '([^']+)'/) || [])[1];
+  const themeSrc = fs.readFileSync(path.join(ROOT, 'src/theme.js'), 'utf8');
   const palettes = parsePalettes(themeSrc);
+  const registry = parseRegistry(themeSrc);
 
+  // --- 1: structure -------------------------------------------------------
+  const names = Object.keys(palettes);
+  check('every palette is parsed', names.length >= 5, names.join(', '));
   check(
-    'EDITION is a known palette',
-    edition === 'classic' || edition === 'halloween',
-    String(edition)
-  );
-  check(
-    'this release ships the Halloween Edition',
-    edition === 'halloween',
-    `EDITION=${edition} (flip to 'classic' next release, and update this check)`
-  );
-
-  const names = Object.keys(palettes).sort();
-  check(
-    'both palettes are parsed',
-    names.length === 2,
-    names.join(', ')
+    'the registry lists every palette once',
+    registry.length === names.length && names.every((n) => registry.some((e) => e.palette === n)),
+    `registry=[${registry.map((e) => e.palette)}] palettes=[${names}]`
   );
 
-  const classic = palettes.classic || {};
-  const halloween = palettes.halloween || {};
-  const classicKeys = Object.keys(classic).sort();
-  const halloweenKeys = Object.keys(halloween).sort();
+  const ids = registry.map((e) => e.id);
+  check('theme ids are unique', new Set(ids).size === ids.length, ids.join(', '));
+  const labels = registry.map((e) => e.label);
+  check('theme labels are unique and non-empty', new Set(labels).size === labels.length && labels.every(Boolean), labels.join(', '));
+
+  const defaultId = (themeSrc.match(/export const DEFAULT_THEME = '([^']+)'/) || [])[1];
+  check('the default theme is one of the registry ids', ids.includes(defaultId), String(defaultId));
+
+  // Every theme must say whether it is light or dark, for the status bar and the
+  // navigator's base theme - and that claim has to match the palette it ships.
+  const missingScheme = registry.filter((entry) => entry.scheme !== 'light' && entry.scheme !== 'dark');
+  check('every theme declares light or dark', missingScheme.length === 0, missingScheme.map((e) => e.id).join(', '));
+
+  const mismatched = registry.filter((entry) => {
+    const bg = palettes[entry.palette] && palettes[entry.palette].bg;
+    if (!bg) return true;
+    const lightBg = luminance(bg) > 0.5;
+    return (entry.scheme === 'light') !== lightBg;
+  });
   check(
-    'both palettes define the same token set',
-    classicKeys.length > 0 && classicKeys.join(',') === halloweenKeys.join(','),
-    `classic=[${classicKeys}] halloween=[${halloweenKeys}]`
-  );
-  check(
-    'every required token exists in both palettes',
-    REQUIRED.every((k) => classic[k] && halloween[k]),
-    REQUIRED.filter((k) => !classic[k] || !halloween[k]).join(', ')
+    'each theme\'s scheme matches its background',
+    mismatched.length === 0,
+    mismatched.map((e) => `${e.id}:${e.scheme}`).join(', ')
   );
 
-  // Contrast pairs: the same five pairings must hold in whichever palette
-  // is active, because screens assume these roles.
+  const baseKeys = Object.keys(palettes[names[0]] || {}).sort();
+  let sameSet = true;
+  for (const name of names) {
+    if (Object.keys(palettes[name]).sort().join(',') !== baseKeys.join(',')) {
+      sameSet = false;
+      check(`${name}: defines the same token set`, false, Object.keys(palettes[name]).sort().join(','));
+    }
+  }
+  check('all palettes define the same token set', sameSet);
+
+  const missing = [];
+  for (const name of names) {
+    for (const key of REQUIRED) {
+      if (!palettes[name][key]) missing.push(`${name}.${key}`);
+    }
+  }
+  check('every required token exists in every palette', missing.length === 0, missing.join(', '));
+
+  // --- 2: contrast --------------------------------------------------------
+  // These are the roles screens assume. Each palette must satisfy them all, so
+  // a new theme cannot ship unreadable text.
   const PAIRS = [
     ['text', 'bg', 7.0, 'body text on the app background'],
     ['muted', 'card', 4.5, 'muted text on cards'],
     ['accent', 'bg', 3.0, 'accent (icons/titles) on background'],
     ['bg', 'accent', 4.5, 'dark label on accent-filled buttons'],
     ['danger', 'card', 4.5, 'danger text on cards'],
+    ['onControl', 'control', 4.5, 'label on a control-filled button'],
+    ['dangerText', 'dangerBg', 4.5, 'danger text on a danger panel'],
+    ['onImage', 'dangerStrong', 4.5, 'label on a filled delete button'],
   ];
 
-  for (const [pname, tokens] of Object.entries(palettes)) {
+  for (const name of names) {
+    const tokens = palettes[name];
     for (const [fg, bg, min, label] of PAIRS) {
       const ratio = contrast(tokens[fg], tokens[bg]);
       check(
-        `${pname}: ${label} ≥ ${min}:1`,
+        `${name}: ${label} \u2265 ${min}:1`,
         ratio >= min,
         `${tokens[fg]} on ${tokens[bg]} = ${ratio.toFixed(2)}:1`
       );
     }
   }
 
-  // Brand colours must not leak into screens/components.
-  const dirs = ['src/screens', 'src/components', 'App.js'];
+  // --- 3: no literals, no frozen stylesheets ------------------------------
+  const dirs = ['src/screens', 'src/components', 'src/navigation', 'App.js'];
   const leaks = [];
+  const frozen = [];
   for (const rel of dirs) {
-    const p = path.join(ROOT, rel);
-    if (!fs.existsSync(p)) continue;
-    const files = fs.statSync(p).isDirectory()
-      ? fs.readdirSync(p).filter((f) => f.endsWith('.js')).map((f) => path.join(p, f))
-      : [p];
-    for (const file of files) {
+    for (const file of jsFiles(rel)) {
       const text = fs.readFileSync(file, 'utf8');
-      if (/#34D399|#10B981/i.test(text)) {
-        leaks.push(path.relative(ROOT, file));
-      }
+      // A literal colour in a string is a colour the theme cannot change.
+      if (/'#[0-9A-Fa-f]{3,8}'/.test(text)) leaks.push(path.relative(ROOT, file));
+      if (/StyleSheet\.create\(/.test(text)) frozen.push(path.relative(ROOT, file));
     }
   }
+  check('no raw hex colours in screens/components/navigation/App', leaks.length === 0, leaks.join(', '));
   check(
-    'no classic brand hexes leak into screens/components',
-    leaks.length === 0,
-    leaks.join(', ')
+    'every stylesheet goes through themedStyles()',
+    frozen.length === 0,
+    frozen.join(', ')
   );
 
   console.log(`\n${passes} passed, ${failures} failed`);

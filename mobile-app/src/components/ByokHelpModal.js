@@ -13,12 +13,11 @@ import {
   Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, themedStyles, useTheme } from '../theme';
 
 // Each external link is a tappable Text that opens the device browser.
 function Link({ url, children }) {
@@ -43,6 +42,8 @@ function Link({ url, children }) {
 // help text behind. When omitted (the Settings screen itself), the sheet
 // keeps its original header - that screen is already where the keys live.
 export default function ByokHelpModal({ visible, onClose, onOpenSettings }) {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  useTheme();
   const insets = useSafeAreaInsets();
   return (
     <Modal
@@ -184,7 +185,7 @@ export default function ByokHelpModal({ visible, onClose, onOpenSettings }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   container: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -285,4 +286,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
-});
+}));

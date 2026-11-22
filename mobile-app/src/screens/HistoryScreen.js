@@ -11,7 +11,6 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -19,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import api, { isOfflineError } from '../services/api';
 import { listLocalImages } from '../services/localGallery';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, themedStyles, useTheme } from '../theme';
 
 function dedupeBy(list, keyOf) {
   const seen = new Set();
@@ -35,6 +34,8 @@ function dedupeBy(list, keyOf) {
 }
 
 export default function HistoryScreen() {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  useTheme();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState([]);
@@ -116,11 +117,15 @@ export default function HistoryScreen() {
   const makeAgain = (item) => {
     const nonce = Date.now();
     // History is on the root stack; Generate lives inside the tab navigator.
+    // The entry's own Avoid list travels with it - regenerating without it is
+    // how the same prompt quietly comes back different.
     navigation.navigate('Tabs', {
       screen: 'Generate',
       params: {
         builtPrompt: item.prompt,
         builtPromptNonce: nonce,
+        builtNegative: item.negative_prompt || '',
+        builtNegativeNonce: nonce,
         autoGenerate: true,
         autoGenerateNonce: nonce,
       },
@@ -128,11 +133,14 @@ export default function HistoryScreen() {
   };
 
   const editPrompt = (item) => {
+    const nonce = Date.now();
     navigation.navigate('Tabs', {
       screen: 'Generate',
       params: {
         builtPrompt: item.prompt,
-        builtPromptNonce: Date.now(),
+        builtPromptNonce: nonce,
+        builtNegative: item.negative_prompt || '',
+        builtNegativeNonce: nonce,
       },
     }, { pop: true });
   };
@@ -219,7 +227,7 @@ export default function HistoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -301,13 +309,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryButtonText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 14,
     fontWeight: '700',
     textAlign: 'center',
   },
   errorCard: {
-    backgroundColor: '#2A1520',
+    backgroundColor: colors.dangerBg,
     borderColor: colors.danger,
     borderWidth: 1,
     borderRadius: radii.md,
@@ -339,4 +347,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
   },
-});
+}));

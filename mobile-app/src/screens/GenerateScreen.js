@@ -6,7 +6,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -37,7 +36,7 @@ import NEGATIVE_PRESETS from '../data/negativePresets.json';
 import WallpaperImage from '../components/WallpaperImage';
 import ProviderFallbackNotice from '../components/ProviderFallbackNotice';
 import ByokHelpModal from '../components/ByokHelpModal';
-import { colors, radii, spacing } from '../theme';
+import { colors, radii, spacing, themedStyles, useTheme } from '../theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { IDEAS, FAVORITES_KEY } from '../services/promptLibrary';
 import { surprisePrompt } from '../services/promptComposer';
@@ -61,6 +60,8 @@ const QUICK_NEGATIVES = Array.isArray(NEGATIVE_PRESETS.presets) ? NEGATIVE_PRESE
 // the full-screen Detail view always word it the same way.
 
 export default function GenerateScreen() {
+  // Colours live in the themed styles below; this re-renders on a switch.
+  useTheme();
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
@@ -1020,7 +1021,7 @@ export default function GenerateScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => ({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -1068,7 +1069,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   buildRowText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -1343,7 +1344,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   moreToggleTitle: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -1410,7 +1411,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   errorCard: {
-    backgroundColor: '#2A1520',
+    backgroundColor: colors.dangerBg,
     borderColor: colors.danger,
     borderWidth: 1,
     borderRadius: radii.md,
@@ -1553,9 +1554,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   resultActionText: {
-    color: '#EAF7F1',
+    color: colors.onControl,
     fontSize: 14,
     fontWeight: '700',
     textAlign: 'center',
   },
-});
+}));
