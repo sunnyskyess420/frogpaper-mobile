@@ -89,6 +89,7 @@ import {
 } from '../services/localGallery';
 import { getThumbnailStats, clearThumbnails } from '../services/thumbnails';
 import ByokHelpModal from '../components/ByokHelpModal';
+import BuilderGuide from '../components/BuilderGuide';
 
 function formatMegabytes(bytes) {
   return `${((bytes || 0) / (1024 * 1024)).toFixed(1)} MB`;
@@ -168,6 +169,8 @@ function SettingsCard({ title, summary, summaryDotStyle, open, onPress, children
 export default function SettingsScreen() {
   // Colours live in the themed styles below; this re-renders on a switch.
   const { id: themeId, label: themeLabel, themes, setTheme } = useTheme();
+  // The Build-screen guide, opened from the Help card below.
+  const [guideVisible, setGuideVisible] = useState(false);
   const insets = useSafeAreaInsets();
   // Kept separate from the big settings state object: the error log is
   // read-mostly and its failures must never disturb the rest of the screen.
@@ -680,6 +683,7 @@ export default function SettingsScreen() {
     wallpaper: false,
     offline: false,
     keys: false,
+    help: false,
     about: false,
   });
 
@@ -1580,6 +1584,26 @@ export default function SettingsScreen() {
 
 
       <SettingsCard
+        title="Help"
+        summary="Prompt guide and AI keys"
+        open={openCards.help}
+        onPress={() => toggleCard('help')}
+      >
+        <Pressable
+          style={styles.helpRow}
+          onPress={() => setGuideVisible(true)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.helpRowText}>How to build a prompt</Text>
+          <Text style={styles.chevron}>{'\u25B8'}</Text>
+        </Pressable>
+        <Pressable style={styles.helpRow} onPress={openByokHelp} accessibilityRole="button">
+          <Text style={styles.helpRowText}>How do I get AI keys?</Text>
+          <Text style={styles.chevron}>{'\u25B8'}</Text>
+        </Pressable>
+      </SettingsCard>
+
+      <SettingsCard
         title="About & diagnostics"
         summary={`FrogPaper ${APP_VERSION}`}
         open={openCards.about}
@@ -1685,6 +1709,8 @@ export default function SettingsScreen() {
         visible={state.byokHelpVisible}
         onClose={closeByokHelp}
       />
+
+      <BuilderGuide visible={guideVisible} onClose={() => setGuideVisible(false)} />
     </ScrollView>
   );
 }
@@ -1865,6 +1891,19 @@ const styles = themedStyles(() => ({
     color: colors.bg,
     fontSize: 13,
     fontWeight: '800',
+  },
+  helpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  helpRowText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
   },
   hint: {
     color: colors.muted,

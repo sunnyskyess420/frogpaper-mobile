@@ -375,6 +375,42 @@ async function settingsTheme() {
   });
 }
 
+// --- Settings -> Help -> the Build guide -----------------------------------
+async function settingsHelp() {
+  const theme = require(path.join(ROOT, 'src/theme.js'));
+  const SettingsScreen = require(path.join(ROOT, 'src/screens/SettingsScreen.js')).default;
+
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(h(theme.ThemeProvider, null, h(SettingsScreen)));
+  });
+  await TestRenderer.act(async () => {});
+
+  const helpCard = all(renderer, 'Pressable').find(
+    (node) => typeof node.props.onPress === 'function' && textOf(node).includes('Help')
+  );
+  check('Help: the card is on Settings', helpCard !== null);
+  if (!helpCard) return;
+
+  await tap(helpCard);
+  const guideRow = all(renderer, 'Pressable').find((node) => textOf(node).includes('How to build a prompt'));
+  check('Help: offers the prompt guide', guideRow !== null);
+  if (!guideRow) return;
+
+  await tap(guideRow);
+  const guideText = textOf(renderer.toJSON());
+  check('Help: the guide opens', guideText.includes('The rows, top to bottom'));
+  check('Help: it names every row', ['Recipe', 'Subject', 'Setting', 'Style', 'Lighting', 'Colour', 'Mood', 'Atmosphere'].every((row) => guideText.includes(row)));
+  check('Help: it keeps the worked example', guideText.includes('A worked example') && guideText.includes('snowman'));
+
+  await tap(all(renderer, 'Pressable').find((node) => textOf(node).trim() === 'Close'));
+  check('Help: the guide closes', !textOf(renderer.toJSON()).includes('The rows, top to bottom'));
+
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+}
+
 async function run() {
   const screens = path.join(ROOT, 'src/screens');
   const components = path.join(ROOT, 'src/components');
@@ -406,6 +442,7 @@ async function run() {
   );
 
   await settingsTheme();
+  await settingsHelp();
 
   console.log(`\n${passes} passed, ${failures} failed`);
   process.exit(failures === 0 ? 0 : 1);
