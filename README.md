@@ -12,7 +12,7 @@ AI wallpaper studio for Android. Generate phone wallpapers from a text prompt or
 build them from dropdowns, keep them on the phone where they cannot be lost, and
 rotate them as your wallpaper.
 
-**Versions:** app **1.14.0** (versionCode 56) · backend **1.9.45**.
+**Versions:** app **1.14.1** (versionCode 57) · backend **1.9.45**.
 They move independently - the backend version changes when the API changes, the
 app version when the APK changes.
 
@@ -20,6 +20,15 @@ app version when the APK changes.
 · [landing page](https://sunnyskyess420.github.io/frogpaper-website/)
 
 ## What it does
+
+### New in 1.14.1
+
+- **The Build screen explains itself** - Settings -> Help now holds "How to build
+  a prompt": what each row wants (a thing, not a feeling; a place, not a format),
+  what the buttons do, four habits that make a prompt work, and the worked
+  example that turned "Christmas" into a dark forest. The same card links the
+  AI-keys help, so both answers live in one place. The text is kept in step with
+  `docs/PROMPT_BUILDER_TUTORIAL.md`.
 
 ### New in 1.14.0
 
@@ -245,7 +254,7 @@ react-test-renderer) to load the app's ESM/JSX modules directly.
 | `npm run check:recipes` | recipes, variable slots, negative presets (117) |
 | `npm run check:builder` | prompt builder, modes, composition (92) |
 | `npm run check:ui` | mounts the Build screen: every dropdown, the filter, recents, undo, recipes, live theme switch (130) |
-| `npm run check:screens` | every screen mounts under the theme provider; Settings -> Appearance flow, all five themes (22) |
+| `npm run check:screens` | every screen mounts under the theme provider; Settings -> Appearance and the Help guide (28) |
 | `npm run check:engine` | engine preference persistence + provider info labels & filename prefixes (64) |
 | `npm run check:rotation` | wallpaper rotation, cooldown retryAt, last-change record, legacy migration, saved engine (64) |
 | `npm run check:offline` | offline cache + generation queue (29) |
@@ -267,11 +276,11 @@ react-test-renderer) to load the app's ESM/JSX modules directly.
 The two provider/wallpaper scripts talk to the *running* server paths and need
 `backend/access_key.txt` moved aside temporarily (they do not send the key).
 
-## Verified for 1.14.0 (2026-11-22)
+## Verified for 1.14.1 (2026-11-22)
 
 | Check | Result |
 |-------|--------|
-| App checks (the `check:*` suites) | PASS - 19 suites, 929 checks (`check:sentry` and `check:signing-config` also pass) |
+| App checks (the `check:*` suites) | PASS - 19 suites, 938 checks (`check:sentry` and `check:signing-config` also pass) |
 | Sentry checks | PASS with 2 warnings (no DSN configured, as intended) |
 | Web bundle compiles (`npx expo export --platform web`) | PASS - 1.2 MB bundle |
 | App runs in a browser (`npx expo start --web`) | PASS - all five themes switched by hand; Build dropdowns, filter, recents, undo, recipe picker used |

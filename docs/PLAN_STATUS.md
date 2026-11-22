@@ -7,12 +7,12 @@ Updated 2026-09-10 after cloud independence and generation UX hardening tasks.
 
 ## Current status - 2026-11-22 - THIS SECTION SUPERSEDES EVERYTHING BELOW
 
-App **1.14.0** / versionCode 56, backend 1.9.45. Since the 1.9.x snapshot below the
+App **1.14.1** / versionCode 57, backend 1.9.45. Since the 1.9.x snapshot below the
 app gained the audit/security work of 1.13.x (BYOK keys in secure storage, prompt
 redaction in logs, a per-device rate limit) and then **1.14.0**: five runtime themes
 incl. a light one, filter + Recent chips in every Build picker, undoable Clear all,
-a remembered Build selection, the Recipes picker wired up again, and screen-level
-check suites (`check:ui`, `check:screens`) so a screen can no longer ship with a
+a remembered Build selection, the Recipes picker wired up again, an in-app prompt
+guide under Settings -> Help (1.14.1), and screen-level check suites (`check:ui`, `check:screens`) so a screen can no longer ship with a
 piece of its JSX missing.
 
 Phase status is unchanged otherwise: the plan was written for a phone-only MVP and
